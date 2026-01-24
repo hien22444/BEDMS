@@ -1,20 +1,23 @@
-const { User } = require("../models");
+const { User } = require('../models');
 
 const getAllUsers = async () => {
   const users = await User.find();
-
   return users;
 };
 
 const deleteUser = async (id) => {
-  const user = await User.findById(id).populate({ path: "totalOrder" });
+  const user = await User.findById(id).populate({ path: 'totalOrder' });
 
   if (!user) {
-    throw new Error("User not found");
+    const error = new Error('User not found');
+    error.statusCode = 404;
+    throw error;
   }
 
-  if (!!user.totalOrder) {
-    throw new Error("Cannot delete users with existing orders");
+  if (user.totalOrder && user.totalOrder > 0) {
+    const error = new Error('Cannot delete users with existing orders');
+    error.statusCode = 400;
+    throw error;
   }
 
   await user.deleteOne({

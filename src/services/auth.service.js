@@ -1,9 +1,9 @@
-const jwt = require("jsonwebtoken");
-const { User } = require("../models");
+const jwt = require('jsonwebtoken');
+const { User } = require('../models');
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: "30d",
+    expiresIn: process.env.JWT_EXPIRE || '30d',
   });
 };
 
@@ -11,17 +11,23 @@ const login = async (body) => {
   const { username, password } = body;
 
   if (!username || !password) {
-    throw new Error("Username and password are required");
+    const error = new Error('Username and password are required');
+    error.statusCode = 400;
+    throw error;
   }
 
   const user = await User.findOne({ username });
   if (!user) {
-    throw new Error("User not found");
+    const error = new Error('Invalid credentials');
+    error.statusCode = 401;
+    throw error;
   }
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
-    throw new Error("Invalid credentials");
+    const error = new Error('Invalid credentials');
+    error.statusCode = 401;
+    throw error;
   }
 
   const token = generateToken(user._id);
@@ -36,12 +42,22 @@ const register = async (body) => {
   const { username, password } = body;
 
   if (!username || !password) {
-    throw new Error("Username and password are required");
+    const error = new Error('Username and password are required');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (password.length < 6) {
+    const error = new Error('Password must be at least 6 characters');
+    error.statusCode = 400;
+    throw error;
   }
 
   const existingUser = await User.findOne({ username });
   if (existingUser) {
-    throw new Error("User already exists");
+    const error = new Error('User already exists');
+    error.statusCode = 409;
+    throw error;
   }
 
   const user = await User.create({ username, password });
