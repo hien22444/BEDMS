@@ -50,10 +50,10 @@ const login = async (body) => {
     throw new Error("Email không hợp lệ");
   }
 
-  // Find user by email
+  // Find user by email (user MUST be pre-imported from Excel)
   const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
-    throw new Error("Tài khoản không tồn tại");
+    throw new Error("Tài khoản chưa được cấp phép. Vui lòng liên hệ Ban quản lý KTX.");
   }
 
   // Check if user is active
@@ -99,8 +99,9 @@ const login = async (body) => {
 };
 
 /**
- * Register new user (Admin only - for creating staff accounts)
- * For students, use studentService.createStudent()
+ * Register new user (Admin only - for creating accounts via API)
+ * NOTE: This should ONLY be called by admin users
+ * Normal users must be imported from Excel - NO self-registration allowed
  * @param {Object} body - { email, password, role }
  * @returns {Object} { token, user }
  */

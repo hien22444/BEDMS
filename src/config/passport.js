@@ -1,8 +1,10 @@
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
-const { User, Student } = require("../models");
+const { User, Student, Staff } = require("../models");
 
 // Google OAuth Strategy
+// Rule: User MUST be pre-registered (imported from Excel) before login
+// No self-registration allowed
 passport.use(
   new GoogleStrategy(
     {
@@ -15,46 +17,46 @@ passport.use(
       try {
         const email = profile.emails[0].value.toLowerCase();
 
-        // Validate FPT email domain
-        if (!email.endsWith("@fpt.edu.vn")) {
+        // Check if user exists in DB (MUST be pre-imported from Excel)
+        const user = await User.findOne({ email });
+
+        if (!user) {
+          // User not found -> NOT ALLOWED to self-register
           return done(null, false, {
-            message: "Chỉ chấp nhận email @fpt.edu.vn",
+            message: "Tài khoản chưa được cấp phép. Vui lòng liên hệ Ban quản lý KTX.",
           });
         }
 
-        // Check if user exists
-        let user = await User.findOne({ email });
-
-        if (user) {
-          // User exists, update google_id if not set
-          if (!user.google_id) {
-            user.google_id = profile.id;
-            await user.save();
-          }
-          user.last_login = new Date();
-          await user.save();
-        } else {
-          // Create new user from Google profile
-          const fullName = profile.displayName || `${profile.name.givenName} ${profile.name.familyName}`;
-
-          user = new User({
-            email: email,
-            fullname: fullName,
-            role: "student",
-            google_id: profile.id,
-            is_active: true,
-            last_login: new Date(),
+        // Check if user is active
+        if (!user.is_active) {
+          return done(null, false, {
+            message: "Tài khoản đã bị khóa. Vui lòng liên hệ Ban quản lý KTX.",
           });
-          await user.save();
-
-          // Note: Student profile NOT created here
-          // User must complete profile after first login
         }
 
-        // Try to get student profile (may be null for new OAuth users)
-        const studentProfile = await Student.findOne({ user: user._id });
+        // Link Google ID if not set (first time Google login)
+        if (!user.google_id) {
+          user.google_id = profile.id;
+        }
 
-        return done(null, { user, profile: studentProfile });
+        // Update fullname from Google profile if empty
+        if (!user.fullname && profile.displayName) {
+          user.fullname = profile.displayName;
+        }
+
+        // Update last login
+        user.last_login = new Date();
+        await user.save();
+
+        // Get profile based on role
+        let userProfile = null;
+        if (user.role === "student") {
+          userProfile = await Student.findOne({ user: user._id });
+        } else if (["manager", "security"].includes(user.role)) {
+          userProfile = await Staff.findOne({ user: user._id });
+        }
+
+        return done(null, { user, profile: userProfile });
       } catch (error) {
         return done(error, null);
       }
