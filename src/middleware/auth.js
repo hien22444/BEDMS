@@ -1,40 +1,65 @@
-const jwt = require("jsonwebtoken");
-const { User } = require("../models");
-const { default: status } = require("http-status");
+const jwt = require('jsonwebtoken');
+const { User } = require('../models');
+const httpStatus = require('http-status');
 
-const auth = async (req, res, next) => {
+/**
+ * Middleware to authenticate JWT token
+ */
+const authenticate = async (req, res, next) => {
   try {
-    let token;
-
-    // Check Authorization header first
-    if (
-      req.headers.authorization &&
-      req.headers.authorization.startsWith("Bearer")
-    ) {
-      token = req.headers.authorization.split(" ")[1];
+    // Get token from header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Không tìm thấy token xác thực',
+      });
     }
 
-    // Fallback to cookie
-    if (!token && req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-    }
+    const token = authHeader.split(' ')[1];
 
-    if (!token) {
-      throw new Error("Not authorized, no token provided");
-    }
-
+    // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // Check if user exists
     const user = await User.findById(decoded.id);
-
     if (!user) {
-      throw new Error("Not authorized, user not found");
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Token không hợp lệ - User không tồn tại',
+      });
     }
 
-    req.user = user;
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Tài khoản đã bị khóa',
+      });
+    }
+
+    // Attach user to request
+    req.user = {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+    };
+
     next();
   } catch (error) {
-    res.status(status.UNAUTHORIZED).json({
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Token không hợp lệ',
+      });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Token đã hết hạn',
+      });
+    }
+    return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
       success: false,
       statusCode: status.UNAUTHORIZED,
       message: error.message,
@@ -42,4 +67,33 @@ const auth = async (req, res, next) => {
   }
 };
 
-module.exports = auth;
+/**
+ * Middleware to check user roles
+ * @param  {...string} roles - Allowed roles
+ */
+const authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Chưa xác thực',
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
+      return res.status(httpStatus.FORBIDDEN).json({
+        success: false,
+        message: 'Bạn không có quyền truy cập chức năng này',
+      });
+    }
+
+    next();
+  };
+};
+
+// Export both named and default for backward compatibility
+module.exports = {
+  authenticate,
+  authorize,
+};
+module.exports.default = authenticate;

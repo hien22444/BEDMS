@@ -12,7 +12,15 @@ const UserSchema = new mongoose.Schema(
     },
     password_hash: {
       type: String,
-      required: true,
+      required: false, // Not required for OAuth users
+    },
+    google_id: {
+      type: String,
+      default: null,
+    },
+    fullname: {
+      type: String,
+      default: null,
     },
     role: {
       type: String,
