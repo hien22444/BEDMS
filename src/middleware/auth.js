@@ -6,11 +6,17 @@ const auth = async (req, res, next) => {
   try {
     let token;
 
+    // Check Authorization header first
     if (
       req.headers.authorization &&
       req.headers.authorization.startsWith("Bearer")
     ) {
       token = req.headers.authorization.split(" ")[1];
+    }
+
+    // Fallback to cookie
+    if (!token && req.cookies && req.cookies.token) {
+      token = req.cookies.token;
     }
 
     if (!token) {
@@ -30,6 +36,7 @@ const auth = async (req, res, next) => {
   } catch (error) {
     res.status(status.UNAUTHORIZED).json({
       success: false,
+      statusCode: status.UNAUTHORIZED,
       message: error.message,
     });
   }
