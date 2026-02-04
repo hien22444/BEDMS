@@ -13,9 +13,6 @@ const DormSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
-    address: {
-      type: String,
-    },
     total_blocks: {
       type: Number,
       default: 0,
