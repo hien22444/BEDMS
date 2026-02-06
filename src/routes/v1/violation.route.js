@@ -1,32 +1,32 @@
 const express = require("express");
-const auth = require("../../middleware/auth");
+const { authenticate } = require("../../middleware/auth");
 const { violationController } = require("../../controllers");
 
 const router = express.Router();
 
 // Statistics endpoint (must be before /:id to avoid conflict)
-router.route("/statistics").get(auth, violationController.getViolationStatistics);
+router.route("/statistics").get(authenticate, violationController.getViolationStatistics);
 
 // Search student endpoint
-router.route("/search-student").get(auth, violationController.searchStudent);
+router.route("/search-student").get(authenticate, violationController.searchStudent);
 
 // Student penalties endpoint
 router
   .route("/student/:studentCode/penalties")
-  .get(auth, violationController.getStudentPenalties);
+  .get(authenticate, violationController.getStudentPenalties);
 
 // Main CRUD endpoints
 router
   .route("/")
-  .post(auth, violationController.createViolationReport)
-  .get(auth, violationController.getAllViolationReports);
+  .post(authenticate, violationController.createViolationReport)
+  .get(authenticate, violationController.getAllViolationReports);
 
 router
   .route("/:id")
-  .get(auth, violationController.getViolationReportById)
-  .delete(auth, violationController.deleteViolationReport);
+  .get(authenticate, violationController.getViolationReportById)
+  .delete(authenticate, violationController.deleteViolationReport);
 
 // Review endpoint
-router.route("/:id/review").put(auth, violationController.reviewViolationReport);
+router.route("/:id/review").put(authenticate, violationController.reviewViolationReport);
 
 module.exports = router;
