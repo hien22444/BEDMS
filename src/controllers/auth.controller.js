@@ -1,6 +1,6 @@
-const httpStatus = require("http-status");
-const { authService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const httpStatus = require('http-status');
+const { authService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 /**
  * Login user
@@ -55,13 +55,18 @@ const googleCallback = catchAsync(async (req, res) => {
   };
 
   // Redirect to frontend with token and user data
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const encodedUser = encodeURIComponent(JSON.stringify(userData));
   const encodedProfile = encodeURIComponent(JSON.stringify(profile));
 
   res.redirect(
     `${frontendUrl}/auth/google/callback?token=${token}&user=${encodedUser}&profile=${encodedProfile}`
   );
+});
+
+const logout = catchAsync(async (req, res) => {
+  res.clearCookie('token');
+  res.success({ message: 'Logged out successfully' }, status.OK);
 });
 
 module.exports = {
