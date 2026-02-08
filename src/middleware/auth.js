@@ -59,7 +59,13 @@ const authenticate = async (req, res, next) => {
         message: 'Token đã hết hạn',
       });
     }
-    return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+
+    const statusCode =
+      typeof httpStatus.INTERNAL_SERVER_ERROR === "number"
+        ? httpStatus.INTERNAL_SERVER_ERROR
+        : 500;
+
+    return res.status(statusCode).json({
       success: false,
       statusCode: status.UNAUTHORIZED,
       message: error.message,

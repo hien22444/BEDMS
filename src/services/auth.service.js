@@ -41,7 +41,45 @@ const isValidPassword = (password) => {
 const login = async (body) => {
   const { email, password } = body;
 
-  // Validation
+  // Special-case: built-in admin account (username: admin, password: admin)
+  if (email === "admin" && password === "admin") {
+    // Ensure there is a real User document to back this admin
+    const adminEmail = "admin@dorm.local";
+
+    let adminUser = await User.findOne({ email: adminEmail });
+    if (!adminUser) {
+      adminUser = await User.create({
+        email: adminEmail,
+        password_hash: password, // hashed by pre-save hook
+        role: "admin",
+        fullname: "System Admin",
+        is_active: true,
+      });
+    }
+
+    // Update last_login
+    adminUser.last_login = new Date();
+    await adminUser.save();
+
+    const token = generateToken({
+      id: adminUser._id,
+      role: adminUser.role,
+    });
+
+    return {
+      token,
+      user: {
+        id: adminUser._id,
+        email: adminUser.email,
+        role: adminUser.role,
+        is_active: adminUser.is_active,
+        last_login: adminUser.last_login,
+      },
+      profile: null,
+    };
+  }
+
+  // Normal login flow (email/password)
   if (!email || !password) {
     throw new Error("Email và mật khẩu là bắt buộc");
   }
@@ -50,28 +88,23 @@ const login = async (body) => {
     throw new Error("Email không hợp lệ");
   }
 
-  // Find user by email (user MUST be pre-imported from Excel)
   const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
     throw new Error("Tài khoản chưa được cấp phép. Vui lòng liên hệ Ban quản lý KTX.");
   }
 
-  // Check if user is active
   if (!user.is_active) {
     throw new Error("Tài khoản đã bị khóa. Vui lòng liên hệ Ban quản lý KTX");
   }
 
-  // Verify password
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
     throw new Error("Mật khẩu không chính xác");
   }
 
-  // Update last_login
   user.last_login = new Date();
   await user.save();
 
-  // Get profile based on role
   let profile = null;
   if (user.role === "student") {
     profile = await Student.findOne({ user: user._id });
@@ -79,7 +112,6 @@ const login = async (body) => {
     profile = await Staff.findOne({ user: user._id });
   }
 
-  // Generate token with role info
   const token = generateToken({
     id: user._id,
     role: user.role,
