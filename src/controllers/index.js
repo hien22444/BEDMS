@@ -3,3 +3,4 @@ module.exports.orderController = require("./order.controller");
 module.exports.userController = require("./user.controller");
 module.exports.dormController = require("./dorm.controller");
 module.exports.violationController = require("./violation.controller");
+module.exports.blockController = require("./block.controller");
