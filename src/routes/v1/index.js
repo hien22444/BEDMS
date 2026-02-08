@@ -25,6 +25,8 @@ const defaultRoutes = [
   {
     path: "/dorms",
     route: dormRoute,
+  },
+  {
     path: "/violations",
     route: violationRoute,
   },
