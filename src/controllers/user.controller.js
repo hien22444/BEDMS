@@ -14,7 +14,18 @@ const deleteUser = catchAsync(async (req, res) => {
   res.success("User Deleted", status.CREATED);
 });
 
+const importExcel = catchAsync(async (req, res) => {
+  if (!req.file) {
+    throw new Error("Vui lòng upload file Excel (.xlsx)");
+  }
+
+  const result = await userService.importFromExcel(req.file.buffer);
+
+  res.success(result, status.OK);
+});
+
 module.exports = {
   getAllUsers,
   deleteUser,
+  importExcel,
 };

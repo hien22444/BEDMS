@@ -10,7 +10,6 @@ const { User, Student } = require("../models");
 // User to add
 const userData = {
   email: "tunggod24@gmail.com",
-  password_hash: "Student@123",
   role: "student",
   fullname: "Tung Student",
   is_active: true,
