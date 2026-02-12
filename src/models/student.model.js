@@ -34,7 +34,8 @@ const StudentSchema = new mongoose.Schema(
     },
     citizen_id: {
       type: String,
-      required: true,
+      default: null,
+      sparse: true,
       unique: true,
     },
     permanent_address: {
