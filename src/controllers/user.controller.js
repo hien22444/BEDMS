@@ -3,7 +3,7 @@ const { userService } = require("../services");
 const catchAsync = require("../utils/catchAsync");
 
 const getAllUsers = catchAsync(async (req, res) => {
-  const data = await userService.getAllUsers();
+  const data = await userService.getAllUsers(req.query);
 
   res.success(data, status.OK);
 });
@@ -16,7 +16,7 @@ const deleteUser = catchAsync(async (req, res) => {
 
 const importExcel = catchAsync(async (req, res) => {
   if (!req.file) {
-    throw new Error("Vui lòng upload file Excel (.xlsx)");
+    throw new Error("Please upload an Excel file (.xlsx)");
   }
 
   const result = await userService.importFromExcel(req.file.buffer);
