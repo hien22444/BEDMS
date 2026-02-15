@@ -6,12 +6,15 @@ const { uploadExcel } = require("../../middleware/upload");
 
 const router = express.Router();
 
-router.route("/").get(authenticate, userController.getAllUsers);
+// Admin only — view all users
+router.route("/").get(authenticate, authorize("admin"), userController.getAllUsers);
 
+// Admin only — import users from Excel
 router
   .route("/import-excel")
   .post(authenticate, authorize("admin"), uploadExcel, userController.importExcel);
 
-router.route("/:id").delete(authenticate, userController.deleteUser);
+// Admin only — delete user
+router.route("/:id").delete(authenticate, authorize("admin"), userController.deleteUser);
 
 module.exports = router;

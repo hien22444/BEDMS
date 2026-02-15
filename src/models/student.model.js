@@ -21,22 +21,18 @@ const StudentSchema = new mongoose.Schema(
     },
     date_of_birth: {
       type: Date,
-      required: true,
     },
     gender: {
       type: String,
-      required: true,
       enum: ["male", "female", "other"],
     },
     phone: {
       type: String,
-      required: true,
     },
     citizen_id: {
       type: String,
-      default: null,
-      sparse: true,
       unique: true,
+      sparse: true,
     },
     permanent_address: {
       type: String,
