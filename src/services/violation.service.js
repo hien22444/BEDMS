@@ -1,5 +1,7 @@
 const { ViolationReport, Penalty, Student, Staff } = require("../models");
 
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * Generate unique report code
  */
@@ -269,7 +271,7 @@ const getStudentPenalties = async (studentCode) => {
  */
 const searchStudentByCode = async (studentCode) => {
   const student = await Student.findOne({
-    student_code: { $regex: studentCode, $options: "i" },
+    student_code: { $regex: escapeRegex(studentCode), $options: "i" },
   }).select("student_code full_name phone behavioral_score violations_current_semester");
 
   return student;

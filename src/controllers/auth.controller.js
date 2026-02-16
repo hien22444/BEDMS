@@ -37,11 +37,10 @@ const googleCallback = catchAsync(async (req, res) => {
   // User data comes from passport strategy
   const { user, profile } = req.user;
 
-  // Generate JWT token
-  const token = authService.generateToken({
-    id: user._id,
-    role: user.role,
-  });
+  // Generate JWT tokens
+  const tokenPayload = { id: user._id, role: user.role };
+  const token = authService.generateToken(tokenPayload);
+  const refreshTkn = authService.generateRefreshToken(tokenPayload);
 
   // Prepare user data for frontend
   const userData = {
@@ -60,13 +59,18 @@ const googleCallback = catchAsync(async (req, res) => {
   const encodedProfile = encodeURIComponent(JSON.stringify(profile));
 
   res.redirect(
-    `${frontendUrl}/auth/google/callback?token=${token}&user=${encodedUser}&profile=${encodedProfile}`
+    `${frontendUrl}/auth/google/callback?token=${token}&refreshToken=${refreshTkn}&user=${encodedUser}&profile=${encodedProfile}`
   );
 });
 
-const logout = catchAsync(async (req, res) => {
-  res.clearCookie('token');
-  res.success({ message: 'Logged out successfully' }, status.OK);
+/**
+ * Refresh access token
+ * POST /v1/auth/refresh-token
+ */
+const refreshToken = catchAsync(async (req, res) => {
+  const { refreshToken: token } = req.body;
+  const data = await authService.refreshAccessToken(token);
+  res.success(data, httpStatus.OK);
 });
 
 module.exports = {
@@ -74,4 +78,5 @@ module.exports = {
   register,
   getProfile,
   googleCallback,
+  refreshToken,
 };
