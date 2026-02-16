@@ -1,32 +1,35 @@
 const express = require("express");
-const { authenticate } = require("../../middleware/auth");
+const { authenticate, authorize } = require("../../middleware/auth");
 const { violationController } = require("../../controllers");
 
 const router = express.Router();
 
-// Statistics endpoint (must be before /:id to avoid conflict)
-router.route("/statistics").get(authenticate, violationController.getViolationStatistics);
+// Statistics — manager and security can view
+router.route("/statistics").get(authenticate, authorize("manager", "security"), violationController.getViolationStatistics);
 
-// Search student endpoint
-router.route("/search-student").get(authenticate, violationController.searchStudent);
+// Search student — manager and security can search
+router.route("/search-student").get(authenticate, authorize("manager", "security"), violationController.searchStudent);
 
-// Student penalties endpoint
+// Student penalties — manager and security can view
 router
   .route("/student/:studentCode/penalties")
-  .get(authenticate, violationController.getStudentPenalties);
+  .get(authenticate, authorize("manager", "security"), violationController.getStudentPenalties);
 
-// Main CRUD endpoints
+// Create violation — manager and security only
+// List violations — manager and security only
 router
   .route("/")
-  .post(authenticate, violationController.createViolationReport)
-  .get(authenticate, violationController.getAllViolationReports);
+  .post(authenticate, authorize("manager", "security"), violationController.createViolationReport)
+  .get(authenticate, authorize("manager", "security"), violationController.getAllViolationReports);
 
+// View single violation — manager and security
+// Delete violation — manager only
 router
   .route("/:id")
-  .get(authenticate, violationController.getViolationReportById)
-  .delete(authenticate, violationController.deleteViolationReport);
+  .get(authenticate, authorize("manager", "security"), violationController.getViolationReportById)
+  .delete(authenticate, authorize("manager"), violationController.deleteViolationReport);
 
-// Review endpoint
-router.route("/:id/review").put(authenticate, violationController.reviewViolationReport);
+// Review violation — manager only (approve/reject)
+router.route("/:id/review").put(authenticate, authorize("manager"), violationController.reviewViolationReport);
 
 module.exports = router;

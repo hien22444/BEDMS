@@ -2,13 +2,24 @@ const jwt = require("jsonwebtoken");
 const { User, Student, Staff } = require("../models");
 
 /**
- * Generate JWT token
+ * Generate access token (short-lived)
  * @param {Object} payload - Token payload
  * @returns {string} JWT token
  */
 const generateToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || "30d",
+    expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+  });
+};
+
+/**
+ * Generate refresh token (long-lived)
+ * @param {Object} payload - Token payload
+ * @returns {string} JWT refresh token
+ */
+const generateRefreshToken = (payload) => {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
   });
 };
 
@@ -36,7 +47,7 @@ const isValidPassword = (password) => {
 /**
  * Login user
  * @param {Object} body - { email, password }
- * @returns {Object} { token, user, profile }
+ * @returns {Object} { token, refreshToken, user, profile }
  */
 const login = async (body) => {
   const { email, password } = body;
@@ -61,13 +72,13 @@ const login = async (body) => {
     adminUser.last_login = new Date();
     await adminUser.save();
 
-    const token = generateToken({
-      id: adminUser._id,
-      role: adminUser.role,
-    });
+    const tokenPayload = { id: adminUser._id, role: adminUser.role };
+    const token = generateToken(tokenPayload);
+    const refreshToken = generateRefreshToken(tokenPayload);
 
     return {
       token,
+      refreshToken,
       user: {
         id: adminUser._id,
         email: adminUser.email,
@@ -81,25 +92,25 @@ const login = async (body) => {
 
   // Normal login flow (email/password)
   if (!email || !password) {
-    throw new Error("Email và mật khẩu là bắt buộc");
+    throw new Error("Email and password are required");
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Email không hợp lệ");
+    throw new Error("Invalid email format");
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
-    throw new Error("Tài khoản chưa được cấp phép. Vui lòng liên hệ Ban quản lý KTX.");
+    throw new Error("Account not authorized. Please contact the dormitory management office.");
   }
 
   if (!user.is_active) {
-    throw new Error("Tài khoản đã bị khóa. Vui lòng liên hệ Ban quản lý KTX");
+    throw new Error("Account has been locked. Please contact the dormitory management office.");
   }
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
-    throw new Error("Mật khẩu không chính xác");
+    throw new Error("Incorrect password");
   }
 
   user.last_login = new Date();
@@ -112,13 +123,13 @@ const login = async (body) => {
     profile = await Staff.findOne({ user: user._id });
   }
 
-  const token = generateToken({
-    id: user._id,
-    role: user.role,
-  });
+  const tokenPayload = { id: user._id, role: user.role };
+  const token = generateToken(tokenPayload);
+  const refreshToken = generateRefreshToken(tokenPayload);
 
   return {
     token,
+    refreshToken,
     user: {
       id: user._id,
       email: user.email,
@@ -127,6 +138,37 @@ const login = async (body) => {
       last_login: user.last_login,
     },
     profile,
+  };
+};
+
+/**
+ * Refresh access token using a valid refresh token
+ * @param {string} token - Refresh token
+ * @returns {Object} { token, refreshToken }
+ */
+const refreshAccessToken = async (token) => {
+  if (!token) {
+    throw new Error("Refresh token is required");
+  }
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+  // Verify user still exists and is active
+  const user = await User.findById(decoded.id);
+  if (!user) {
+    throw new Error("User not found");
+  }
+  if (!user.is_active) {
+    throw new Error("Account has been locked");
+  }
+
+  const tokenPayload = { id: user._id, role: user.role };
+  const newToken = generateToken(tokenPayload);
+  const newRefreshToken = generateRefreshToken(tokenPayload);
+
+  return {
+    token: newToken,
+    refreshToken: newRefreshToken,
   };
 };
 
@@ -142,29 +184,29 @@ const register = async (body) => {
 
   // Validation
   if (!email || !password) {
-    throw new Error("Email và mật khẩu là bắt buộc");
+    throw new Error("Email and password are required");
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Email không hợp lệ");
+    throw new Error("Invalid email format");
   }
 
   if (!isValidPassword(password)) {
     throw new Error(
-      "Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số"
+      "Password must be at least 8 characters, including uppercase, lowercase and a number"
     );
   }
 
   // Validate role
   const validRoles = ["student", "manager", "security", "admin"];
   if (!validRoles.includes(role)) {
-    throw new Error("Role không hợp lệ");
+    throw new Error("Invalid role");
   }
 
   // Check if user already exists
   const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
   if (existingUser) {
-    throw new Error("Email đã được sử dụng");
+    throw new Error("Email is already in use");
   }
 
   // Create user
@@ -200,7 +242,7 @@ const register = async (body) => {
 const getProfile = async (userId) => {
   const user = await User.findById(userId);
   if (!user) {
-    throw new Error("User không tồn tại");
+    throw new Error("User not found");
   }
 
   let profile = null;
@@ -227,4 +269,6 @@ module.exports = {
   register,
   getProfile,
   generateToken,
+  generateRefreshToken,
+  refreshAccessToken,
 };
