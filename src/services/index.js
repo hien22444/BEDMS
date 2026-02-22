@@ -5,3 +5,4 @@ module.exports.dormService = require("./dorm.service");
 module.exports.violationService = require("./violation.service");
 module.exports.blockService = require("./block.service");
 module.exports.visitorService = require("./visitor.service");
+module.exports.equipmentService = require("./equipment.service");
