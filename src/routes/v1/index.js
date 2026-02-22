@@ -1,9 +1,9 @@
 const authRoute = require("./auth.route");
-const orderRoute = require("./order.route");
 const userRoute = require("./user.route");
 const dormRoute = require("./dorm.route");
 const violationRoute = require("./violation.route");
 const blockRoute = require("./block.route");
+const visitorRoute = require("./visitor.route");
 
 const express = require("express");
 
@@ -13,10 +13,6 @@ const defaultRoutes = [
   {
     path: "/auth",
     route: authRoute,
-  },
-  {
-    path: "/orders",
-    route: orderRoute,
   },
   {
     path: "/users",
@@ -33,6 +29,10 @@ const defaultRoutes = [
   {
     path: "/blocks",
     route: blockRoute,
+  },
+  {
+    path: "/visitors",
+    route: visitorRoute,
   },
 ];
 

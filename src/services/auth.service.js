@@ -52,8 +52,10 @@ const isValidPassword = (password) => {
 const login = async (body) => {
   const { email, password } = body;
 
-  // Special-case: built-in admin account (username: admin, password: admin)
-  if (email === "admin" && password === "admin") {
+  // Special-case: built-in admin account (credentials from .env)
+  const adminUsername = process.env.ADMIN_USERNAME || "admin";
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (adminPassword && email === adminUsername && password === adminPassword) {
     // Ensure there is a real User document to back this admin
     const adminEmail = "admin@dorm.local";
 
@@ -143,8 +145,10 @@ const login = async (body) => {
 
 /**
  * Refresh access token using a valid refresh token
+ * Only returns a new access token — refresh token is NOT rotated
+ * so it expires naturally after 7d, forcing re-login
  * @param {string} token - Refresh token
- * @returns {Object} { token, refreshToken }
+ * @returns {Object} { token }
  */
 const refreshAccessToken = async (token) => {
   if (!token) {
@@ -164,11 +168,10 @@ const refreshAccessToken = async (token) => {
 
   const tokenPayload = { id: user._id, role: user.role };
   const newToken = generateToken(tokenPayload);
-  const newRefreshToken = generateRefreshToken(tokenPayload);
 
+  // Do NOT rotate refresh token — keep the original so it expires naturally
   return {
     token: newToken,
-    refreshToken: newRefreshToken,
   };
 };
 

@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
-const httpStatus = require('http-status');
+const { status: httpStatus } = require('http-status');
 
 /**
  * Middleware to authenticate JWT token
