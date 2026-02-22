@@ -6,7 +6,7 @@ const createOrder = catchAsync(async (req, res) => {
   const data = await orderService.createOrder({
     ...req.body,
     laptop: req.body.laptopId,
-    user: req.user._id,
+    user: req.user.id,
   });
 
   res.success(data, status.CREATED);

@@ -9,7 +9,7 @@ const catchAsync = require("../utils/catchAsync");
 const createViolationReport = catchAsync(async (req, res) => {
   const data = await violationService.createViolationReport({
     ...req.body,
-    reporter_id: req.user._id,
+    reporter_id: req.user.id,
   });
 
   res.success(data, status.CREATED);
@@ -43,7 +43,7 @@ const reviewViolationReport = catchAsync(async (req, res) => {
   const data = await violationService.reviewViolationReport(
     req.params.id,
     req.body,
-    req.user._id
+    req.user.id
   );
 
   res.success(data, status.OK);
