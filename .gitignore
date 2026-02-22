@@ -61,4 +61,9 @@ logs/
 # build
 build/
 
+# Test/dev files
+*.xlsx
+*.xls
+generate-test-excel.js
+
  
