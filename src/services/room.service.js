@@ -1,4 +1,5 @@
 const { Room, Block } = require("../models");
+const AppError = require("../utils/AppError");
 
 const populateBlockDorm = {
   path: "block",
@@ -69,6 +70,17 @@ const createRoom = async (body) => {
     throw new Error("Block not found");
   }
 
+  const maxRooms = Number(blk.total_rooms);
+  if (Number.isFinite(maxRooms) && maxRooms > 0) {
+    const currentCount = await Room.countDocuments({ block: body.block });
+    if (currentCount >= maxRooms) {
+      throw new AppError(
+        `Block only allows ${maxRooms} room(s). Cannot create more rooms in this block.`,
+        400
+      );
+    }
+  }
+
   const existingRoom = await Room.findOne({
     block: body.block,
     room_number: body.room_number,
@@ -85,9 +97,8 @@ const createRoom = async (body) => {
     }
   }
 
-  const room = await new Room(body).save();
-
-  await Block.findByIdAndUpdate(body.block, { $inc: { total_rooms: 1 } });
+  const payload = { ...body, floor: blk.floor };
+  const room = await new Room(payload).save();
 
   return await Room.findById(room._id).populate(populateBlockDorm);
 };
@@ -109,6 +120,17 @@ const updateRoom = async (id, body) => {
       throw new Error("Block not found");
     }
 
+    const maxRooms = Number(blk.total_rooms);
+    if (Number.isFinite(maxRooms) && maxRooms > 0) {
+      const countInNewBlock = await Room.countDocuments({ block: body.block });
+      if (countInNewBlock >= maxRooms) {
+        throw new AppError(
+          `Target block only allows ${maxRooms} room(s). Cannot move this room there.`,
+          400
+        );
+      }
+    }
+
     const existingRoom = await Room.findOne({
       block: body.block,
       room_number: nextRoomNumber,
@@ -117,11 +139,6 @@ const updateRoom = async (id, body) => {
     if (existingRoom) {
       throw new Error("Room number already exists for this block");
     }
-
-    await Promise.all([
-      Block.findByIdAndUpdate(room.block, { $inc: { total_rooms: -1 } }),
-      Block.findByIdAndUpdate(body.block, { $inc: { total_rooms: 1 } }),
-    ]);
   } else if (body.room_number && body.room_number !== room.room_number) {
     const existingRoom = await Room.findOne({
       block: nextBlock,
@@ -145,6 +162,12 @@ const updateRoom = async (id, body) => {
     }
   }
 
+  const targetBlockId = body.block || room.block;
+  const targetBlock = await Block.findById(targetBlockId);
+  if (targetBlock) {
+    body.floor = targetBlock.floor;
+  }
+
   Object.assign(room, body);
   await room.save();
 
@@ -159,8 +182,6 @@ const deleteRoom = async (id) => {
   }
 
   await room.deleteOne();
-
-  await Block.findByIdAndUpdate(room.block, { $inc: { total_rooms: -1 } });
 
   return { message: "Room deleted successfully" };
 };

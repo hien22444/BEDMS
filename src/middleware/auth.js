@@ -26,7 +26,7 @@ const authenticate = async (req, res, next) => {
     if (!user) {
       return res.status(httpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Token không hợp lệ - User không tồn tại',
+        message: 'Invalid token - User not found',
       });
     }
 
@@ -50,7 +50,7 @@ const authenticate = async (req, res, next) => {
     if (error.name === 'JsonWebTokenError') {
       return res.status(httpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Token không hợp lệ',
+        message: 'Invalid token',
       });
     }
     if (error.name === 'TokenExpiredError') {
@@ -89,7 +89,7 @@ const authorize = (...roles) => {
     if (!roles.includes(req.user.role)) {
       return res.status(httpStatus.FORBIDDEN).json({
         success: false,
-        message: 'Bạn không có quyền truy cập chức năng này',
+        message: 'You do not have permission to access this feature',
       });
     }
 

@@ -1,4 +1,4 @@
-const { Block, Dorm } = require("../models");
+const { Block, Dorm, Room } = require("../models");
 
 const getAllBlocks = async (query = {}) => {
   const { page = 1, limit = 50, dorm, is_active } = query;
@@ -14,7 +14,7 @@ const getAllBlocks = async (query = {}) => {
 
   const [blocks, total] = await Promise.all([
     Block.find(filter)
-      .populate("dorm", "dorm_name dorm_code")
+      .populate("dorm", "dorm_name dorm_code total_floors")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit)),
@@ -33,7 +33,7 @@ const getAllBlocks = async (query = {}) => {
 };
 
 const getBlockById = async (id) => {
-  const block = await Block.findById(id).populate("dorm", "dorm_name dorm_code");
+  const block = await Block.findById(id).populate("dorm", "dorm_name dorm_code total_floors");
 
   if (!block) {
     throw new Error("Block not found");
@@ -43,13 +43,21 @@ const getBlockById = async (id) => {
 };
 
 const createBlock = async (body) => {
-  // Validate dorm exists
   const dorm = await Dorm.findById(body.dorm);
   if (!dorm) {
     throw new Error("Dorm not found");
   }
 
-  // Check if block_code already exists for this dorm
+  const floor = Number(body.floor);
+  if (!Number.isFinite(floor) || floor < 1) {
+    throw new Error("floor is required and must be at least 1");
+  }
+  if (floor > (dorm.total_floors || 0)) {
+    throw new Error(
+      `floor must be between 1 and dorm's total_floors (${dorm.total_floors}). This dorm has ${dorm.total_floors} floor(s).`
+    );
+  }
+
   const existingBlock = await Block.findOne({
     dorm: body.dorm,
     block_code: body.block_code,
@@ -66,7 +74,20 @@ const createBlock = async (body) => {
     $inc: { total_blocks: 1 },
   });
 
-  return await Block.findById(block._id).populate("dorm", "dorm_name dorm_code");
+  return await Block.findById(block._id).populate("dorm", "dorm_name dorm_code total_floors");
+};
+
+const validateBlockFloor = (floor, dorm) => {
+  const f = Number(floor);
+  if (!Number.isFinite(f) || f < 1) {
+    throw new Error("floor is required and must be at least 1");
+  }
+  const totalFloors = dorm.total_floors || 0;
+  if (f > totalFloors) {
+    throw new Error(
+      `floor must be between 1 and dorm's total_floors (${totalFloors}). This dorm has ${totalFloors} floor(s).`
+    );
+  }
 };
 
 const updateBlock = async (id, body) => {
@@ -76,14 +97,16 @@ const updateBlock = async (id, body) => {
     throw new Error("Block not found");
   }
 
-  // If dorm is being changed, validate new dorm exists
-  if (body.dorm && body.dorm !== block.dorm.toString()) {
-    const dorm = await Dorm.findById(body.dorm);
-    if (!dorm) {
-      throw new Error("Dorm not found");
-    }
+  const targetDormId = body.dorm ? body.dorm : block.dorm;
+  const dorm = await Dorm.findById(targetDormId);
+  if (!dorm) {
+    throw new Error("Dorm not found");
+  }
 
-    // Check if block_code already exists in new dorm
+  const nextFloor = typeof body.floor !== "undefined" ? body.floor : block.floor;
+  validateBlockFloor(nextFloor, dorm);
+
+  if (body.dorm && body.dorm !== block.dorm.toString()) {
     const existingBlock = await Block.findOne({
       dorm: body.dorm,
       block_code: body.block_code || block.block_code,
@@ -94,7 +117,6 @@ const updateBlock = async (id, body) => {
       throw new Error("Block code already exists for this dorm");
     }
 
-    // Update old and new dorm total_blocks
     await Promise.all([
       Dorm.findByIdAndUpdate(block.dorm, { $inc: { total_blocks: -1 } }),
       Dorm.findByIdAndUpdate(body.dorm, { $inc: { total_blocks: 1 } }),
@@ -112,10 +134,19 @@ const updateBlock = async (id, body) => {
     }
   }
 
+  if (typeof body.total_rooms === "number" && body.total_rooms >= 0) {
+    const currentRoomCount = await Room.countDocuments({ block: id });
+    if (body.total_rooms < currentRoomCount) {
+      throw new Error(
+        `Block currently has ${currentRoomCount} room(s). total_rooms cannot be set to ${body.total_rooms}. Remove rooms first or set a value >= ${currentRoomCount}.`
+      );
+    }
+  }
+
   Object.assign(block, body);
   await block.save();
 
-  return await Block.findById(id).populate("dorm", "dorm_name dorm_code");
+  return await Block.findById(id).populate("dorm", "dorm_name dorm_code total_floors");
 };
 
 const deleteBlock = async (id) => {

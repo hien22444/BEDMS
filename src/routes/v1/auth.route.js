@@ -30,14 +30,14 @@ router.get(
       // Handle authentication error
       if (err) {
         console.error('Google OAuth error:', err);
-        const errorMsg = encodeURIComponent('Đã xảy ra lỗi khi xác thực. Vui lòng thử lại.');
+        const errorMsg = encodeURIComponent('An error occurred during authentication. Please try again.');
         return res.redirect(`${frontendUrl}/signin?error=${errorMsg}`);
       }
 
       // Handle authentication failure (user not found, inactive, etc.)
       if (!user) {
         const errorMsg = encodeURIComponent(
-          info?.message || 'Đăng nhập Google thất bại. Vui lòng thử lại.'
+          info?.message || 'Google sign-in failed. Please try again.'
         );
         return res.redirect(`${frontendUrl}/signin?error=${errorMsg}`);
       }

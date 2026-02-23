@@ -81,25 +81,25 @@ const login = async (body) => {
 
   // Normal login flow (email/password)
   if (!email || !password) {
-    throw new Error("Email và mật khẩu là bắt buộc");
+    throw new Error("Email and password are required");
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Email không hợp lệ");
+    throw new Error("Invalid email");
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
-    throw new Error("Tài khoản chưa được cấp phép. Vui lòng liên hệ Ban quản lý KTX.");
+    throw new Error("Account not yet authorized. Please contact the dormitory management.");
   }
 
   if (!user.is_active) {
-    throw new Error("Tài khoản đã bị khóa. Vui lòng liên hệ Ban quản lý KTX");
+    throw new Error("Account is locked. Please contact the dormitory management.");
   }
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
-    throw new Error("Mật khẩu không chính xác");
+    throw new Error("Incorrect password");
   }
 
   user.last_login = new Date();
@@ -142,23 +142,23 @@ const register = async (body) => {
 
   // Validation
   if (!email || !password) {
-    throw new Error("Email và mật khẩu là bắt buộc");
+    throw new Error("Email and password are required");
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Email không hợp lệ");
+    throw new Error("Invalid email");
   }
 
   if (!isValidPassword(password)) {
     throw new Error(
-      "Mật khẩu phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số"
+      "Password must be at least 8 characters with uppercase, lowercase and number"
     );
   }
 
   // Validate role
   const validRoles = ["student", "manager", "security", "admin"];
   if (!validRoles.includes(role)) {
-    throw new Error("Role không hợp lệ");
+    throw new Error("Invalid role");
   }
 
   // Check if user already exists
@@ -200,7 +200,7 @@ const register = async (body) => {
 const getProfile = async (userId) => {
   const user = await User.findById(userId);
   if (!user) {
-    throw new Error("User không tồn tại");
+    throw new Error("User not found");
   }
 
   let profile = null;
