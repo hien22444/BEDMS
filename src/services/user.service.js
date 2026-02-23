@@ -158,72 +158,72 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
 
   // Email
   if (!email) {
-    throw new Error("Thiếu trường bắt buộc: email");
+    throw new Error("Missing required field: email");
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
-    throw new Error(`Email không hợp lệ: ${email}`);
+    throw new Error(`Invalid email: ${email}`);
   }
 
   // Full name
   if (!fullName) {
-    throw new Error("Thiếu trường bắt buộc: full name");
+    throw new Error("Missing required field: full name");
   }
   if (!NAME_REGEX.test(fullName)) {
-    throw new Error(`Tên chứa ký tự không hợp lệ: "${fullName}". Chỉ cho phép chữ cái, dấu cách, dấu gạch ngang, dấu chấm`);
+    throw new Error(`Invalid characters in name: "${fullName}". Only letters, spaces, hyphens, dots allowed`);
   }
 
   // Role
   if (!rawRole) {
-    throw new Error("Thiếu trường bắt buộc: role");
+    throw new Error("Missing required field: role");
   }
   if (!VALID_IMPORT_ROLES.includes(rawRole)) {
-    throw new Error(`Role không hợp lệ: "${rawRole}". Phải là: ${VALID_IMPORT_ROLES.join(", ")}`);
+    throw new Error(`Invalid role: "${rawRole}". Must be: ${VALID_IMPORT_ROLES.join(", ")}`);
   }
 
   // Duplicate email
   if (existingEmailSet.has(email) || batchEmails.has(email)) {
-    throw new Error(`Email đã tồn tại: ${email}`);
+    throw new Error(`Email already exists: ${email}`);
   }
 
   // Phone validation (if provided)
   if (phone && !isNA(phone) && !PHONE_REGEX.test(phone)) {
-    throw new Error(`Số điện thoại không hợp lệ: "${phone}". Chỉ cho phép số, dấu +, dấu cách, dấu gạch ngang`);
+    throw new Error(`Invalid phone: "${phone}". Only digits, +, spaces, hyphens allowed`);
   }
 
   if (rawRole === "student") {
     if (isNA(studentCode) || !studentCode) {
-      throw new Error("Thiếu trường bắt buộc: student code (cho role student)");
+      throw new Error("Missing required field: student code (for role student)");
     }
     if (!STUDENT_CODE_REGEX.test(studentCode)) {
-      throw new Error(`Mã sinh viên chứa ký tự không hợp lệ: "${studentCode}". Chỉ cho phép chữ cái và số`);
+      throw new Error(`Invalid student code: "${studentCode}". Only letters and numbers allowed`);
     }
     if (existingStudentCodeSet.has(studentCode) || batchStudentCodes.has(studentCode)) {
-      throw new Error(`Mã sinh viên đã tồn tại: ${studentCode}`);
+      throw new Error(`Student code already exists: ${studentCode}`);
     }
 
     const gender = rawGender.toLowerCase();
     if (!["male", "female", "other"].includes(gender)) {
-      throw new Error(`Gender không hợp lệ: "${rawGender}". Phải là: Male, Female, Other`);
+      throw new Error(`Invalid gender: "${rawGender}". Must be: Male, Female, Other`);
     }
 
     const dateOfBirth = parseDate(rawDOB);
     if (!dateOfBirth) {
-      throw new Error("Thiếu hoặc không hợp lệ: DOB (cho role student)");
+      throw new Error("Missing or invalid DOB (for role student)");
     }
 
     if (!phone || isNA(phone)) {
-      throw new Error("Thiếu trường bắt buộc: Phone (cho role student)");
+      throw new Error("Missing required field: Phone (for role student)");
     }
 
     // Major validation (if provided)
     if (major && !isNA(major) && !GENERAL_TEXT_REGEX.test(major)) {
-      throw new Error(`Ngành học chứa ký tự không hợp lệ: "${major}"`);
+      throw new Error(`Invalid characters in major: "${major}"`);
     }
 
     // Cohort validation (if provided)
     if (cohort && !isNA(cohort) && !GENERAL_TEXT_REGEX.test(cohort)) {
-      throw new Error(`Khóa học chứa ký tự không hợp lệ: "${cohort}"`);
+      throw new Error(`Invalid characters in cohort: "${cohort}"`);
     }
 
     return {
@@ -241,13 +241,13 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
   } else {
     // manager or security
     if (isNA(staffCode) || !staffCode) {
-      throw new Error("Thiếu trường bắt buộc: staff code (cho role staff)");
+      throw new Error("Missing required field: staff code (for role staff)");
     }
     if (!STAFF_CODE_REGEX.test(staffCode)) {
-      throw new Error(`Mã nhân viên chứa ký tự không hợp lệ: "${staffCode}". Chỉ cho phép chữ cái và số`);
+      throw new Error(`Invalid staff code: "${staffCode}". Only letters and numbers allowed`);
     }
     if (existingStaffCodeSet.has(staffCode) || batchStaffCodes.has(staffCode)) {
-      throw new Error(`Mã nhân viên đã tồn tại: ${staffCode}`);
+      throw new Error(`Staff code already exists: ${staffCode}`);
     }
 
     return {
@@ -291,13 +291,13 @@ const importFromExcel = async (fileBuffer) => {
   const warnings = [];
 
   if (!workbook.SheetNames.length) {
-    throw new Error("File Excel không có sheet nào");
+    throw new Error("Excel file has no sheets");
   }
 
   // ── #1: Đọc TẤT CẢ các sheet ────────────────────────────
   if (workbook.SheetNames.length > 1) {
     warnings.push(
-      `File có ${workbook.SheetNames.length} sheet: ${workbook.SheetNames.map((s) => `"${s}"`).join(", ")}. Đọc tất cả.`
+      `File has ${workbook.SheetNames.length} sheet(s): ${workbook.SheetNames.map((s) => `"${s}"`).join(", ")}. Reading all.`
     );
   }
 
@@ -323,12 +323,12 @@ const importFromExcel = async (fileBuffer) => {
 
   if (emptySheets.length > 0) {
     warnings.push(
-      `Các sheet trống (bị bỏ qua): ${emptySheets.map((s) => `"${s}"`).join(", ")}`
+      `Empty sheets (skipped): ${emptySheets.map((s) => `"${s}"`).join(", ")}`
     );
   }
 
   if (!allRawRows.length) {
-    throw new Error("File Excel trống hoặc không có dữ liệu ở tất cả các sheet");
+    throw new Error("Excel file is empty or has no data in any sheet");
   }
 
   // ── #5 & #2: Normalize headers & validate columns ───────
@@ -343,13 +343,13 @@ const importFromExcel = async (fileBuffer) => {
     };
     const missing = missingRequired.map((f) => friendlyNames[f] || f);
     throw new Error(
-      `File thiếu các cột bắt buộc: ${missing.join(", ")}. Vui lòng kiểm tra lại header của file Excel.`
+      `File is missing required columns: ${missing.join(", ")}. Please check the Excel file headers.`
     );
   }
 
   if (unmappedHeaders.length > 0) {
     warnings.push(
-      `Các cột không nhận diện được (sẽ bị bỏ qua): ${unmappedHeaders.map((h) => `"${h}"`).join(", ")}`
+      `Unrecognized columns (will be ignored): ${unmappedHeaders.map((h) => `"${h}"`).join(", ")}`
     );
   }
 

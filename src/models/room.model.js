@@ -38,20 +38,15 @@ const RoomSchema = new mongoose.Schema(
       default: "available",
       enum: ["available", "full", "maintenance", "inactive"],
     },
-    has_ac: {
-      type: Boolean,
-      default: false,
-    },
-    has_water_heater: {
-      type: Boolean,
-      default: false,
-    },
     has_private_bathroom: {
       type: Boolean,
       default: false,
     },
-    area_sqm: {
-      type: Number,
+    student_type: {
+      type: String,
+      required: true,
+      enum: ["vietnamese", "international"],
+      default: "vietnamese",
     },
     description: {
       type: String,

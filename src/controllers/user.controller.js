@@ -16,7 +16,7 @@ const deleteUser = catchAsync(async (req, res) => {
 
 const importExcel = catchAsync(async (req, res) => {
   if (!req.file) {
-    throw new Error("Vui lòng upload file Excel (.xlsx)");
+    throw new Error("Please upload an Excel file (.xlsx)");
   }
 
   const result = await userService.importFromExcel(req.file.buffer);
