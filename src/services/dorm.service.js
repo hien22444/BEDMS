@@ -1,5 +1,7 @@
 const Dorm = require("../models/dorm.model");
 
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
  * Create new dorm
  * @param {Object} body
@@ -39,7 +41,7 @@ const getDorms = async (query = {}) => {
   const filter = {};
 
   if (query.search) {
-    const regex = new RegExp(query.search, "i");
+    const regex = new RegExp(escapeRegex(query.search), "i");
     filter.$or = [{ dorm_name: regex }, { dorm_code: regex }];
   }
 

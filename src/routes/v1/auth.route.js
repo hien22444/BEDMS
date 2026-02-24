@@ -76,6 +76,9 @@ router.get(
   authController.googleCallback
 );
 
+// Exchange one-time OAuth code for tokens (public, short-TTL)
+router.get('/google/exchange', authController.exchangeOAuthCode);
+
 // Protected routes
 router.get('/profile', authenticate, authController.getProfile);
 

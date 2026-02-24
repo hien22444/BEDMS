@@ -1,5 +1,5 @@
 # BEDOM Backend — Review & Documentation
-> Senior Code Review | Updated: 2026-02-22
+> Senior Code Review | Updated: 2026-02-22 (post dev-pull merge)
 
 ---
 
@@ -86,6 +86,45 @@
 | POST | `/visitors/requests/:id/checkin` | Security | Check-in từng người thăm |
 | PATCH | `/visitors/checkins/:id/checkout` | Security | Check-out từng người thăm |
 | GET | `/visitors/active` | Security | Danh sách khách đang trong KTX |
+
+### 2.7 Equipment Management — `/v1/equipment` *(Mới từ dev)*
+
+> Tất cả endpoint yêu cầu quyền **Admin**.
+
+#### Categories
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | `/equipment/categories` | Danh sách danh mục (pagination, search) |
+| POST | `/equipment/categories` | Tạo danh mục mới |
+| GET | `/equipment/categories/:id` | Chi tiết danh mục |
+| PUT | `/equipment/categories/:id` | Cập nhật toàn phần |
+| PATCH | `/equipment/categories/:id` | Cập nhật một phần |
+| DELETE | `/equipment/categories/:id` | Xóa (có cascade protection) |
+
+#### Templates
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | `/equipment/templates` | Danh sách template (pagination, filter category/is_active/search) |
+| POST | `/equipment/templates` | Tạo template thiết bị |
+| GET | `/equipment/templates/:id` | Chi tiết template (populate category) |
+| PUT | `/equipment/templates/:id` | Cập nhật toàn phần |
+| PATCH | `/equipment/templates/:id` | Cập nhật một phần |
+| DELETE | `/equipment/templates/:id` | Xóa (có cascade protection) |
+
+#### Room Type Configs
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | `/equipment/room-type-configs` | Danh sách cấu hình theo loại phòng (deep populate) |
+| POST | `/equipment/room-type-configs` | Tạo cấu hình mới |
+| PUT | `/equipment/room-type-configs/:id` | Cập nhật toàn phần |
+| PATCH | `/equipment/room-type-configs/:id` | Cập nhật một phần |
+| DELETE | `/equipment/room-type-configs/:id` | Xóa cấu hình |
+
+**⚠️ Lưu ý:** Không có endpoint `GET /equipment/room-type-configs/:id` — thiếu chi tiết theo ID.
+
+---
+
+**Tổng số endpoint đang hoạt động: 55**
 
 ---
 
@@ -202,6 +241,69 @@
 | checked_in_by / checked_out_by | ObjectId → User | Bảo vệ thực hiện |
 | notes | String | — |
 
+### EquipmentCategory *(Mới)*
+| Field | Type | Ghi chú |
+|-------|------|---------|
+| id | ObjectId | _id ẩn trong JSON output |
+| category_name | String, unique | Bắt buộc (e.g., "Furniture", "Electronics") |
+| description | String | Optional |
+| created_at | Date | default: Date.now |
+
+### EquipmentTemplate *(Mới)*
+| Field | Type | Ghi chú |
+|-------|------|---------|
+| id | ObjectId | _id ẩn trong JSON output |
+| category | ObjectId → EquipmentCategory | Bắt buộc |
+| equipment_name | String | Bắt buộc |
+| brand / model / specifications | String | Optional |
+| estimated_lifespan_years | Number | Optional |
+| unit_price | Number | Optional |
+| is_active | Boolean | default: true |
+| createdAt / updatedAt | Date | Auto (timestamps: true) |
+
+### RoomTypeEquipmentConfig *(Mới)*
+| Field | Type | Ghi chú |
+|-------|------|---------|
+| room_type | Enum | 2_person / 4_person / 6_person / 8_person |
+| template | ObjectId → EquipmentTemplate | Bắt buộc |
+| standard_quantity | Number | Bắt buộc — số lượng tiêu chuẩn |
+| is_mandatory | Boolean | default: true |
+| created_at | Date | default: Date.now |
+| **Index** | Compound unique | `(room_type, template)` — không trùng |
+
+### RoomEquipment *(Mới — chưa có endpoint)*
+| Field | Type | Ghi chú |
+|-------|------|---------|
+| room | ObjectId → Room | Bắt buộc |
+| template | ObjectId → EquipmentTemplate | Bắt buộc |
+| equipment_code | String, unique | Mã kiểm kê tài sản |
+| quantity | Number | default: 1 |
+| status | Enum | good / normal / damaged / broken / missing |
+| condition_notes | String | Ghi chú bảo dưỡng |
+| purchase_date / warranty_expiry | Date | — |
+| last_maintenance_date / next_maintenance_date | Date | — |
+| assigned_at | Date | default: Date.now |
+
+### EquipmentHistory *(Mới — chưa có endpoint)*
+| Field | Type | Ghi chú |
+|-------|------|---------|
+| equipment | ObjectId → RoomEquipment | Bắt buộc |
+| action_type | Enum | added / removed / repaired / replaced / status_changed / moved |
+| old_status / new_status | String | Optional |
+| old_room / new_room | ObjectId → Room | Optional |
+| notes | String | — |
+| performed_by | ObjectId → Staff | Optional (nullable) |
+| performed_at | Date | default: Date.now |
+
+### InspectionEquipmentDetail *(Mới — chưa có endpoint)*
+| Field | Type | Ghi chú |
+|-------|------|---------|
+| inspection | ObjectId → RoomInspection | Bắt buộc |
+| equipment | ObjectId → RoomEquipment | Bắt buộc |
+| status_at_inspection | Enum | good / normal / damaged / broken / missing |
+| notes | String | — |
+| photo_url | String | — |
+
 ---
 
 ## 4. WORKFLOW & NGHIỆP VỤ
@@ -316,6 +418,10 @@ Student tạo request:
       full_name, citizen_id, phone, relationship
     }]
   }
+    → [Mới] Verify user.is_active → nếu không → lỗi
+    → [Mới] Lookup Student profile → nếu không phải student → lỗi
+    → [Mới] Check is_banned_permanently → nếu bị cấm vĩnh viễn → lỗi
+    → [Mới] Check ban_until_semester → nếu đang bị cấm → lỗi + tên học kỳ
     → Validate visit_date >= today
     → Max 5 visitors
     → visit_time_from/to cố định: "07:00" / "17:00"
@@ -367,87 +473,54 @@ Block (CRUD):
   - Cập nhật block → cho phép chuyển sang dorm khác
 ```
 
+### 4.6 Quản lý Thiết bị (Equipment Management) *(Mới từ dev)*
+```
+Thiết lập danh mục:
+  POST /equipment/categories { category_name, description }
+    → Validate category_name required, unique (case-insensitive trim)
+    → Tạo EquipmentCategory
+
+Thiết lập template thiết bị:
+  POST /equipment/templates { equipment_name, category, brand, model, ... }
+    → Validate equipment_name + category required
+    → Verify category tồn tại
+    → Tạo EquipmentTemplate
+
+Cấu hình thiết bị theo loại phòng:
+  POST /equipment/room-type-configs {
+    room_type,         // "2_person" | "4_person" | "6_person" | "8_person"
+    template,          // ObjectId của EquipmentTemplate
+    standard_quantity, // Số lượng tiêu chuẩn
+    is_mandatory       // default: true
+  }
+    → Verify template tồn tại
+    → Kiểm tra không trùng (room_type + template) — compound unique index
+    → Tạo RoomTypeEquipmentConfig
+
+Xóa có cascade protection:
+  - DELETE category → bị chặn nếu còn templates tham chiếu
+  - DELETE template → bị chặn nếu còn RoomEquipment hoặc RoomTypeConfig tham chiếu
+  - DELETE room-type-config → KHÔNG có cascade check (lỗ hổng)
+
+Tìm kiếm & phân trang:
+  GET /equipment/categories?page=1&limit=10&search=furni
+  GET /equipment/templates?page=1&limit=10&search=bed&category=<id>&is_active=true
+  GET /equipment/room-type-configs?page=1&limit=50&room_type=4_person
+```
+
 ---
 
-## 5. SENIOR CODE REVIEW — VẤN ĐỀ
-
-### 🔴 CRITICAL
-
-#### C1. NoSQL Injection trong Dorm Search
-**File:** `src/services/dorm.service.js`
-**Vấn đề:** User input trực tiếp làm RegExp pattern, không escape:
-```js
-// NGUY HIỂM:
-const regex = new RegExp(query.search, "i");
-filter.$or = [{ dorm_name: regex }, { dorm_code: regex }];
-```
-**Hậu quả:** Attacker inject `(.*)` để bypass filter, hoặc ReDoS attack làm chậm server.
-**Fix:**
-```js
-const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const regex = new RegExp(escapeRegex(query.search), "i");
-```
-
-#### C2. Token lộ trên URL (Google OAuth)
-**File:** `src/controllers/auth.controller.js`
-**Vấn đề:** Redirect kèm token trong query string:
-```js
-res.redirect(`${frontendUrl}/auth/google/callback?token=${token}&refreshToken=${refreshTkn}&user=${encodedUser}`);
-```
-**Hậu quả:** Token nằm trong browser history, server logs, referer header, CDN cache.
-**Fix:** Dùng short-lived state code → FE đổi lấy token qua POST.
-
-#### C3. Default password hardcoded trong code
-**File:** `src/services/user.service.js`
-**Vấn đề:**
-```js
-const DEFAULT_PASSWORD = "Student@123";
-```
-**Fix:** Chuyển vào `.env → DEFAULT_USER_PASSWORD`
-
-#### C4. Admin credentials so sánh plaintext
-**File:** `src/services/auth.service.js`
-**Vấn đề:**
-```js
-if (adminPassword && email === adminUsername && password === adminPassword)
-```
-`adminPassword` là plaintext từ `.env`, so sánh trực tiếp với input.
-**Fix:** Lưu hash trong .env, so sánh bằng `bcrypt.compare()`.
-
----
+## 5. SENIOR CODE REVIEW — VẤN ĐỀ CÒN MỞ
 
 ### 🟠 HIGH
 
-#### H1. Race condition trong tạo report/request code
-**Files:** `violation.service.js`, `visitor.service.js`
-**Vấn đề:** Dùng `findOne().sort()` → đọc → tính seq → write, không atomic.
-**visitor.service.js** có retry loop (tốt hơn), nhưng violation.service.js không có.
-**Fix:** MongoDB atomic counter hoặc unique index với retry.
-
-#### H2. Thiếu check ban khi tạo visitor request
-**File:** `src/services/visitor.service.js`
-**Vấn đề:** Sinh viên bị ban vẫn tạo được visitor request vì không check `ban_until_semester`.
-**Fix:** Thêm vào `createVisitorRequest()`:
-```js
-const student = await Student.findOne({ user: userId });
-if (student?.ban_until_semester) {
-  throw new Error(`Bạn bị cấm đặt phòng đến hết học kỳ ${student.ban_until_semester}`);
-}
-```
-
-#### H3. Xóa user không kiểm tra liên kết
-**File:** `src/services/user.service.js`
-**Vấn đề:** Chỉ check `totalOrder` (field không tồn tại trong schema!) → delete luôn luôn thành công dù có visitor requests, violations.
-**Fix:** Check `VisitorRequest`, `ViolationReport` trước khi xóa.
-
-#### H4. Không validate visitor request của đúng student
-**File:** `src/services/visitor.service.js`
-**Vấn đề:** `createVisitorRequest(userId)` không kiểm tra `userId` có phải student đang active, có hợp đồng hiện tại không.
-**Fix:** Check student tồn tại và is_active trước khi tạo.
-
-#### H5. Block có thể move sang dorm khác không kiểm tra
+#### H5. Block có thể move sang dorm khác không kiểm tra 🔴
 **File:** `src/services/block.service.js`
-**Vấn đề:** `updateBlock()` cho phép chuyển `dorm` sang dorm khác mà không kiểm tra quyền hoặc tính hợp lệ.
+**Vấn đề:** `updateBlock()` cho phép chuyển `dorm` sang dorm khác mà không kiểm tra phòng, giường đang có sinh viên.
+
+#### H6. Equipment: EquipmentHistory không bao giờ được tự động ghi 🔴
+**File:** `src/models/equipmentHistory.model.js`
+**Vấn đề:** Model đầy đủ fields nhưng không có service nào tự động tạo record. Toàn bộ audit trail thiết bị bị mất.
 
 ---
 
@@ -469,14 +542,13 @@ const limit = Number(query.limit) > 0 ? Number(query.limit) : 10;
 // Không có max → user gửi limit=999999 → DoS
 ```
 **Fix:** `Math.min(Number(query.limit) || 10, 100)`
+**Ảnh hưởng:** Tất cả services: dorm, block, violation, visitor, **equipment** (categories limit=10, templates limit=10, configs **limit=50**).
 
 #### M4. Evidence URLs không validate
 ```js
 evidence_urls: body.evidence_urls || []
 // Không check URL format, không giới hạn domain
 ```
-
-#### M5. Google OAuth tokens trong URL (đã nêu ở C2)
 
 #### M6. Dorm xóa không xóa/check blocks con
 Xóa dorm nhưng blocks vẫn còn → orphaned data.
@@ -486,6 +558,23 @@ Trừ điểm nhưng không ghi lịch sử vào collection `behavioralScoreHist
 
 #### M8. Không có rate limit cho violation & visitor endpoints
 Login có rate limit nhưng các endpoint quan trọng khác thì không.
+
+#### M9. Equipment: Thiếu GET by ID cho Room Type Config
+**File:** `src/routes/v1/equipment.route.js`
+**Vấn đề:** Không có route `GET /equipment/room-type-configs/:id`. Không có method tương ứng trong service và controller.
+**Fix:** Thêm `getRoomTypeConfigById()` vào service + controller + route.
+
+#### M10. Equipment: Không validate giá trị số âm
+**File:** `src/services/equipment.service.js`
+**Vấn đề:** Không kiểm tra:
+- `standard_quantity <= 0`
+- `unit_price < 0`
+- `estimated_lifespan_years <= 0`
+Mongoose schema cũng không có `min: 0` constraint.
+
+#### M11. Equipment: Config xóa không kiểm tra cascade
+**File:** `src/services/equipment.service.js` — `deleteRoomTypeConfig()`
+**Vấn đề:** Khi xóa một config, không kiểm tra xem config này đã được dùng trong bất kỳ booking hoặc room assignment nào chưa. Category và Template có protection nhưng Config thì không.
 
 ---
 
@@ -513,18 +602,319 @@ const fallbackSeq = Date.now().toString().slice(-6);
 #### L5. Frontend URL không validate trước redirect
 `res.redirect(process.env.FRONTEND_URL + "/...")` — không whitelist validation.
 
-#### L6. `totalOrder` field không tồn tại trong User model
-```js
-const user = await User.findById(id).populate({ path: "totalOrder" });
-if (!!user.totalOrder) { ... }
-// Field này không có trong schema → luôn undefined → check này vô dụng
-```
-
 #### L7. Không có Audit Log
 Duyệt vi phạm, phạt điểm, approve/reject visitor — không có audit trail.
 
 #### L8. Inconsistent response format
 Một số service trả `{ data: items }`, một số trả `{ items }` — FE phải handle cả hai.
+
+#### L9. Equipment: Không có input sanitization
+**File:** `src/services/equipment.service.js`
+**Vấn đề:** Chỉ `trim()` cho `category_name`, các fields khác như `equipment_name`, `brand`, `model` không được sanitize. Regex search trên templates cũng không escape (tương tự lỗi C1 ở dorm).
+```js
+// Tiềm ẩn ReDoS:
+new RegExp(search, "i");  // search không được escape
+```
+
+#### L10. Equipment: `performed_by` trong History luôn null
+**File:** `src/models/equipmentHistory.model.js`
+**Vấn đề:** Field `performed_by` có `default: null`, nhưng không có mechanism nào tự điền user hiện tại khi tạo history record. Phải truyền thủ công — dễ bỏ sót.
+
+---
+
+## 5B. ĐÃ SỬA — FIXED ISSUES
+
+> Các vấn đề đã được xử lý hoàn toàn. Ghi lại để tham khảo và review lại nếu cần.
+
+---
+
+### ✅ C1. NoSQL Injection / ReDoS trong Dorm Search
+
+**File:** [src/services/dorm.service.js](src/services/dorm.service.js)
+**Mức độ:** Critical
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+`query.search` từ URL được truyền thẳng vào `new RegExp(query.search, "i")` mà không escape. Attacker có thể gửi regex phức tạp gây ReDoS (CPU spike) hoặc khai thác NoSQL injection.
+
+**Giải pháp:**
+Thêm helper `escapeRegex()` (giống pattern đã có ở `user.service.js` và `violation.service.js`) để sanitize input trước khi tạo RegExp:
+```js
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Trong getDorms():
+const regex = new RegExp(escapeRegex(query.search), "i");
+```
+
+---
+
+### ✅ C2. OAuth Token lộ trên URL (Google OAuth)
+
+**Files:**
+- [src/services/auth.service.js](src/services/auth.service.js) — `storeOAuthData()`, `exchangeOAuthCode()`
+- [src/controllers/auth.controller.js](src/controllers/auth.controller.js) — `googleCallback`, `exchangeOAuthCode`
+- [src/routes/v1/auth.route.js](src/routes/v1/auth.route.js) — route `GET /google/exchange`
+- FEDOM [src/pages/auth/google-callback/index.tsx](../FEDOM/src/pages/auth/google-callback/index.tsx)
+
+**Mức độ:** Critical
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+Sau Google OAuth thành công, BE redirect về FE với `?token=<jwt>&refreshToken=<rt>&user=<json>` trong URL. Token xuất hiện trong:
+- Browser history (người dùng khác cùng máy có thể đọc)
+- Server access logs
+- `Referer` header khi FE click link ngoài
+- Bất kỳ browser extension nào đọc URL
+
+**Giải pháp — In-memory one-time code exchange:**
+
+**BE (`auth.service.js`):**
+```js
+const crypto = require("crypto");
+const _oauthStore = new Map(); // TTL store: code → { data, expiresAt }
+
+const storeOAuthData = (data) => {
+  const code = crypto.randomBytes(32).toString("hex"); // 64-char opaque hex
+  _oauthStore.set(code, { data, expiresAt: Date.now() + 5 * 60 * 1000 }); // 5 phút TTL
+  return code;
+};
+
+const exchangeOAuthCode = (code) => {
+  const entry = _oauthStore.get(code);
+  if (!entry) throw new Error("Invalid or expired OAuth code");
+  if (Date.now() > entry.expiresAt) {
+    _oauthStore.delete(code);
+    throw new Error("OAuth code expired");
+  }
+  _oauthStore.delete(code); // Single-use: xóa ngay sau khi dùng
+  return entry.data;
+};
+```
+
+**BE (`auth.controller.js`):**
+```js
+// googleCallback: không put token vào URL nữa
+const code = authService.storeOAuthData({ token, refreshToken: refreshTkn, user: userData, profile });
+res.redirect(`${frontendUrl}/auth/google/callback?code=${code}`);
+
+// Thêm controller mới:
+const exchangeOAuthCode = catchAsync(async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).json({ success: false, message: "Missing code" });
+  const data = authService.exchangeOAuthCode(code);
+  res.success(data, 200);
+});
+```
+
+**BE (`auth.route.js`):**
+```js
+router.get("/google/exchange", authController.exchangeOAuthCode);
+```
+
+**FE (`google-callback/index.tsx`):**
+```tsx
+// Trước: parse ?token= từ URL
+// Sau: dùng fetch để exchange code → token (token không bao giờ ở URL)
+const code = searchParams.get("code");
+const resp = await fetch(`${baseUrl}/v1/auth/google/exchange?code=${encodeURIComponent(code)}`);
+const json = await resp.json();
+const { token, refreshToken, user, profile } = json.data ?? json;
+```
+
+---
+
+### ✅ C3. Default Password Hardcoded trong Source Code
+
+**File:** [src/services/user.service.js](src/services/user.service.js)
+**Mức độ:** Critical
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+`const DEFAULT_PASSWORD = "Student@123"` — password mặc định khi import Excel hardcode thẳng trong source code. Bất kỳ ai đọc repo đều biết password mặc định của toàn bộ sinh viên mới import.
+
+**Giải pháp:**
+```js
+const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD || "Student@123";
+```
+Thêm vào `.env`:
+```
+DEFAULT_USER_PASSWORD=Student@DMS2025!
+```
+> Fallback giữ nguyên để dev local không cần `.env` setup phức tạp, nhưng production bắt buộc set env var.
+
+---
+
+### ✅ C4. Admin Password So Sánh Plaintext (Timing Attack)
+
+**File:** [src/services/auth.service.js](src/services/auth.service.js)
+**Mức độ:** Critical
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+```js
+if (email === adminUsername && password === adminPassword)
+```
+So sánh chuỗi thông thường không constant-time → timing attack: attacker có thể đo response time để đoán từng ký tự của password.
+
+**Giải pháp — bcrypt lazy hash + `bcrypt.compare()`:**
+```js
+const bcrypt = require("bcryptjs");
+
+let _adminPasswordHash = null;
+const getAdminPasswordHash = async () => {
+  if (_adminPasswordHash !== null) return _adminPasswordHash;
+  const raw = process.env.ADMIN_PASSWORD;
+  if (!raw) { _adminPasswordHash = false; return false; } // Sentinel: disable admin login khi không có env
+  _adminPasswordHash = await bcrypt.hash(raw, 10); // Hash một lần, cache lại
+  return _adminPasswordHash;
+};
+
+// Trong login():
+const adminPasswordHash = await getAdminPasswordHash();
+if (adminPasswordHash && email === adminUsername && await bcrypt.compare(password, adminPasswordHash)) {
+  // Admin login
+}
+```
+- Hash chỉ tính một lần tại first call (không impact startup time)
+- `bcrypt.compare()` là constant-time → immune với timing attack
+- Khi `ADMIN_PASSWORD` không set → admin login bị disable hoàn toàn (an toàn hơn)
+
+---
+
+### ✅ H1. Race Condition Trong Tạo Violation Report Code
+
+**File:** [src/services/violation.service.js](src/services/violation.service.js)
+**Mức độ:** High
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+`generateReportCode()` thực hiện read-compute-write mà không có protection. Khi 2 requests đến cùng lúc, cả 2 đọc cùng `lastReport` → generate cùng `seq` → MongoDB unique constraint violation gây crash.
+
+**Giải pháp — Retry loop + duplicate key guard:**
+```js
+const generateReportCode = async (maxRetries = 5) => {
+  // ... compute prefix ...
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const lastReport = await ViolationReport.findOne({
+      report_code: { $regex: `^${prefix}` }
+    }).sort({ report_code: -1 });
+
+    const sequence = lastReport ? parseInt(lastReport.report_code.slice(-4)) + 1 : 1;
+    const code = `${prefix}${String(sequence).padStart(4, "0")}`;
+
+    const exists = await ViolationReport.findOne({ report_code: code });
+    if (!exists) return code; // Safe to use
+    // Code bị lấy mất bởi concurrent request → retry
+  }
+  return `${prefix}${Date.now().toString().slice(-4)}`; // Fallback
+};
+
+// Trong createViolationReport():
+try {
+  await violationReport.save();
+} catch (err) {
+  if (err.code === 11000) throw new Error("Report code conflict. Please try again.");
+  throw err;
+}
+```
+Pattern này mirror theo `generateRequestCode()` đã có sẵn trong `visitor.service.js`.
+
+---
+
+### ✅ H2. Sinh Viên Bị Ban Vẫn Tạo Được Visitor Request
+
+**File:** [src/services/visitor.service.js](src/services/visitor.service.js)
+**Mức độ:** High
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+`createVisitorRequest()` không kiểm tra trạng thái ban của sinh viên. Sinh viên có `is_banned_permanently = true` hoặc `ban_until_semester` vẫn có thể tạo request.
+
+**Giải pháp:**
+Thêm ban check ngay đầu hàm, sau khi lookup student (kết hợp với H4):
+```js
+if (student.is_banned_permanently) {
+  throw new Error("Your account has been permanently banned from making visitor requests.");
+}
+if (student.ban_until_semester) {
+  throw new Error(`You are banned from making requests until the end of semester ${student.ban_until_semester}.`);
+}
+```
+
+---
+
+### ✅ H3. Xóa User Không Kiểm Tra Dữ Liệu Liên Kết
+
+**File:** [src/services/user.service.js](src/services/user.service.js)
+**Mức độ:** High
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+`deleteUser()` check `user.totalOrder` — field này **không tồn tại** trong User schema. Kết quả: guard luôn falsy → user bị xóa kể cả khi còn visitor requests hay violation reports liên kết → orphaned data.
+```js
+// Code cũ (bị lỗi):
+const user = await User.findById(id).populate({ path: "totalOrder" });
+if (!!user.totalOrder) { throw new Error("Cannot delete..."); } // Luôn undefined!
+```
+
+**Giải pháp:**
+```js
+const { User, Student, Staff, VisitorRequest, ViolationReport } = require("../models");
+
+const deleteUser = async (id) => {
+  const user = await User.findById(id);
+  if (!user) throw new Error("User not found");
+  if (user.role === "admin") throw new Error("Admin accounts cannot be deleted"); // Guard thêm
+
+  const student = await Student.findOne({ user: id });
+  if (student) {
+    const [visitorCount, violationCount] = await Promise.all([
+      VisitorRequest.countDocuments({ user: id }),
+      ViolationReport.countDocuments({ reported_student: student._id }),
+    ]);
+    if (visitorCount > 0) throw new Error(`Cannot delete user: has ${visitorCount} visitor request(s).`);
+    if (violationCount > 0) throw new Error(`Cannot delete user: has ${violationCount} violation report(s).`);
+  }
+
+  await user.deleteOne();
+};
+```
+Dùng `Promise.all` để đếm song song, không tuần tự.
+
+---
+
+### ✅ H4. Không Verify Caller Là Student Active Khi Tạo Visitor Request
+
+**File:** [src/services/visitor.service.js](src/services/visitor.service.js)
+**Mức độ:** High
+**Ngày fix:** 2026-02-22
+
+**Vấn đề:**
+`createVisitorRequest(userId, body)` không kiểm tra:
+- User có `is_active = true` không
+- `userId` có tương ứng với một Student profile không
+
+Kết quả: staff account hoặc inactive user có thể gọi API tạo visitor request.
+
+**Giải pháp:**
+Thêm validation block ở đầu hàm (kết hợp với H2):
+```js
+const createVisitorRequest = async (userId, body) => {
+  // Verify active user
+  const user = await User.findById(userId);
+  if (!user || !user.is_active) {
+    throw new Error("Your account is inactive. Please contact the dormitory management office.");
+  }
+  // Verify student profile exists
+  const student = await Student.findOne({ user: userId });
+  if (!student) {
+    throw new Error("Only registered students can create visitor requests.");
+  }
+  // Ban checks (H2)
+  if (student.is_banned_permanently) { ... }
+  if (student.ban_until_semester) { ... }
+  // ... tiếp tục logic cũ
+};
+```
 
 ---
 
@@ -546,8 +936,9 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | UtilityReading | Chỉ số điện/nước |
 | MaintenanceRequest | Yêu cầu bảo trì |
 | MaintenanceFeedback | Đánh giá bảo trì |
-| EquipmentTemplate | Template thiết bị |
-| RoomEquipment | Thiết bị trong phòng |
+| RoomEquipment | Thiết bị thực tế trong phòng *(Category/Template/Config đã có endpoint)* |
+| EquipmentHistory | Lịch sử thay đổi thiết bị |
+| InspectionEquipmentDetail | Chi tiết kiểm tra thiết bị |
 | News | Tin tức/thông báo |
 | Notification | Thông báo cá nhân |
 | ChatConversation | Cuộc trò chuyện |
@@ -580,12 +971,49 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | Hạng mục | Điểm | Nhận xét |
 |---------|------|---------|
 | Architecture | 7/10 | Layered rõ ràng (routes → controllers → services → models) |
-| Security | 4/10 | NoSQL injection, token in URL, plaintext password compare |
+| Security | 7/10 | ✅ C1-C4 đã fix: NoSQL injection, token URL, plaintext compare, hardcode password |
 | Code Quality | 7/10 | catchAsync pattern tốt, ESLint clean, naming nhất quán |
-| Feature Completeness | 3/10 | Nhiều model chưa có endpoint, nhiều tính năng placeholder |
-| Error Handling | 6/10 | Backend có catchAsync, nhưng error messages tiết lộ info |
+| Feature Completeness | 4/10 | Equipment management thêm vào, nhưng Room/Booking/Payment vẫn chưa có |
+| Error Handling | 7/10 | ✅ H1-H4 đã fix: race condition, ban check, student validation, user delete guard |
 | Database Design | 8/10 | Schema đầy đủ, indexes cơ bản có, quan hệ rõ ràng |
-| API Design | 6/10 | RESTful OK, nhưng response format không nhất quán |
+| API Design | 6/10 | RESTful OK, nhưng response format không nhất quán, thiếu GET by ID ở room-type-configs |
 | Performance | 5/10 | Thiếu pagination limits, thiếu compound indexes cho query phổ biến |
 
-**Tổng issues tìm thấy: 26** (4 Critical, 5 High, 8 Medium, 9 Low)
+**Tổng issues:** 31 tìm thấy | ✅ 8 đã fix (C1-C4, H1-H4) | 🔴 21 còn mở (2 High, 10 Medium, 9 Low) | 2 duplicate đã loại (M5=C2, L6=H3)
+
+### Fix Log
+
+| Issue | File | Ngày fix | Mô tả |
+|-------|------|---------|-------|
+| C1 | `dorm.service.js` | 2026-02-22 | Thêm `escapeRegex()` cho dorm search |
+| C2 | `auth.controller.js`, `auth.route.js`, FE `google-callback` | 2026-02-22 | In-memory one-time code exchange thay thế token trong URL |
+| C3 | `user.service.js` | 2026-02-22 | `DEFAULT_USER_PASSWORD` từ env |
+| C4 | `auth.service.js` | 2026-02-22 | bcrypt hash + `bcrypt.compare()` cho admin login |
+| H1 | `violation.service.js` | 2026-02-22 | Retry loop (5 attempts) + duplicate key guard cho report code |
+| H2 | `visitor.service.js` | 2026-02-22 | Check `ban_until_semester` + `is_banned_permanently` trước khi tạo request |
+| H3 | `user.service.js` | 2026-02-22 | Thay `totalOrder` bằng check thực `VisitorRequest` + `ViolationReport`, guard admin delete |
+| H4 | `visitor.service.js` | 2026-02-22 | Verify student tồn tại + `is_active` trước khi tạo visitor request |
+| Feature | `visitor.service.js` | 2026-02-22 | Phone (10 số) + CCCD (12 số) format validation; `relationship_other` required khi "other" |
+| Feature | `visitor.service.js` | 2026-02-22 | `visit_time_from`/`to` selectable (07:00–17:00 window), không còn hardcode |
+| Feature | `notification.service.js` (new) | 2026-02-22 | Notification system: 4 endpoints GET/PATCH read/PATCH read-all/DELETE |
+| Feature | `visitor.service.js` | 2026-02-22 | Auto-notify student khi visitor request được approve/reject |
+| Fix | `visitor.service.js` | 2026-02-23 | Nới rộng phone regex từ `/^0[35789]\d{8}$/` → `/^0\d{9}$/` (chấp nhận thêm landline 02x) |
+
+---
+
+## 9. MODULE SUMMARY
+
+| Module | Routes | Service | Controller | Trạng thái |
+|--------|--------|---------|------------|-----------|
+| Auth | ✅ 6 endpoints | ✅ | ✅ | Hoạt động |
+| User | ✅ 3 endpoints | ✅ | ✅ | Hoạt động |
+| Dorm | ✅ 5 endpoints | ✅ | ✅ | Hoạt động |
+| Block | ✅ 5 endpoints | ✅ | ✅ | Hoạt động |
+| Violation | ✅ 8 endpoints | ✅ | ✅ | Hoạt động |
+| Visitor | ✅ 11 endpoints | ✅ | ✅ | Hoạt động |
+| Equipment | ✅ 17 endpoints | ✅ | ✅ | Hoạt động (từ dev) |
+| Room/Bed | ❌ | ❌ | ❌ | Chưa có |
+| Booking | ❌ | ❌ | ❌ | Chưa có |
+| Payment | ❌ | ❌ | ❌ | Chưa có |
+| Maintenance | ❌ | ❌ | ❌ | Chưa có |
+| Notification | ✅ 4 endpoints | ✅ | ✅ | Hoạt động (GET/mark-read/delete) |

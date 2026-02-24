@@ -1,8 +1,8 @@
 const XLSX = require("xlsx");
-const { User, Student, Staff } = require("../models");
+const { User, Student, Staff, VisitorRequest, ViolationReport } = require("../models");
 
 const VALID_IMPORT_ROLES = ["student", "manager", "security"];
-const DEFAULT_PASSWORD = "Student@123";
+const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD || "Student@123";
 
 /**
  * Escape special regex characters to prevent NoSQL injection
@@ -323,17 +323,31 @@ const getAllUsers = async (query = {}) => {
 };
 
 const deleteUser = async (id) => {
-  const user = await User.findById(id).populate({ path: "totalOrder" });
-
+  const user = await User.findById(id);
   if (!user) {
     throw new Error("User not found");
   }
 
-  if (!!user.totalOrder) {
-    throw new Error("Cannot delete users with existing orders");
+  if (user.role === "admin") {
+    throw new Error("Admin accounts cannot be deleted");
   }
 
-  await user.deleteOne({ _id: id });
+  // Guard: find the student/staff profile to check linked records
+  const student = await Student.findOne({ user: id });
+  if (student) {
+    const [visitorCount, violationCount] = await Promise.all([
+      VisitorRequest.countDocuments({ user: id }),
+      ViolationReport.countDocuments({ reported_student: student._id }),
+    ]);
+    if (visitorCount > 0) {
+      throw new Error(`Cannot delete user: has ${visitorCount} visitor request(s) on record.`);
+    }
+    if (violationCount > 0) {
+      throw new Error(`Cannot delete user: has ${violationCount} violation report(s) on record.`);
+    }
+  }
+
+  await user.deleteOne();
 };
 
 const importFromExcel = async (fileBuffer) => {

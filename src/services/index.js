@@ -6,3 +6,4 @@ module.exports.violationService = require("./violation.service");
 module.exports.blockService = require("./block.service");
 module.exports.visitorService = require("./visitor.service");
 module.exports.equipmentService = require("./equipment.service");
+module.exports.notificationService = require("./notification.service");

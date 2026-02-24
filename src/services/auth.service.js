@@ -1,5 +1,20 @@
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 const { User, Student, Staff } = require("../models");
+
+// Hash ADMIN_PASSWORD once at first use (prevents plaintext string comparison + timing attacks).
+// The raw password stays in .env for human readability; comparison is via bcrypt constant-time.
+let _adminPasswordHash = null;
+const getAdminPasswordHash = async () => {
+  if (_adminPasswordHash !== null) return _adminPasswordHash;
+  const raw = process.env.ADMIN_PASSWORD;
+  if (!raw) {
+    _adminPasswordHash = false;
+    return false;
+  }
+  _adminPasswordHash = await bcrypt.hash(raw, 10);
+  return _adminPasswordHash;
+};
 
 /**
  * Generate access token (short-lived)
@@ -54,8 +69,8 @@ const login = async (body) => {
 
   // Special-case: built-in admin account (credentials from .env)
   const adminUsername = process.env.ADMIN_USERNAME || "admin";
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  if (adminPassword && email === adminUsername && password === adminPassword) {
+  const adminPasswordHash = await getAdminPasswordHash();
+  if (adminPasswordHash && email === adminUsername && await bcrypt.compare(password, adminPasswordHash)) {
     // Ensure there is a real User document to back this admin
     const adminEmail = "admin@dorm.local";
 
@@ -267,6 +282,33 @@ const getProfile = async (userId) => {
   };
 };
 
+// ─── OAuth one-time code exchange store ───────────────────────────────────────
+// Stores { token, refreshToken, user, profile } keyed by a random code.
+// TTL: 5 minutes. Each code is single-use (deleted after exchange).
+const crypto = require("crypto");
+const _oauthStore = new Map();
+
+const storeOAuthData = (data) => {
+  // Purge expired entries
+  const now = Date.now();
+  for (const [k, v] of _oauthStore.entries()) {
+    if (v.expiresAt < now) _oauthStore.delete(k);
+  }
+  const code = crypto.randomBytes(32).toString("hex");
+  _oauthStore.set(code, { data, expiresAt: now + 5 * 60 * 1000 });
+  return code;
+};
+
+const exchangeOAuthCode = (code) => {
+  const entry = _oauthStore.get(code);
+  if (!entry || entry.expiresAt < Date.now()) {
+    _oauthStore.delete(code);
+    throw new Error("Invalid or expired OAuth code");
+  }
+  _oauthStore.delete(code); // single-use
+  return entry.data;
+};
+
 module.exports = {
   login,
   register,
@@ -274,4 +316,6 @@ module.exports = {
   generateToken,
   generateRefreshToken,
   refreshAccessToken,
+  storeOAuthData,
+  exchangeOAuthCode,
 };
