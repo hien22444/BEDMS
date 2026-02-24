@@ -5,6 +5,7 @@ const violationRoute = require("./violation.route");
 const blockRoute = require("./block.route");
 const visitorRoute = require("./visitor.route");
 const equipmentRoute = require("./equipment.route");
+const notificationRoute = require("./notification.route");
 
 const express = require("express");
 
@@ -38,6 +39,10 @@ const defaultRoutes = [
   {
     path: "/equipment",
     route: equipmentRoute,
+  },
+  {
+    path: "/notifications",
+    route: notificationRoute,
   },
 ];
 

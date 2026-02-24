@@ -6,3 +6,4 @@ module.exports.violationController = require("./violation.controller");
 module.exports.blockController = require("./block.controller");
 module.exports.visitorController = require("./visitor.controller");
 module.exports.equipmentController = require("./equipment.controller");
+module.exports.notificationController = require("./notification.controller");

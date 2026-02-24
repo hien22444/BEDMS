@@ -1,4 +1,21 @@
-const { VisitorRequest, Visitor, VisitorCheckin, User, Student } = require("../models");
+const { VisitorRequest, Visitor, VisitorCheckin, User, Student, Notification } = require("../models");
+
+// Vietnamese phone: 10 digits starting with 0 (covers mobile 03/05/07/08/09 and landlines 02x)
+const PHONE_REGEX = /^0\d{9}$/;
+// Citizen ID: exactly 12 digits (new CCCD format)
+const CCCD_REGEX = /^\d{12}$/;
+// Time string HH:MM (00:00–23:59)
+const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+// Allowed visit window boundaries
+const VISIT_WINDOW_START = "07:00";
+const VISIT_WINDOW_END   = "17:00";
+
+/** Compare two "HH:MM" strings: negative/0/positive */
+const cmpTime = (a, b) => {
+  const [ah, am] = a.split(":").map(Number);
+  const [bh, bm] = b.split(":").map(Number);
+  return ah * 60 + am - (bh * 60 + bm);
+};
 
 /**
  * Generate unique request code: VR-YYYYMMDD-XXXX
@@ -43,7 +60,25 @@ const generateRequestCode = async (maxRetries = 3) => {
  * @param {Object} body - { visit_date, visit_time_from, visit_time_to, purpose, visitors: [...] }
  */
 const createVisitorRequest = async (userId, body) => {
-  const { visit_date, purpose, visitors } = body;
+  const { visit_date, purpose, visitors, visit_time_from, visit_time_to } = body;
+
+  // H4: Verify the caller is an active student
+  const user = await User.findById(userId);
+  if (!user || !user.is_active) {
+    throw new Error("Your account is inactive. Please contact the dormitory management office.");
+  }
+  const student = await Student.findOne({ user: userId });
+  if (!student) {
+    throw new Error("Only registered students can create visitor requests.");
+  }
+
+  // H2: Enforce ban status before allowing any further processing
+  if (student.is_banned_permanently) {
+    throw new Error("Your account has been permanently banned from making visitor requests.");
+  }
+  if (student.ban_until_semester) {
+    throw new Error(`You are banned from making requests until the end of semester ${student.ban_until_semester}.`);
+  }
 
   if (!visit_date || !purpose) {
     throw new Error("visit_date and purpose are required");
@@ -66,11 +101,43 @@ const createVisitorRequest = async (userId, body) => {
     throw new Error("Maximum 5 visitors per request");
   }
 
+  // Validate visit time window
+  const timeFrom = visit_time_from || VISIT_WINDOW_START;
+  const timeTo   = visit_time_to   || VISIT_WINDOW_END;
+
+  if (!TIME_REGEX.test(timeFrom) || !TIME_REGEX.test(timeTo)) {
+    throw new Error("visit_time_from and visit_time_to must be in HH:MM format (e.g. 08:00)");
+  }
+  if (cmpTime(timeFrom, VISIT_WINDOW_START) < 0) {
+    throw new Error(`Visit time cannot start before ${VISIT_WINDOW_START}`);
+  }
+  if (cmpTime(timeTo, VISIT_WINDOW_END) > 0) {
+    throw new Error(`Visit time cannot end after ${VISIT_WINDOW_END}`);
+  }
+  if (cmpTime(timeFrom, timeTo) >= 0) {
+    throw new Error("visit_time_from must be earlier than visit_time_to");
+  }
+
   // Validate each visitor
   for (const v of visitors) {
     if (!v.full_name || !v.citizen_id || !v.phone || !v.relationship) {
       throw new Error(
         "Each visitor must have full_name, citizen_id, phone, and relationship"
+      );
+    }
+    if (!PHONE_REGEX.test(v.phone)) {
+      throw new Error(
+        `Invalid phone number for "${v.full_name}": must be a 10-digit Vietnamese mobile number (e.g. 0901234567)`
+      );
+    }
+    if (!CCCD_REGEX.test(v.citizen_id)) {
+      throw new Error(
+        `Invalid citizen ID for "${v.full_name}": must be exactly 12 digits`
+      );
+    }
+    if (v.relationship === "other" && !v.relationship_other) {
+      throw new Error(
+        `Please specify the relationship for visitor "${v.full_name}" (relationship_other is required when relationship is "other")`
       );
     }
   }
@@ -81,8 +148,8 @@ const createVisitorRequest = async (userId, body) => {
     request_code,
     user: userId,
     visit_date,
-    visit_time_from: "07:00",
-    visit_time_to: "17:00",
+    visit_time_from: timeFrom,
+    visit_time_to: timeTo,
     purpose,
   });
 
@@ -230,6 +297,18 @@ const approveVisitorRequest = async (requestId, userId) => {
   request.reviewed_at = new Date();
   request.reviewed_by = userId;
   await request.save();
+
+  // Notify the student
+  const visitDateStr = new Date(request.visit_date).toLocaleDateString("vi-VN");
+  await Notification.create({
+    user: request.user,
+    title: "Yêu cầu thăm người thân được duyệt",
+    message: `Yêu cầu ${request.request_code} của bạn đã được duyệt. Người thân có thể đến thăm vào ngày ${visitDateStr} từ ${request.visit_time_from} đến ${request.visit_time_to}.`,
+    notification_type: "success",
+    category: "visitor",
+    related_id: request._id.toString(),
+  });
+
   return request;
 };
 
@@ -248,6 +327,18 @@ const rejectVisitorRequest = async (requestId, userId, reason) => {
   request.reviewed_at = new Date();
   request.reviewed_by = userId;
   await request.save();
+
+  // Notify the student
+  const reasonText = reason ? ` Lý do: ${reason}` : "";
+  await Notification.create({
+    user: request.user,
+    title: "Yêu cầu thăm người thân bị từ chối",
+    message: `Yêu cầu ${request.request_code} của bạn đã bị từ chối.${reasonText}`,
+    notification_type: "warning",
+    category: "visitor",
+    related_id: request._id.toString(),
+  });
+
   return request;
 };
 

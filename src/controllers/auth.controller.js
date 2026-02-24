@@ -32,17 +32,17 @@ const getProfile = catchAsync(async (req, res) => {
 /**
  * Google OAuth callback
  * GET /v1/auth/google/callback
+ *
+ * Stores tokens in a short-lived server-side store and redirects FE with a
+ * one-time exchange code instead of exposing tokens in the URL.
  */
 const googleCallback = catchAsync(async (req, res) => {
-  // User data comes from passport strategy
   const { user, profile } = req.user;
 
-  // Generate JWT tokens
   const tokenPayload = { id: user._id, role: user.role };
   const token = authService.generateToken(tokenPayload);
   const refreshTkn = authService.generateRefreshToken(tokenPayload);
 
-  // Prepare user data for frontend
   const userData = {
     id: user._id,
     email: user.email,
@@ -53,14 +53,24 @@ const googleCallback = catchAsync(async (req, res) => {
     google_id: user.google_id,
   };
 
-  // Redirect to frontend with token and user data
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const encodedUser = encodeURIComponent(JSON.stringify(userData));
-  const encodedProfile = encodeURIComponent(JSON.stringify(profile));
+  // Store sensitive data server-side; give FE a one-time opaque code
+  const code = authService.storeOAuthData({ token, refreshToken: refreshTkn, user: userData, profile });
 
-  res.redirect(
-    `${frontendUrl}/auth/google/callback?token=${token}&refreshToken=${refreshTkn}&user=${encodedUser}&profile=${encodedProfile}`
-  );
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  res.redirect(`${frontendUrl}/auth/google/callback?code=${code}`);
+});
+
+/**
+ * Exchange one-time OAuth code for tokens
+ * GET /v1/auth/google/exchange?code=<code>
+ */
+const exchangeOAuthCode = catchAsync(async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.status(httpStatus.BAD_REQUEST).json({ success: false, message: 'Missing code' });
+  }
+  const data = authService.exchangeOAuthCode(code);
+  res.success(data, httpStatus.OK);
 });
 
 /**
@@ -78,5 +88,6 @@ module.exports = {
   register,
   getProfile,
   googleCallback,
+  exchangeOAuthCode,
   refreshToken,
 };

@@ -3,26 +3,37 @@ const { ViolationReport, Penalty, Student, Staff } = require("../models");
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Generate unique report code
+ * Generate unique report code with retry loop to handle concurrent requests.
+ * Pattern: VRYYMMDDxxxx (e.g. VR2602220001)
  */
-const generateReportCode = async () => {
+const generateReportCode = async (maxRetries = 5) => {
   const date = new Date();
   const year = date.getFullYear().toString().slice(-2);
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   const prefix = `VR${year}${month}${day}`;
 
-  const lastReport = await ViolationReport.findOne({
-    report_code: { $regex: `^${prefix}` },
-  }).sort({ report_code: -1 });
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const lastReport = await ViolationReport.findOne({
+      report_code: { $regex: `^${prefix}` },
+    }).sort({ report_code: -1 });
 
-  let sequence = 1;
-  if (lastReport) {
-    const lastSequence = parseInt(lastReport.report_code.slice(-4));
-    sequence = lastSequence + 1;
+    let sequence = 1;
+    if (lastReport) {
+      const lastSequence = parseInt(lastReport.report_code.slice(-4));
+      sequence = lastSequence + 1;
+    }
+
+    const code = `${prefix}${String(sequence).padStart(4, "0")}`;
+
+    // Check if code is already taken (race condition guard)
+    const exists = await ViolationReport.findOne({ report_code: code });
+    if (!exists) return code;
+    // Code collided — loop and try next sequence
   }
 
-  return `${prefix}${String(sequence).padStart(4, "0")}`;
+  // Fallback: timestamp-based suffix (collision-safe for edge cases)
+  return `${prefix}${Date.now().toString().slice(-4)}`;
 };
 
 /**
@@ -67,7 +78,15 @@ const createViolationReport = async (body) => {
     status: "new",
   });
 
-  await violationReport.save();
+  try {
+    await violationReport.save();
+  } catch (err) {
+    // Duplicate key on report_code is a last-resort race condition; surface a clear error
+    if (err.code === 11000) {
+      throw new Error("Report code conflict. Please try again.");
+    }
+    throw err;
+  }
 
   return violationReport.populate([
     { path: "reported_student", select: "student_code full_name" },
