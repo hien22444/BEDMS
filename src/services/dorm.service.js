@@ -1,4 +1,5 @@
 const Dorm = require("../models/dorm.model");
+const Block = require("../models/block.model");
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -7,10 +8,15 @@ const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * @param {Object} body
  */
 const createDorm = async (body) => {
-  const { dorm_name, dorm_code } = body;
+  const { dorm_name, dorm_code, total_floors } = body;
 
   if (!dorm_name || !dorm_code) {
     throw new Error("dorm_name and dorm_code are required");
+  }
+
+  const floors = Number(total_floors);
+  if (!Number.isFinite(floors) || floors < 1) {
+    throw new Error("total_floors is required and must be at least 1");
   }
 
   const existing = await Dorm.findOne({ dorm_code: dorm_code.trim() });
@@ -21,7 +27,8 @@ const createDorm = async (body) => {
   const dorm = await Dorm.create({
     dorm_name: dorm_name.trim(),
     dorm_code: dorm_code.trim(),
-    total_blocks: body.total_blocks,
+    total_floors: floors,
+    total_blocks: 0,
     description: body.description,
     is_active: body.is_active,
   });
@@ -93,14 +100,30 @@ const updateDorm = async (id, body) => {
     }
   }
 
+  if (typeof body.total_floors !== "undefined") {
+    const floors = Number(body.total_floors);
+    if (!Number.isFinite(floors) || floors < 1) {
+      throw new Error("total_floors must be at least 1");
+    }
+    const blockWithHigherFloor = await Block.findOne({
+      dorm: id,
+      floor: { $gt: floors },
+    });
+    if (blockWithHigherFloor) {
+      throw new Error(
+        "Cannot set total_floors below current blocks: some blocks are on higher floors. Move or remove them first."
+      );
+    }
+  }
+
   const dorm = await Dorm.findByIdAndUpdate(
     id,
     {
       $set: {
         ...(body.dorm_name && { dorm_name: body.dorm_name }),
         ...(body.dorm_code && { dorm_code: body.dorm_code }),
-        ...(typeof body.total_blocks !== "undefined" && {
-          total_blocks: body.total_blocks,
+        ...(typeof body.total_floors !== "undefined" && {
+          total_floors: body.total_floors,
         }),
         ...(typeof body.description !== "undefined" && {
           description: body.description,
