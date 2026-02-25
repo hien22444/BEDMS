@@ -1,13 +1,14 @@
-const express = require("express");
+const express = require('express');
 
-const cors = require("cors");
-const helmet = require("helmet");
-const cookieParser = require("cookie-parser");
-const routes = require("./routes");
-const path = require("path");
-const responseHandler = require("./middleware/responseHandle");
-const { mongo } = require("./utils");
-require("dotenv").config();
+const cors = require('cors');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const routes = require('./routes');
+const path = require('path');
+const responseHandler = require('./middleware/responseHandle');
+const { mongo } = require('./utils');
+const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
+require('dotenv').config();
 
 const app = express();
 
@@ -16,8 +17,8 @@ app.use(helmet());
 
 // CORS — configurable via environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
-  : ["http://localhost:5173", "http://127.0.0.1:5173"];
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://127.0.0.1:5173'];
 
 app.use(
   cors({
@@ -31,22 +32,22 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(responseHandler);
 
-app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
 
 // v1 api routes
-app.use("/", routes);
+app.use('/', routes);
 
-app.use("*", (req, res) => {
+app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: "Route not found",
+    message: 'Route not found',
   });
 });
 
 // Error handler — don't leak internal details in production
 app.use((err, req, res, _next) => {
-  const isDev = process.env.NODE_ENV === "develop" || process.env.NODE_ENV === "development";
+  const isDev = process.env.NODE_ENV === 'develop' || process.env.NODE_ENV === 'development';
 
   if (isDev) {
     console.error(err.stack);
@@ -54,7 +55,7 @@ app.use((err, req, res, _next) => {
 
   res.status(500).json({
     success: false,
-    message: isDev ? err.message : "Internal server error",
+    message: isDev ? err.message : 'Internal server error',
   });
 });
 
@@ -62,6 +63,7 @@ const PORT = process.env.PORT || 3001;
 
 const startServer = async () => {
   await mongo.connect();
+  scheduleVisitorExpiry();
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`API Documentation: http://localhost:${PORT}/v1`);

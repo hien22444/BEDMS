@@ -1,4 +1,11 @@
-const { VisitorRequest, Visitor, VisitorCheckin, User, Student, Notification } = require("../models");
+const {
+  VisitorRequest,
+  Visitor,
+  VisitorCheckin,
+  User,
+  Student,
+  Notification,
+} = require('../models');
 
 // Vietnamese phone: 10 digits starting with 0 (covers mobile 03/05/07/08/09 and landlines 02x)
 const PHONE_REGEX = /^0\d{9}$/;
@@ -7,13 +14,13 @@ const CCCD_REGEX = /^\d{12}$/;
 // Time string HH:MM (00:00–23:59)
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 // Allowed visit window boundaries
-const VISIT_WINDOW_START = "07:00";
-const VISIT_WINDOW_END   = "17:00";
+const VISIT_WINDOW_START = '07:00';
+const VISIT_WINDOW_END = '17:00';
 
 /** Compare two "HH:MM" strings: negative/0/positive */
 const cmpTime = (a, b) => {
-  const [ah, am] = a.split(":").map(Number);
-  const [bh, bm] = b.split(":").map(Number);
+  const [ah, am] = a.split(':').map(Number);
+  const [bh, bm] = b.split(':').map(Number);
   return ah * 60 + am - (bh * 60 + bm);
 };
 
@@ -25,8 +32,8 @@ const generateRequestCode = async (maxRetries = 3) => {
   const today = new Date();
   const dateStr =
     today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, "0") +
-    String(today.getDate()).padStart(2, "0");
+    String(today.getMonth() + 1).padStart(2, '0') +
+    String(today.getDate()).padStart(2, '0');
   const prefix = `VR-${dateStr}-`;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -36,11 +43,11 @@ const generateRequestCode = async (maxRetries = 3) => {
 
     let seq = 1;
     if (lastRequest) {
-      const lastSeq = parseInt(lastRequest.request_code.split("-").pop(), 10);
+      const lastSeq = parseInt(lastRequest.request_code.split('-').pop(), 10);
       seq = lastSeq + 1;
     }
 
-    const code = `${prefix}${String(seq).padStart(4, "0")}`;
+    const code = `${prefix}${String(seq).padStart(4, '0')}`;
 
     // Check if code already exists (race condition guard)
     const exists = await VisitorRequest.findOne({ request_code: code });
@@ -65,23 +72,25 @@ const createVisitorRequest = async (userId, body) => {
   // H4: Verify the caller is an active student
   const user = await User.findById(userId);
   if (!user || !user.is_active) {
-    throw new Error("Your account is inactive. Please contact the dormitory management office.");
+    throw new Error('Your account is inactive. Please contact the dormitory management office.');
   }
   const student = await Student.findOne({ user: userId });
   if (!student) {
-    throw new Error("Only registered students can create visitor requests.");
+    throw new Error('Only registered students can create visitor requests.');
   }
 
   // H2: Enforce ban status before allowing any further processing
   if (student.is_banned_permanently) {
-    throw new Error("Your account has been permanently banned from making visitor requests.");
+    throw new Error('Your account has been permanently banned from making visitor requests.');
   }
   if (student.ban_until_semester) {
-    throw new Error(`You are banned from making requests until the end of semester ${student.ban_until_semester}.`);
+    throw new Error(
+      `You are banned from making requests until the end of semester ${student.ban_until_semester}.`
+    );
   }
 
   if (!visit_date || !purpose) {
-    throw new Error("visit_date and purpose are required");
+    throw new Error('visit_date and purpose are required');
   }
 
   // Validate visit_date is not in the past
@@ -90,23 +99,23 @@ const createVisitorRequest = async (userId, body) => {
   const visitDate = new Date(visit_date);
   visitDate.setHours(0, 0, 0, 0);
   if (visitDate < today) {
-    throw new Error("visit_date cannot be in the past");
+    throw new Error('visit_date cannot be in the past');
   }
 
   if (!visitors || !Array.isArray(visitors) || visitors.length === 0) {
-    throw new Error("At least one visitor is required");
+    throw new Error('At least one visitor is required');
   }
 
   if (visitors.length > 5) {
-    throw new Error("Maximum 5 visitors per request");
+    throw new Error('Maximum 5 visitors per request');
   }
 
   // Validate visit time window
   const timeFrom = visit_time_from || VISIT_WINDOW_START;
-  const timeTo   = visit_time_to   || VISIT_WINDOW_END;
+  const timeTo = visit_time_to || VISIT_WINDOW_END;
 
   if (!TIME_REGEX.test(timeFrom) || !TIME_REGEX.test(timeTo)) {
-    throw new Error("visit_time_from and visit_time_to must be in HH:MM format (e.g. 08:00)");
+    throw new Error('visit_time_from and visit_time_to must be in HH:MM format (e.g. 08:00)');
   }
   if (cmpTime(timeFrom, VISIT_WINDOW_START) < 0) {
     throw new Error(`Visit time cannot start before ${VISIT_WINDOW_START}`);
@@ -115,15 +124,13 @@ const createVisitorRequest = async (userId, body) => {
     throw new Error(`Visit time cannot end after ${VISIT_WINDOW_END}`);
   }
   if (cmpTime(timeFrom, timeTo) >= 0) {
-    throw new Error("visit_time_from must be earlier than visit_time_to");
+    throw new Error('visit_time_from must be earlier than visit_time_to');
   }
 
   // Validate each visitor
   for (const v of visitors) {
     if (!v.full_name || !v.citizen_id || !v.phone || !v.relationship) {
-      throw new Error(
-        "Each visitor must have full_name, citizen_id, phone, and relationship"
-      );
+      throw new Error('Each visitor must have full_name, citizen_id, phone, and relationship');
     }
     if (!PHONE_REGEX.test(v.phone)) {
       throw new Error(
@@ -131,11 +138,9 @@ const createVisitorRequest = async (userId, body) => {
       );
     }
     if (!CCCD_REGEX.test(v.citizen_id)) {
-      throw new Error(
-        `Invalid citizen ID for "${v.full_name}": must be exactly 12 digits`
-      );
+      throw new Error(`Invalid citizen ID for "${v.full_name}": must be exactly 12 digits`);
     }
-    if (v.relationship === "other" && !v.relationship_other) {
+    if (v.relationship === 'other' && !v.relationship_other) {
       throw new Error(
         `Please specify the relationship for visitor "${v.full_name}" (relationship_other is required when relationship is "other")`
       );
@@ -166,10 +171,10 @@ const createVisitorRequest = async (userId, body) => {
         relationship_other: v.relationship_other || null,
       }))
     );
-  } catch (err) {
+  } catch {
     // Rollback: delete the orphaned request
     await VisitorRequest.findByIdAndDelete(request._id);
-    throw new Error("Failed to create visitors. Request has been rolled back.");
+    throw new Error('Failed to create visitors. Request has been rolled back.');
   }
 
   return {
@@ -182,9 +187,7 @@ const createVisitorRequest = async (userId, body) => {
  * Get visitor requests for the authenticated student
  */
 const getMyVisitorRequests = async (userId) => {
-  const requests = await VisitorRequest.find({ user: userId })
-    .sort({ createdAt: -1 })
-    .lean();
+  const requests = await VisitorRequest.find({ user: userId }).sort({ createdAt: -1 }).lean();
 
   // Attach visitors + checkin records to each request
   const requestIds = requests.map((r) => r._id);
@@ -203,9 +206,7 @@ const getMyVisitorRequests = async (userId) => {
       .map((v) => ({
         ...v,
         id: v._id,
-        checkin:
-          checkins.find((c) => c.visitor.toString() === v._id.toString()) ||
-          null,
+        checkin: checkins.find((c) => c.visitor.toString() === v._id.toString()) || null,
       })),
   }));
 };
@@ -215,15 +216,15 @@ const getMyVisitorRequests = async (userId) => {
  */
 const cancelVisitorRequest = async (requestId, userId) => {
   const request = await VisitorRequest.findById(requestId);
-  if (!request) throw new Error("Request not found");
+  if (!request) throw new Error('Request not found');
   if (request.user.toString() !== userId.toString()) {
-    throw new Error("You can only cancel your own requests");
+    throw new Error('You can only cancel your own requests');
   }
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be cancelled");
+  if (request.status !== 'pending') {
+    throw new Error('Only pending requests can be cancelled');
   }
 
-  request.status = "cancelled";
+  request.status = 'cancelled';
   await request.save();
   return request;
 };
@@ -237,7 +238,7 @@ const getAllVisitorRequests = async (query = {}) => {
   if (status) filter.status = status;
 
   const requests = await VisitorRequest.find(filter)
-    .populate("user", "email fullname role")
+    .populate('user', 'email fullname role')
     .sort({ createdAt: -1 })
     .skip((page - 1) * limit)
     .limit(parseInt(limit, 10))
@@ -273,9 +274,7 @@ const getAllVisitorRequests = async (query = {}) => {
         .map((v) => ({
           ...v,
           id: v._id,
-          checkin:
-            checkins.find((c) => c.visitor.toString() === v._id.toString()) ||
-            null,
+          checkin: checkins.find((c) => c.visitor.toString() === v._id.toString()) || null,
         })),
     };
   });
@@ -288,24 +287,24 @@ const getAllVisitorRequests = async (query = {}) => {
  */
 const approveVisitorRequest = async (requestId, userId) => {
   const request = await VisitorRequest.findById(requestId);
-  if (!request) throw new Error("Request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be approved");
+  if (!request) throw new Error('Request not found');
+  if (request.status !== 'pending') {
+    throw new Error('Only pending requests can be approved');
   }
 
-  request.status = "approved";
+  request.status = 'approved';
   request.reviewed_at = new Date();
   request.reviewed_by = userId;
   await request.save();
 
   // Notify the student
-  const visitDateStr = new Date(request.visit_date).toLocaleDateString("vi-VN");
+  const visitDateStr = new Date(request.visit_date).toLocaleDateString('vi-VN');
   await Notification.create({
     user: request.user,
-    title: "Yêu cầu thăm người thân được duyệt",
+    title: 'Yêu cầu thăm người thân được duyệt',
     message: `Yêu cầu ${request.request_code} của bạn đã được duyệt. Người thân có thể đến thăm vào ngày ${visitDateStr} từ ${request.visit_time_from} đến ${request.visit_time_to}.`,
-    notification_type: "success",
-    category: "visitor",
+    notification_type: 'success',
+    category: 'visitor',
     related_id: request._id.toString(),
   });
 
@@ -317,25 +316,25 @@ const approveVisitorRequest = async (requestId, userId) => {
  */
 const rejectVisitorRequest = async (requestId, userId, reason) => {
   const request = await VisitorRequest.findById(requestId);
-  if (!request) throw new Error("Request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be rejected");
+  if (!request) throw new Error('Request not found');
+  if (request.status !== 'pending') {
+    throw new Error('Only pending requests can be rejected');
   }
 
-  request.status = "rejected";
-  request.rejection_reason = reason || "";
+  request.status = 'rejected';
+  request.rejection_reason = reason || '';
   request.reviewed_at = new Date();
   request.reviewed_by = userId;
   await request.save();
 
   // Notify the student
-  const reasonText = reason ? ` Lý do: ${reason}` : "";
+  const reasonText = reason ? ` Lý do: ${reason}` : '';
   await Notification.create({
     user: request.user,
-    title: "Yêu cầu thăm người thân bị từ chối",
+    title: 'Yêu cầu thăm người thân bị từ chối',
     message: `Yêu cầu ${request.request_code} của bạn đã bị từ chối.${reasonText}`,
-    notification_type: "warning",
-    category: "visitor",
+    notification_type: 'warning',
+    category: 'visitor',
     related_id: request._id.toString(),
   });
 
@@ -345,11 +344,11 @@ const rejectVisitorRequest = async (requestId, userId, reason) => {
 /**
  * Complete a visitor request (security marks it manually)
  */
-const completeVisitorRequest = async (requestId, userId) => {
+const completeVisitorRequest = async (requestId, _userId) => {
   const request = await VisitorRequest.findById(requestId);
-  if (!request) throw new Error("Request not found");
-  if (request.status !== "approved") {
-    throw new Error("Only approved requests can be completed");
+  if (!request) throw new Error('Request not found');
+  if (request.status !== 'approved') {
+    throw new Error('Only approved requests can be completed');
   }
 
   // Check all visitors have checked out
@@ -357,17 +356,13 @@ const completeVisitorRequest = async (requestId, userId) => {
   const checkins = await VisitorCheckin.find({ request: requestId });
 
   for (const visitor of visitors) {
-    const checkin = checkins.find(
-      (c) => c.visitor.toString() === visitor._id.toString()
-    );
+    const checkin = checkins.find((c) => c.visitor.toString() === visitor._id.toString());
     if (!checkin || !checkin.check_out_time) {
-      throw new Error(
-        "All visitors must be checked out before completing the request"
-      );
+      throw new Error('All visitors must be checked out before completing the request');
     }
   }
 
-  request.status = "completed";
+  request.status = 'completed';
   await request.save();
   return request;
 };
@@ -377,16 +372,16 @@ const completeVisitorRequest = async (requestId, userId) => {
  */
 const checkinVisitor = async (requestId, visitorId, userId) => {
   const request = await VisitorRequest.findById(requestId);
-  if (!request) throw new Error("Request not found");
-  if (request.status !== "approved") {
-    throw new Error("Request must be approved before check-in");
+  if (!request) throw new Error('Request not found');
+  if (request.status !== 'approved') {
+    throw new Error('Request must be approved before check-in');
   }
 
   const visitor = await Visitor.findOne({
     _id: visitorId,
     request: requestId,
   });
-  if (!visitor) throw new Error("Visitor not found in this request");
+  if (!visitor) throw new Error('Visitor not found in this request');
 
   // Check if already checked in
   const existing = await VisitorCheckin.findOne({
@@ -394,7 +389,7 @@ const checkinVisitor = async (requestId, visitorId, userId) => {
     visitor: visitorId,
     check_out_time: null,
   });
-  if (existing) throw new Error("Visitor is already checked in");
+  if (existing) throw new Error('Visitor is already checked in');
 
   const checkin = await VisitorCheckin.create({
     request: requestId,
@@ -411,8 +406,8 @@ const checkinVisitor = async (requestId, visitorId, userId) => {
  */
 const checkoutVisitor = async (checkinId, userId) => {
   const checkin = await VisitorCheckin.findById(checkinId);
-  if (!checkin) throw new Error("Check-in record not found");
-  if (checkin.check_out_time) throw new Error("Visitor already checked out");
+  if (!checkin) throw new Error('Check-in record not found');
+  if (checkin.check_out_time) throw new Error('Visitor already checked out');
 
   checkin.check_out_time = new Date();
   checkin.checked_out_by = userId;
@@ -427,21 +422,19 @@ const checkoutVisitor = async (checkinId, userId) => {
 const getActiveVisitors = async () => {
   const checkins = await VisitorCheckin.find({ check_out_time: null })
     .populate({
-      path: "visitor",
-      select: "full_name citizen_id phone relationship",
+      path: 'visitor',
+      select: 'full_name citizen_id phone relationship',
     })
     .populate({
-      path: "request",
-      select: "request_code user visit_date visit_time_from visit_time_to",
-      populate: { path: "user", select: "email fullname" },
+      path: 'request',
+      select: 'request_code user visit_date visit_time_from visit_time_to',
+      populate: { path: 'user', select: 'email fullname' },
     })
     .sort({ check_in_time: -1 })
     .lean();
 
   // Attach student info
-  const userIds = checkins
-    .map((c) => c.request?.user?._id || c.request?.user)
-    .filter(Boolean);
+  const userIds = checkins.map((c) => c.request?.user?._id || c.request?.user).filter(Boolean);
   const students = await Student.find({ user: { $in: userIds } }).lean();
   const studentMap = {};
   students.forEach((s) => {
@@ -449,8 +442,7 @@ const getActiveVisitors = async () => {
   });
 
   return checkins.map((c) => {
-    const userId =
-      c.request?.user?._id?.toString() || c.request?.user?.toString();
+    const userId = c.request?.user?._id?.toString() || c.request?.user?.toString();
     return {
       ...c,
       id: c._id,
@@ -464,11 +456,11 @@ const getActiveVisitors = async () => {
  */
 const getVisitorRequestDetail = async (requestId) => {
   const request = await VisitorRequest.findById(requestId)
-    .populate("user", "email fullname")
-    .populate("reviewed_by", "email fullname")
+    .populate('user', 'email fullname')
+    .populate('reviewed_by', 'email fullname')
     .lean();
 
-  if (!request) throw new Error("Request not found");
+  if (!request) throw new Error('Request not found');
 
   const visitors = await Visitor.find({ request: requestId }).lean();
   const checkins = await VisitorCheckin.find({ request: requestId }).lean();
@@ -484,9 +476,7 @@ const getVisitorRequestDetail = async (requestId) => {
     visitors: visitors.map((v) => ({
       ...v,
       id: v._id,
-      checkin: checkins.find(
-        (c) => c.visitor.toString() === v._id.toString()
-      ) || null,
+      checkin: checkins.find((c) => c.visitor.toString() === v._id.toString()) || null,
     })),
   };
 };

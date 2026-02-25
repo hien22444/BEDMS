@@ -1,7 +1,7 @@
-const { SystemConfig, Room } = require("../models");
-const AppError = require("../utils/AppError");
+const { SystemConfig, Room } = require('../models');
+const AppError = require('../utils/AppError');
 
-const CONFIG_KEY = "room_type_pricing";
+const CONFIG_KEY = 'room_type_pricing';
 
 const DEFAULT_PRICING = {};
 
@@ -13,14 +13,14 @@ const getRoomTypePricing = async () => {
     config = await SystemConfig.create({
       config_key: CONFIG_KEY,
       config_value: JSON.stringify(DEFAULT_PRICING),
-      description: "Room type pricing (per semester)",
-      value_type: "json",
+      description: 'Room type pricing (per semester)',
+      value_type: 'json',
     });
   }
 
   let prices;
   try {
-    prices = JSON.parse(config.config_value || "{}");
+    prices = JSON.parse(config.config_value || '{}');
   } catch {
     prices = DEFAULT_PRICING;
   }
@@ -30,8 +30,8 @@ const getRoomTypePricing = async () => {
 
 const updateRoomTypePricing = async (body) => {
   const { prices } = body || {};
-  if (!prices || typeof prices !== "object") {
-    throw new AppError("prices must be an object of { room_type: number }", 400);
+  if (!prices || typeof prices !== 'object') {
+    throw new AppError('prices must be an object of { room_type: number }', 400);
   }
 
   // Load existing config so we can detect which room types are being deleted
@@ -39,7 +39,7 @@ const updateRoomTypePricing = async (body) => {
   let previousPrices = {};
   if (existingConfig && existingConfig.config_value) {
     try {
-      previousPrices = JSON.parse(existingConfig.config_value || "{}");
+      previousPrices = JSON.parse(existingConfig.config_value || '{}');
     } catch {
       previousPrices = {};
     }
@@ -54,13 +54,14 @@ const updateRoomTypePricing = async (body) => {
     const match = /^(\d+)_person$/i.exec(roomType);
     if (!match) {
       throw new AppError(
-        `Invalid room type key: "${roomType}". Expected format "<beds>_person", e.g. "2_person" or "3_person".`
-      , 400);
+        `Invalid room type key: "${roomType}". Expected format "<beds>_person", e.g. "2_person" or "3_person".`,
+        400
+      );
     }
 
     const beds = parseInt(match[1], 10);
     if (!Number.isFinite(beds) || beds <= 1) {
-      throw new AppError("Room type must have number of beds greater than 1", 400);
+      throw new AppError('Room type must have number of beds greater than 1', 400);
     }
 
     const price = Number(value);
@@ -75,9 +76,7 @@ const updateRoomTypePricing = async (body) => {
   });
 
   // Determine which room types are being removed and ensure they are not linked to any Room
-  const deletedRoomTypes = Object.keys(previousPrices).filter(
-    (key) => !(key in cleaned)
-  );
+  const deletedRoomTypes = Object.keys(previousPrices).filter((key) => !(key in cleaned));
 
   for (const roomType of deletedRoomTypes) {
     const inUse = await Room.exists({ room_type: roomType });
@@ -91,13 +90,13 @@ const updateRoomTypePricing = async (body) => {
 
   const json = JSON.stringify(cleaned);
 
-  const config = await SystemConfig.findOneAndUpdate(
+  await SystemConfig.findOneAndUpdate(
     { config_key: CONFIG_KEY },
     {
       config_key: CONFIG_KEY,
       config_value: json,
-      description: "Room type pricing (per semester)",
-      value_type: "json",
+      description: 'Room type pricing (per semester)',
+      value_type: 'json',
       updated_at: new Date(),
     },
     { upsert: true, new: true }
@@ -107,10 +106,7 @@ const updateRoomTypePricing = async (body) => {
   // always matches the latest pricing for their room_type
   await Promise.all(
     Object.entries(cleaned).map(([roomType, price]) =>
-      Room.updateMany(
-        { room_type: roomType },
-        { price_per_semester: price },
-      )
+      Room.updateMany({ room_type: roomType }, { price_per_semester: price })
     )
   );
 
@@ -121,4 +117,3 @@ module.exports = {
   getRoomTypePricing,
   updateRoomTypePricing,
 };
-
