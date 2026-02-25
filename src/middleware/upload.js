@@ -10,7 +10,7 @@ const excelFilter = (req, file, cb) => {
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("Only Excel files (.xlsx, .xls) are accepted"), false);
+    cb(new Error("Only Excel files are accepted (.xlsx, .xls)"), false);
   }
 };
 

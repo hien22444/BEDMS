@@ -3,7 +3,7 @@ const { userService } = require("../services");
 const catchAsync = require("../utils/catchAsync");
 
 const getAllUsers = catchAsync(async (req, res) => {
-  const data = await userService.getAllUsers();
+  const data = await userService.getAllUsers(req.query);
 
   res.success(data, status.OK);
 });
