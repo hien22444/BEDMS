@@ -4,4 +4,6 @@ module.exports.userService = require("./user.service");
 module.exports.dormService = require("./dorm.service");
 module.exports.violationService = require("./violation.service");
 module.exports.blockService = require("./block.service");
+module.exports.roomService = require("./room.service");
+module.exports.roomTypePricingService = require("./roomTypePricing.service");
 module.exports.equipmentService = require("./equipment.service");
