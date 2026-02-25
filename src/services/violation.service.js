@@ -1,6 +1,6 @@
-const { ViolationReport, Penalty, Student, Staff } = require("../models");
+const { ViolationReport, Penalty, Student } = require('../models');
 
-const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Generate unique report code with retry loop to handle concurrent requests.
@@ -9,8 +9,8 @@ const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const generateReportCode = async (maxRetries = 5) => {
   const date = new Date();
   const year = date.getFullYear().toString().slice(-2);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   const prefix = `VR${year}${month}${day}`;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -24,7 +24,7 @@ const generateReportCode = async (maxRetries = 5) => {
       sequence = lastSequence + 1;
     }
 
-    const code = `${prefix}${String(sequence).padStart(4, "0")}`;
+    const code = `${prefix}${String(sequence).padStart(4, '0')}`;
 
     // Check if code is already taken (race condition guard)
     const exists = await ViolationReport.findOne({ report_code: code });
@@ -75,7 +75,7 @@ const createViolationReport = async (body) => {
     evidence_urls: body.evidence_urls || [],
     violation_date: body.violation_date,
     location: body.location,
-    status: "new",
+    status: 'new',
   });
 
   try {
@@ -83,14 +83,14 @@ const createViolationReport = async (body) => {
   } catch (err) {
     // Duplicate key on report_code is a last-resort race condition; surface a clear error
     if (err.code === 11000) {
-      throw new Error("Report code conflict. Please try again.");
+      throw new Error('Report code conflict. Please try again.');
     }
     throw err;
   }
 
   return violationReport.populate([
-    { path: "reported_student", select: "student_code full_name" },
-    { path: "reporter", select: "fullname email" },
+    { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reporter', select: 'fullname email' },
   ]);
 };
 
@@ -140,9 +140,9 @@ const getAllViolationReports = async (query = {}) => {
   const [reports, total] = await Promise.all([
     ViolationReport.find(filter)
       .populate([
-        { path: "reported_student", select: "student_code full_name phone behavioral_score" },
-        { path: "reporter", select: "fullname email" },
-        { path: "reviewed_by", select: "full_name" },
+        { path: 'reported_student', select: 'student_code full_name phone behavioral_score' },
+        { path: 'reporter', select: 'fullname email' },
+        { path: 'reviewed_by', select: 'full_name' },
       ])
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -166,13 +166,16 @@ const getAllViolationReports = async (query = {}) => {
  */
 const getViolationReportById = async (id) => {
   const report = await ViolationReport.findById(id).populate([
-    { path: "reported_student", select: "student_code full_name phone behavioral_score violations_current_semester" },
-    { path: "reporter", select: "fullname email" },
-    { path: "reviewed_by", select: "full_name" },
+    {
+      path: 'reported_student',
+      select: 'student_code full_name phone behavioral_score violations_current_semester',
+    },
+    { path: 'reporter', select: 'fullname email' },
+    { path: 'reviewed_by', select: 'full_name' },
   ]);
 
   if (!report) {
-    throw new Error("Violation report not found");
+    throw new Error('Violation report not found');
   }
 
   return report;
@@ -184,7 +187,7 @@ const getViolationReportById = async (id) => {
 const reviewViolationReport = async (id, body, staffId) => {
   const report = await ViolationReport.findById(id);
   if (!report) {
-    throw new Error("Violation report not found");
+    throw new Error('Violation report not found');
   }
 
   report.status = body.status;
@@ -195,13 +198,13 @@ const reviewViolationReport = async (id, body, staffId) => {
   await report.save();
 
   // If penalized, create penalty and update student score
-  if (body.status === "resolved_penalized" && body.penalty) {
+  if (body.status === 'resolved_penalized' && body.penalty) {
     await createPenaltyFromReport(report, body.penalty, staffId);
   }
 
   return report.populate([
-    { path: "reported_student", select: "student_code full_name" },
-    { path: "reviewed_by", select: "full_name" },
+    { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reviewed_by', select: 'full_name' },
   ]);
 };
 
@@ -267,8 +270,8 @@ const getStudentPenalties = async (studentCode) => {
 
   const penalties = await Penalty.find({ student: student._id })
     .populate([
-      { path: "report", select: "report_code violation_type description" },
-      { path: "issued_by", select: "full_name" },
+      { path: 'report', select: 'report_code violation_type description' },
+      { path: 'issued_by', select: 'full_name' },
     ])
     .sort({ issued_at: -1 });
 
@@ -290,8 +293,8 @@ const getStudentPenalties = async (studentCode) => {
  */
 const searchStudentByCode = async (studentCode) => {
   const student = await Student.findOne({
-    student_code: { $regex: escapeRegex(studentCode), $options: "i" },
-  }).select("student_code full_name phone behavioral_score violations_current_semester");
+    student_code: { $regex: escapeRegex(studentCode), $options: 'i' },
+  }).select('student_code full_name phone behavioral_score violations_current_semester');
 
   return student;
 };
@@ -312,11 +315,11 @@ const getViolationStatistics = async () => {
     totalPenaltiesThisSemester,
   ] = await Promise.all([
     ViolationReport.countDocuments(),
-    ViolationReport.countDocuments({ status: "new" }),
-    ViolationReport.countDocuments({ status: "under_review" }),
-    ViolationReport.countDocuments({ status: "resolved_penalized" }),
-    ViolationReport.countDocuments({ status: "resolved_no_action" }),
-    ViolationReport.countDocuments({ status: "rejected" }),
+    ViolationReport.countDocuments({ status: 'new' }),
+    ViolationReport.countDocuments({ status: 'under_review' }),
+    ViolationReport.countDocuments({ status: 'resolved_penalized' }),
+    ViolationReport.countDocuments({ status: 'resolved_no_action' }),
+    ViolationReport.countDocuments({ status: 'rejected' }),
     Penalty.countDocuments({ semester: currentSemester }),
   ]);
 
@@ -340,15 +343,15 @@ const getViolationStatistics = async () => {
 const deleteViolationReport = async (id) => {
   const report = await ViolationReport.findById(id);
   if (!report) {
-    throw new Error("Violation report not found");
+    throw new Error('Violation report not found');
   }
 
-  if (report.status !== "new") {
-    throw new Error("Only new reports can be deleted");
+  if (report.status !== 'new') {
+    throw new Error('Only new reports can be deleted');
   }
 
   await ViolationReport.findByIdAndDelete(id);
-  return { message: "Violation report deleted successfully" };
+  return { message: 'Violation report deleted successfully' };
 };
 
 module.exports = {
