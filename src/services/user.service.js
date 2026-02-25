@@ -4,40 +4,24 @@ const { User, Student, Staff } = require("../models");
 const VALID_IMPORT_ROLES = ["student", "manager", "security"];
 const DEFAULT_PASSWORD = "Student@123";
 
+/**
+ * Escape special regex characters to prevent NoSQL injection
+ */
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // ─── Column Mapping ───────────────────────────────────────
-// Map normalized header → standard field name
+// Only accept exact template column names (case-insensitive)
 const COLUMN_MAP = {
-  email: "email",
-  "e-mail": "email",
-  "fullname": "fullName",
+  "email": "email",
   "full name": "fullName",
-  "full_name": "fullName",
-  "hovaten": "fullName",
-  "studentcode": "studentCode",
   "student code": "studentCode",
-  "student_code": "studentCode",
-  "masinhvien": "studentCode",
-  "staffcode": "staffCode",
   "staff code": "staffCode",
-  "staff_code": "staffCode",
-  "manhanvien": "staffCode",
-  role: "role",
-  dob: "dob",
-  "dateofbirth": "dob",
-  "date of birth": "dob",
-  "date_of_birth": "dob",
-  "ngaysinh": "dob",
-  gender: "gender",
-  "gioitinh": "gender",
-  phone: "phone",
-  "phonenumber": "phone",
-  "phone number": "phone",
-  "phone_number": "phone",
-  "sodienthoai": "phone",
-  major: "major",
-  "nganh": "major",
-  cohort: "cohort",
-  "khoahoc": "cohort",
+  "role": "role",
+  "dob": "dob",
+  "gender": "gender",
+  "phone": "phone",
+  "major": "major",
+  "cohort": "cohort",
 };
 
 const REQUIRED_COLUMNS = ["email", "fullName", "role"];
@@ -89,7 +73,7 @@ const mapColumns = (rawHeaders) => {
     if (standardField) {
       if (mappedFields.has(standardField)) {
         throw new Error(
-          `Phát hiện cột trùng lặp: "${rawHeader}" đã được map đến "${standardField}" (cột khác cũng map đến field này)`
+          `Duplicate column detected: "${rawHeader}" maps to "${standardField}" (another column already maps to this field)`
         );
       }
       fieldMap[rawHeader] = standardField;
@@ -135,7 +119,7 @@ const PHONE_REGEX = /^\+?[\d\s\-()]{8,15}$/;
 // Major/Cohort: letters, digits, spaces, hyphens, dots
 const GENERAL_TEXT_REGEX = /^[\p{L}\d\s.\-/()]+$/u;
 
-const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
+const parseAndValidateRow = (row, _rowNumber, duplicateSets) => {
   const {
     existingEmailSet,
     existingStudentCodeSet,
@@ -170,7 +154,7 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
     throw new Error("Missing required field: full name");
   }
   if (!NAME_REGEX.test(fullName)) {
-    throw new Error(`Invalid characters in name: "${fullName}". Only letters, spaces, hyphens, dots allowed`);
+    throw new Error(`Name contains invalid characters: "${fullName}". Only letters, spaces, hyphens, dots allowed`);
   }
 
   // Role
@@ -186,44 +170,46 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
     throw new Error(`Email already exists: ${email}`);
   }
 
-  // Phone validation (if provided)
-  if (phone && !isNA(phone) && !PHONE_REGEX.test(phone)) {
+  // ── Required fields for ALL roles: DOB, Gender, Phone ──
+
+  const dateOfBirth = parseDate(rawDOB);
+  if (!dateOfBirth) {
+    throw new Error("Missing or invalid: DOB");
+  }
+
+  const gender = rawGender.toLowerCase();
+  if (!["male", "female", "other"].includes(gender)) {
+    throw new Error(`Invalid gender: "${rawGender}". Must be: Male, Female, Other`);
+  }
+
+  if (!phone || isNA(phone)) {
+    throw new Error("Missing required field: Phone");
+  }
+  if (!PHONE_REGEX.test(phone)) {
     throw new Error(`Invalid phone: "${phone}". Only digits, +, spaces, hyphens allowed`);
   }
 
+  // ── Role-specific validation ───────────────────────────────
+
   if (rawRole === "student") {
     if (isNA(studentCode) || !studentCode) {
-      throw new Error("Missing required field: student code (for role student)");
+      throw new Error("Missing required field: student code (for student role)");
     }
     if (!STUDENT_CODE_REGEX.test(studentCode)) {
-      throw new Error(`Invalid student code: "${studentCode}". Only letters and numbers allowed`);
+      throw new Error(`Student code contains invalid characters: "${studentCode}". Only letters and digits allowed`);
     }
     if (existingStudentCodeSet.has(studentCode) || batchStudentCodes.has(studentCode)) {
       throw new Error(`Student code already exists: ${studentCode}`);
     }
 
-    const gender = rawGender.toLowerCase();
-    if (!["male", "female", "other"].includes(gender)) {
-      throw new Error(`Invalid gender: "${rawGender}". Must be: Male, Female, Other`);
-    }
-
-    const dateOfBirth = parseDate(rawDOB);
-    if (!dateOfBirth) {
-      throw new Error("Missing or invalid DOB (for role student)");
-    }
-
-    if (!phone || isNA(phone)) {
-      throw new Error("Missing required field: Phone (for role student)");
-    }
-
     // Major validation (if provided)
     if (major && !isNA(major) && !GENERAL_TEXT_REGEX.test(major)) {
-      throw new Error(`Invalid characters in major: "${major}"`);
+      throw new Error(`Major contains invalid characters: "${major}"`);
     }
 
     // Cohort validation (if provided)
     if (cohort && !isNA(cohort) && !GENERAL_TEXT_REGEX.test(cohort)) {
-      throw new Error(`Invalid characters in cohort: "${cohort}"`);
+      throw new Error(`Cohort contains invalid characters: "${cohort}"`);
     }
 
     return {
@@ -241,10 +227,10 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
   } else {
     // manager or security
     if (isNA(staffCode) || !staffCode) {
-      throw new Error("Missing required field: staff code (for role staff)");
+      throw new Error("Missing required field: staff code (for staff role)");
     }
     if (!STAFF_CODE_REGEX.test(staffCode)) {
-      throw new Error(`Invalid staff code: "${staffCode}". Only letters and numbers allowed`);
+      throw new Error(`Staff code contains invalid characters: "${staffCode}". Only letters and digits allowed`);
     }
     if (existingStaffCodeSet.has(staffCode) || batchStaffCodes.has(staffCode)) {
       throw new Error(`Staff code already exists: ${staffCode}`);
@@ -256,9 +242,9 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
       role: rawRole,
       studentCode: null,
       staffCode,
-      dateOfBirth: null,
-      gender: null,
-      phone: isNA(phone) ? undefined : phone,
+      dateOfBirth,
+      gender,
+      phone,
       major: null,
       cohort: null,
     };
@@ -267,9 +253,73 @@ const parseAndValidateRow = (row, rowNumber, duplicateSets) => {
 
 // ─── Main Service Functions ────────────────────────────────
 
-const getAllUsers = async () => {
-  const users = await User.find();
-  return users;
+const getAllUsers = async (query = {}) => {
+  const { page = 1, limit = 10, role, search } = query;
+  const skip = (page - 1) * limit;
+
+  // Build filter
+  const filter = {};
+  if (role && role !== "all") {
+    filter.role = role;
+  }
+  if (search) {
+    const safeSearch = escapeRegex(search);
+    filter.$or = [
+      { email: { $regex: safeSearch, $options: "i" } },
+      { fullname: { $regex: safeSearch, $options: "i" } },
+    ];
+  }
+
+  const [users, total] = await Promise.all([
+    User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
+    User.countDocuments(filter),
+  ]);
+
+  // Batch lookup profiles
+  const userIds = users.map((u) => u._id);
+  const [students, staffs] = await Promise.all([
+    Student.find({ user: { $in: userIds } }).lean(),
+    Staff.find({ user: { $in: userIds } }).lean(),
+  ]);
+
+  const studentMap = {};
+  for (const s of students) {
+    studentMap[s.user.toString()] = s;
+  }
+  const staffMap = {};
+  for (const s of staffs) {
+    staffMap[s.user.toString()] = s;
+  }
+
+  // Merge profile into user
+  const items = users.map((u) => {
+    const id = u._id.toString();
+    const profile = studentMap[id] || staffMap[id] || null;
+    return {
+      id: u._id,
+      email: u.email,
+      fullname: u.fullname,
+      role: u.role,
+      is_active: u.is_active,
+      last_login: u.last_login,
+      createdAt: u.createdAt,
+      code: profile?.student_code || profile?.staff_code || null,
+      phone: profile?.phone || null,
+      gender: profile?.gender || null,
+      major: profile?.major || null,
+      cohort: profile?.cohort || null,
+    };
+  });
+
+  return {
+    items,
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 };
 
 const deleteUser = async (id) => {
@@ -294,15 +344,20 @@ const importFromExcel = async (fileBuffer) => {
     throw new Error("Excel file has no sheets");
   }
 
-  // ── #1: Đọc TẤT CẢ các sheet ────────────────────────────
+  // ── #1: Read ALL sheets ────────────────────────────────────
   if (workbook.SheetNames.length > 1) {
     warnings.push(
-      `File has ${workbook.SheetNames.length} sheet(s): ${workbook.SheetNames.map((s) => `"${s}"`).join(", ")}. Reading all.`
+      `File has ${workbook.SheetNames.length} sheets: ${workbook.SheetNames.map((s) => `"${s}"`).join(", ")}. Reading all.`
     );
   }
 
-  let allRawRows = [];
+  const rows = [];
   const emptySheets = [];
+  const friendlyNames = {
+    email: "Email",
+    fullName: "Full Name",
+    role: "Role",
+  };
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -313,12 +368,31 @@ const importFromExcel = async (fileBuffer) => {
       continue;
     }
 
-    // Tag each row with sheet name for better error reporting
-    for (const row of sheetRows) {
-      row.__sheetName = sheetName;
+    // ── #5 & #2: Map columns per sheet ─────────────────────
+    const rawHeaders = Object.keys(sheetRows[0]);
+    const { fieldMap, unmappedHeaders, missingRequired } = mapColumns(rawHeaders);
+
+    if (missingRequired.length > 0) {
+      const missing = missingRequired.map((f) => friendlyNames[f] || f);
+      warnings.push(
+        `Sheet "${sheetName}" missing required columns: ${missing.join(", ")} - skipping entire sheet.`
+      );
+      continue;
     }
 
-    allRawRows = allRawRows.concat(sheetRows);
+    if (unmappedHeaders.length > 0) {
+      warnings.push(
+        `Sheet "${sheetName}" has unrecognized columns (ignored): ${unmappedHeaders.map((h) => `"${h}"`).join(", ")}`
+      );
+    }
+
+    // Standardize rows using this sheet's fieldMap
+    for (let i = 0; i < sheetRows.length; i++) {
+      const standardized = standardizeRow(sheetRows[i], fieldMap);
+      standardized.__sheetName = sheetName;
+      standardized.__rowInSheet = i + 2; // +1 for 0-index, +1 for header
+      rows.push(standardized);
+    }
   }
 
   if (emptySheets.length > 0) {
@@ -327,38 +401,9 @@ const importFromExcel = async (fileBuffer) => {
     );
   }
 
-  if (!allRawRows.length) {
-    throw new Error("Excel file is empty or has no data in any sheet");
+  if (!rows.length) {
+    throw new Error("Excel file is empty or has no valid data in any sheet");
   }
-
-  // ── #5 & #2: Normalize headers & validate columns ───────
-  const rawHeaders = Object.keys(allRawRows[0]).filter((h) => h !== "__sheetName");
-  const { fieldMap, unmappedHeaders, missingRequired } = mapColumns(rawHeaders);
-
-  if (missingRequired.length > 0) {
-    const friendlyNames = {
-      email: "Email",
-      fullName: "Full Name",
-      role: "Role",
-    };
-    const missing = missingRequired.map((f) => friendlyNames[f] || f);
-    throw new Error(
-      `File is missing required columns: ${missing.join(", ")}. Please check the Excel file headers.`
-    );
-  }
-
-  if (unmappedHeaders.length > 0) {
-    warnings.push(
-      `Unrecognized columns (will be ignored): ${unmappedHeaders.map((h) => `"${h}"`).join(", ")}`
-    );
-  }
-
-  // Standardize all rows using column mapping
-  const rows = allRawRows.map((rawRow) => {
-    const standardized = standardizeRow(rawRow, fieldMap);
-    standardized.__sheetName = rawRow.__sheetName;
-    return standardized;
-  });
 
   const imported = [];
   const errors = [];
@@ -388,7 +433,7 @@ const importFromExcel = async (fileBuffer) => {
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const rowNumber = i + 2; // +1 for 0-index, +1 for header
+    const rowNumber = row.__rowInSheet || i + 2;
 
     let user = null;
     try {
@@ -427,6 +472,8 @@ const importFromExcel = async (fileBuffer) => {
           user: user._id,
           staff_code: parsed.staffCode,
           full_name: parsed.fullName,
+          date_of_birth: parsed.dateOfBirth,
+          gender: parsed.gender,
           phone: parsed.phone,
           position: parsed.role,
         });

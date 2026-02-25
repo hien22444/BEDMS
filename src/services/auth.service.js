@@ -2,13 +2,24 @@ const jwt = require("jsonwebtoken");
 const { User, Student, Staff } = require("../models");
 
 /**
- * Generate JWT token
+ * Generate access token (short-lived)
  * @param {Object} payload - Token payload
  * @returns {string} JWT token
  */
 const generateToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || "30d",
+    expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+  });
+};
+
+/**
+ * Generate refresh token (long-lived)
+ * @param {Object} payload - Token payload
+ * @returns {string} JWT refresh token
+ */
+const generateRefreshToken = (payload) => {
+  return jwt.sign(payload, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
   });
 };
 
@@ -36,7 +47,7 @@ const isValidPassword = (password) => {
 /**
  * Login user
  * @param {Object} body - { email, password }
- * @returns {Object} { token, user, profile }
+ * @returns {Object} { token, refreshToken, user, profile }
  */
 const login = async (body) => {
   const { email, password } = body;
@@ -61,13 +72,13 @@ const login = async (body) => {
     adminUser.last_login = new Date();
     await adminUser.save();
 
-    const token = generateToken({
-      id: adminUser._id,
-      role: adminUser.role,
-    });
+    const tokenPayload = { id: adminUser._id, role: adminUser.role };
+    const token = generateToken(tokenPayload);
+    const refreshToken = generateRefreshToken(tokenPayload);
 
     return {
       token,
+      refreshToken,
       user: {
         id: adminUser._id,
         email: adminUser.email,
@@ -85,16 +96,16 @@ const login = async (body) => {
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Invalid email");
+    throw new Error("Invalid email format");
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
-    throw new Error("Account not yet authorized. Please contact the dormitory management.");
+    throw new Error("Account not authorized. Please contact the dormitory management office.");
   }
 
   if (!user.is_active) {
-    throw new Error("Account is locked. Please contact the dormitory management.");
+    throw new Error("Account has been locked. Please contact the dormitory management office.");
   }
 
   const isMatch = await user.comparePassword(password);
@@ -112,13 +123,13 @@ const login = async (body) => {
     profile = await Staff.findOne({ user: user._id });
   }
 
-  const token = generateToken({
-    id: user._id,
-    role: user.role,
-  });
+  const tokenPayload = { id: user._id, role: user.role };
+  const token = generateToken(tokenPayload);
+  const refreshToken = generateRefreshToken(tokenPayload);
 
   return {
     token,
+    refreshToken,
     user: {
       id: user._id,
       email: user.email,
@@ -127,6 +138,37 @@ const login = async (body) => {
       last_login: user.last_login,
     },
     profile,
+  };
+};
+
+/**
+ * Refresh access token using a valid refresh token
+ * @param {string} token - Refresh token
+ * @returns {Object} { token, refreshToken }
+ */
+const refreshAccessToken = async (token) => {
+  if (!token) {
+    throw new Error("Refresh token is required");
+  }
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+  // Verify user still exists and is active
+  const user = await User.findById(decoded.id);
+  if (!user) {
+    throw new Error("User not found");
+  }
+  if (!user.is_active) {
+    throw new Error("Account has been locked");
+  }
+
+  const tokenPayload = { id: user._id, role: user.role };
+  const newToken = generateToken(tokenPayload);
+  const newRefreshToken = generateRefreshToken(tokenPayload);
+
+  return {
+    token: newToken,
+    refreshToken: newRefreshToken,
   };
 };
 
@@ -146,12 +188,12 @@ const register = async (body) => {
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Invalid email");
+    throw new Error("Invalid email format");
   }
 
   if (!isValidPassword(password)) {
     throw new Error(
-      "Password must be at least 8 characters with uppercase, lowercase and number"
+      "Password must be at least 8 characters, including uppercase, lowercase and a number"
     );
   }
 
@@ -164,7 +206,7 @@ const register = async (body) => {
   // Check if user already exists
   const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
   if (existingUser) {
-    throw new Error("Email đã được sử dụng");
+    throw new Error("Email is already in use");
   }
 
   // Create user
@@ -227,4 +269,6 @@ module.exports = {
   register,
   getProfile,
   generateToken,
+  generateRefreshToken,
+  refreshAccessToken,
 };

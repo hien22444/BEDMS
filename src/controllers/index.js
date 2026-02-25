@@ -5,3 +5,4 @@ module.exports.dormController = require("./dorm.controller");
 module.exports.violationController = require("./violation.controller");
 module.exports.blockController = require("./block.controller");
 module.exports.roomController = require("./room.controller");
+module.exports.equipmentController = require("./equipment.controller");

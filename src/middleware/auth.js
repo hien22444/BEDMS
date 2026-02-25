@@ -12,7 +12,7 @@ const authenticate = async (req, res, next) => {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(httpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Không tìm thấy token xác thực',
+        message: 'Authentication token not found',
       });
     }
 
@@ -34,7 +34,7 @@ const authenticate = async (req, res, next) => {
     if (!user.is_active) {
       return res.status(httpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Tài khoản đã bị khóa',
+        message: 'Account has been locked',
       });
     }
 
@@ -56,7 +56,7 @@ const authenticate = async (req, res, next) => {
     if (error.name === 'TokenExpiredError') {
       return res.status(httpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Token đã hết hạn',
+        message: 'Token has expired',
       });
     }
 
@@ -67,8 +67,7 @@ const authenticate = async (req, res, next) => {
 
     return res.status(statusCode).json({
       success: false,
-      statusCode: status.UNAUTHORIZED,
-      message: error.message,
+      message: 'Authentication failed',
     });
   }
 };
@@ -82,7 +81,7 @@ const authorize = (...roles) => {
     if (!req.user) {
       return res.status(httpStatus.UNAUTHORIZED).json({
         success: false,
-        message: 'Chưa xác thực',
+        message: 'Not authenticated',
       });
     }
 

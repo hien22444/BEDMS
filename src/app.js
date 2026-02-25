@@ -1,6 +1,7 @@
 const express = require("express");
 
 const cors = require("cors");
+const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const routes = require("./routes");
 const path = require("path");
@@ -10,9 +11,17 @@ require("dotenv").config();
 
 const app = express();
 
+// Security headers
+app.use(helmet());
+
+// CORS — configurable via environment variable
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+  : ["http://localhost:5173", "http://127.0.0.1:5173"];
+
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: allowedOrigins,
     credentials: true,
   })
 );
@@ -35,14 +44,17 @@ app.use("*", (req, res) => {
   });
 });
 
-app.use((err, req, res, next) => {
-  const statusCode = err.statusCode || err.status || 500;
-  if (statusCode >= 500) {
+// Error handler — don't leak internal details in production
+app.use((err, req, res, _next) => {
+  const isDev = process.env.NODE_ENV === "develop" || process.env.NODE_ENV === "development";
+
+  if (isDev) {
     console.error(err.stack);
   }
-  res.status(statusCode).json({
+
+  res.status(500).json({
     success: false,
-    message: err.message,
+    message: isDev ? err.message : "Internal server error",
   });
 });
 
