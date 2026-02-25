@@ -1,48 +1,58 @@
-const authRoute = require("./auth.route");
-const userRoute = require("./user.route");
-const dormRoute = require("./dorm.route");
-const violationRoute = require("./violation.route");
-const blockRoute = require("./block.route");
-const visitorRoute = require("./visitor.route");
-const equipmentRoute = require("./equipment.route");
-const notificationRoute = require("./notification.route");
+const authRoute = require('./auth.route');
+const userRoute = require('./user.route');
+const dormRoute = require('./dorm.route');
+const violationRoute = require('./violation.route');
+const blockRoute = require('./block.route');
+const visitorRoute = require('./visitor.route');
+const equipmentRoute = require('./equipment.route');
+const notificationRoute = require('./notification.route');
+const roomRoute = require('./room.route');
+const roomTypePricingRoute = require('./roomTypePricing.route');
 
-const express = require("express");
+const express = require('express');
 
 const router = express.Router();
 
 const defaultRoutes = [
   {
-    path: "/auth",
+    path: '/auth',
     route: authRoute,
   },
   {
-    path: "/users",
+    path: '/users',
     route: userRoute,
   },
   {
-    path: "/dorms",
+    path: '/dorms',
     route: dormRoute,
   },
   {
-    path: "/violations",
+    path: '/violations',
     route: violationRoute,
   },
   {
-    path: "/blocks",
+    path: '/blocks',
     route: blockRoute,
   },
   {
-    path: "/visitors",
+    path: '/visitors',
     route: visitorRoute,
   },
   {
-    path: "/equipment",
+    path: '/rooms',
+    route: roomRoute,
+  },
+  {
+    path: '/equipment',
     route: equipmentRoute,
   },
   {
-    path: "/notifications",
+    path: '/notifications',
     route: notificationRoute,
+  },
+  {
+    path: '/room-type-pricing',
+    route: roomTypePricingRoute,
   },
 ];
 

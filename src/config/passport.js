@@ -23,14 +23,14 @@ passport.use(
         if (!user) {
           // User not found -> NOT ALLOWED to self-register
           return done(null, false, {
-            message: "Tài khoản chưa được cấp phép. Vui lòng liên hệ Ban quản lý KTX.",
+            message: "Account not yet authorized. Please contact the dormitory management.",
           });
         }
 
         // Check if user is active
         if (!user.is_active) {
           return done(null, false, {
-            message: "Tài khoản đã bị khóa. Vui lòng liên hệ Ban quản lý KTX.",
+            message: "Account is locked. Please contact the dormitory management.",
           });
         }
 
