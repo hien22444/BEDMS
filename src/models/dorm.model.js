@@ -13,6 +13,12 @@ const DormSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    total_floors: {
+      type: Number,
+      required: true,
+      min: 1,
+      default: 1,
+    },
     total_blocks: {
       type: Number,
       default: 0,

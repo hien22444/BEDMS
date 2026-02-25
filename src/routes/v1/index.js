@@ -4,7 +4,9 @@ const userRoute = require("./user.route");
 const dormRoute = require("./dorm.route");
 const violationRoute = require("./violation.route");
 const blockRoute = require("./block.route");
+const roomRoute = require("./room.route");
 const equipmentRoute = require("./equipment.route");
+const roomTypePricingRoute = require("./roomTypePricing.route");
 
 const express = require("express");
 
@@ -36,8 +38,16 @@ const defaultRoutes = [
     route: blockRoute,
   },
   {
+    path: "/rooms",
+    route: roomRoute,
+  },
+  {
     path: "/equipment",
     route: equipmentRoute,
+  },
+  {
+    path: "/room-type-pricing",
+    route: roomTypePricingRoute,
   },
 ];
 
