@@ -194,9 +194,9 @@ const getMyVisitorRequests = async (userId) => {
   const visitors = await Visitor.find({
     request: { $in: requestIds },
   }).lean();
-  const checkins = await VisitorCheckin.find({
+  const checkins = (await VisitorCheckin.find({
     request: { $in: requestIds },
-  }).lean();
+  }).lean()).map((c) => ({ ...c, id: c._id.toString() }));
 
   return requests.map((r) => ({
     ...r,
@@ -251,9 +251,9 @@ const getAllVisitorRequests = async (query = {}) => {
   const visitors = await Visitor.find({
     request: { $in: requestIds },
   }).lean();
-  const checkins = await VisitorCheckin.find({
+  const checkins = (await VisitorCheckin.find({
     request: { $in: requestIds },
-  }).lean();
+  }).lean()).map((c) => ({ ...c, id: c._id.toString() }));
 
   // Get student profiles for the users
   const userIds = requests.map((r) => r.user?._id || r.user);

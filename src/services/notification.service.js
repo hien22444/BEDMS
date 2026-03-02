@@ -18,16 +18,18 @@ const createNotification = async (userId, { title, message, category, notificati
  * Get all notifications for the authenticated user (latest 50)
  */
 const getMyNotifications = async (userId) => {
+  // Do NOT use .lean() — the schema's toJSON transform adds the virtual `id`
+  // field and removes `_id`/`__v`. Without it, n.id is undefined on the FE.
   return Notification.find({ user: userId })
     .sort({ created_at: -1 })
-    .limit(50)
-    .lean();
+    .limit(50);
 };
 
 /**
  * Mark a single notification as read
  */
 const markAsRead = async (notifId, userId) => {
+  if (!notifId || notifId === 'undefined') throw new Error("Invalid notification id");
   const notif = await Notification.findOne({ _id: notifId, user: userId });
   if (!notif) throw new Error("Notification not found");
   notif.is_read = true;
@@ -46,6 +48,7 @@ const markAllRead = async (userId) => {
  * Delete a notification (owner only)
  */
 const deleteNotification = async (notifId, userId) => {
+  if (!notifId || notifId === 'undefined') throw new Error("Invalid notification id");
   const notif = await Notification.findOne({ _id: notifId, user: userId });
   if (!notif) throw new Error("Notification not found");
   await notif.deleteOne();
