@@ -11,7 +11,7 @@ const populateBlockDorm = {
 };
 
 const getAllRooms = async (query = {}) => {
-  const { page = 1, limit = 50, dorm, block, status, room_type } = query;
+  const { page = 1, limit = 50, dorm, block, status, room_type, student_type, search } = query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   const filter = {};
@@ -21,6 +21,9 @@ const getAllRooms = async (query = {}) => {
   }
   if (room_type) {
     filter.room_type = room_type;
+  }
+  if (student_type) {
+    filter.student_type = student_type;
   }
 
   // Filter by dorm via blocks
@@ -34,10 +37,50 @@ const getAllRooms = async (query = {}) => {
     filter.block = block;
   }
 
+  // Search by room number or block name/code
+  if (search) {
+    const raw = String(search).trim();
+    if (raw) {
+      const regex = new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+
+      // If user types something like "A101-2", split and search block + room separately
+      if (raw.includes("-")) {
+        const [blockPart, roomPart] = raw.split("-", 2).map((p) => p.trim());
+        const roomRegex = roomPart ? new RegExp(roomPart.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
+
+        const blocksByName = await Block.find({
+          $or: [{ block_name: new RegExp(blockPart, "i") }, { block_code: new RegExp(blockPart, "i") }],
+        }).select("_id");
+
+        const blockIds = blocksByName.map((b) => b._id);
+
+        filter.$and = [];
+        if (blockIds.length > 0) {
+          filter.$and.push({ block: { $in: blockIds } });
+        }
+        if (roomRegex) {
+          filter.$and.push({ room_number: roomRegex });
+        }
+      } else {
+        // Generic search on room_number or matching blocks
+        const blocksBySearch = await Block.find({
+          $or: [{ block_name: regex }, { block_code: regex }],
+        }).select("_id");
+        const blockIds = blocksBySearch.map((b) => b._id);
+
+        filter.$or = [{ room_number: regex }];
+        if (blockIds.length > 0) {
+          filter.$or.push({ block: { $in: blockIds } });
+        }
+      }
+    }
+  }
+
   const [rooms, total] = await Promise.all([
     Room.find(filter)
       .populate(populateBlockDorm)
-      .sort({ createdAt: -1 })
+      // Sort by block then room number for stable ordering
+      .sort({ block: 1, room_number: 1 })
       .skip(skip)
       .limit(parseInt(limit)),
     Room.countDocuments(filter),
