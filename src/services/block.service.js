@@ -1,7 +1,7 @@
 const { Block, Dorm, Room } = require("../models");
 
 const getAllBlocks = async (query = {}) => {
-  const { page = 1, limit = 50, dorm, is_active } = query;
+  const { page = 1, limit = 50, dorm, is_active, gender_type, search } = query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   const filter = {};
@@ -11,11 +11,19 @@ const getAllBlocks = async (query = {}) => {
   if (is_active !== undefined) {
     filter.is_active = is_active === "true" || is_active === true;
   }
+  if (gender_type) {
+    filter.gender_type = gender_type;
+  }
+  if (search) {
+    const regex = new RegExp(String(search).trim(), "i");
+    filter.$or = [{ block_name: regex }, { block_code: regex }];
+  }
 
   const [blocks, total] = await Promise.all([
     Block.find(filter)
       .populate("dorm", "dorm_name dorm_code total_floors")
-      .sort({ createdAt: -1 })
+      // Sort by dorm then block_code for consistent ordering
+      .sort({ dorm: 1, block_code: 1 })
       .skip(skip)
       .limit(parseInt(limit)),
     Block.countDocuments(filter),
@@ -48,13 +56,16 @@ const createBlock = async (body) => {
     throw new Error("Dorm not found");
   }
 
-  const floor = Number(body.floor);
-  if (!Number.isFinite(floor) || floor < 1) {
-    throw new Error("floor is required and must be at least 1");
+  // Derive floor from first digit of block_code (e.g., 101 -> floor 1)
+  const codeStr = String(body.block_code || "").trim();
+  const firstDigit = Number(codeStr[0]);
+  if (!Number.isFinite(firstDigit) || firstDigit < 1) {
+    throw new Error("block_code must start with a valid floor number (e.g., 1xx, 2xx, ...)");
   }
+  const floor = firstDigit;
   if (floor > (dorm.total_floors || 0)) {
     throw new Error(
-      `floor must be between 1 and dorm's total_floors (${dorm.total_floors}). This dorm has ${dorm.total_floors} floor(s).`
+      `Derived floor from block_code is ${floor}, but dorm only has ${dorm.total_floors} floor(s).`
     );
   }
 
@@ -67,7 +78,14 @@ const createBlock = async (body) => {
     throw new Error("Block code already exists for this dorm");
   }
 
-  const block = await new Block(body).save();
+  // Auto-generate block_name as <dorm_code><block_code>
+  const blockName = `${dorm.dorm_code}${body.block_code}`;
+
+  const block = await new Block({
+    ...body,
+    floor,
+    block_name: blockName,
+  }).save();
 
   // Update dorm total_blocks count
   await Dorm.findByIdAndUpdate(body.dorm, {
@@ -103,7 +121,14 @@ const updateBlock = async (id, body) => {
     throw new Error("Dorm not found");
   }
 
-  const nextFloor = typeof body.floor !== "undefined" ? body.floor : block.floor;
+  // Determine next block_code and derive floor from its first digit
+  const nextBlockCode = typeof body.block_code !== "undefined" ? body.block_code : block.block_code;
+  const codeStr = String(nextBlockCode || "").trim();
+  const firstDigit = Number(codeStr[0]);
+  if (!Number.isFinite(firstDigit) || firstDigit < 1) {
+    throw new Error("block_code must start with a valid floor number (e.g., 1xx, 2xx, ...)");
+  }
+  const nextFloor = firstDigit;
   validateBlockFloor(nextFloor, dorm);
 
   if (body.dorm && body.dorm !== block.dorm.toString()) {
@@ -143,7 +168,28 @@ const updateBlock = async (id, body) => {
     }
   }
 
+  // Block name is derived from dorm_code + block_code and should not be edited directly
+  // Ensure we don't overwrite it from the request body
+  if (Object.prototype.hasOwnProperty.call(body, "block_name")) {
+    delete body.block_name;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "floor")) {
+    delete body.floor;
+  }
+
   Object.assign(block, body);
+
+  // Recalculate block_name and floor whenever dorm or block_code might have changed
+  const effectiveDorm = body.dorm ? dorm : await Dorm.findById(block.dorm);
+  const effectiveBlockCode = body.block_code ? body.block_code : block.block_code;
+  if (effectiveDorm && effectiveBlockCode) {
+    block.block_name = `${effectiveDorm.dorm_code}${effectiveBlockCode}`;
+    const effectiveCodeStr = String(effectiveBlockCode || "").trim();
+    const effectiveFirstDigit = Number(effectiveCodeStr[0]);
+    if (Number.isFinite(effectiveFirstDigit) && effectiveFirstDigit >= 1) {
+      block.floor = effectiveFirstDigit;
+    }
+  }
   await block.save();
 
   return await Block.findById(id).populate("dorm", "dorm_name dorm_code total_floors");

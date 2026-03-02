@@ -4,8 +4,8 @@ const { authenticate, authorize } = require("../../middleware/auth");
 
 const router = express.Router();
 
-// All dorm routes are restricted to admin users
-router.use(authenticate, authorize("admin"));
+// All dorm routes: admin and manager
+router.use(authenticate, authorize("admin", "manager"));
 
 router
   .route("/")

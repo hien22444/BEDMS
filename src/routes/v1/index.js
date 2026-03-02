@@ -8,6 +8,7 @@ const equipmentRoute = require('./equipment.route');
 const notificationRoute = require('./notification.route');
 const roomRoute = require('./room.route');
 const roomTypePricingRoute = require('./roomTypePricing.route');
+const newsRoute = require('./news.route');
 
 const express = require('express');
 
@@ -53,6 +54,10 @@ const defaultRoutes = [
   {
     path: '/room-type-pricing',
     route: roomTypePricingRoute,
+  },
+  {
+    path: '/news',
+    route: newsRoute,
   },
 ];
 
