@@ -9,6 +9,7 @@ const notificationRoute = require('./notification.route');
 const roomRoute = require('./room.route');
 const roomTypePricingRoute = require('./roomTypePricing.route');
 const chatRoute = require('./chat.route');
+const newsRoute = require('./news.route');
 
 const express = require('express');
 
@@ -58,6 +59,10 @@ const defaultRoutes = [
   {
     path: '/chat',
     route: chatRoute,
+  },
+  {
+    path: '/news',
+    route: newsRoute,
   },
 ];
 

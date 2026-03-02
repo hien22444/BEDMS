@@ -9,3 +9,4 @@ module.exports.notificationController = require('./notification.controller');
 module.exports.roomController = require('./room.controller');
 module.exports.roomTypePricingController = require('./roomTypePricing.controller');
 module.exports.chatController = require('./chat.controller');
+module.exports.newsController = require('./news.controller');
