@@ -1,8 +1,10 @@
+const crypto = require('crypto');
 const EquipmentCategory = require('../models/equipmentCategory.model');
 const EquipmentTemplate = require('../models/equipmentTemplate.model');
 const RoomEquipment = require('../models/roomEquipment.model');
 // const EquipmentHistory = require('../models/equipmentHistory.model'); // reserved for future audit trail
 const RoomTypeEquipmentConfig = require('../models/roomTypeEquipmentConfig.model');
+const { Room } = require('../models');
 
 // ==================== CATEGORY ====================
 
@@ -197,6 +199,97 @@ const deleteTemplate = async (id) => {
   return { message: 'Template deleted successfully' };
 };
 
+// ==================== ROOM EQUIPMENT ====================
+
+const addRoomEquipment = async (body) => {
+  const { room, template, quantity } = body;
+  if (!room || !template) throw new Error('room and template are required');
+
+  const roomDoc = await Room.findById(room);
+  if (!roomDoc) throw new Error('Room not found');
+
+  const tpl = await EquipmentTemplate.findById(template);
+  if (!tpl) throw new Error('Template not found');
+
+  const existing = await RoomEquipment.findOne({ room, template });
+  if (existing) throw new Error('This equipment is already assigned to this room');
+
+  const equipmentCode = `${roomDoc.room_number.toUpperCase()}-${template.toString().slice(-4).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+
+  const equipment = await RoomEquipment.create({
+    room,
+    template,
+    equipment_code: equipmentCode,
+    quantity: quantity || 1,
+    status: 'good',
+    assigned_at: new Date(),
+  });
+
+  return equipment.populate({
+    path: 'template',
+    select: 'equipment_name brand model category',
+    populate: { path: 'category', select: 'category_name' },
+  });
+};
+
+const getRoomEquipments = async (query = {}) => {
+  const page = Number(query.page) > 0 ? Number(query.page) : 1;
+  const limit = Number(query.limit) > 0 ? Number(query.limit) : 50;
+  const skip = (page - 1) * limit;
+
+  const filter = {};
+  if (query.room) filter.room = query.room;
+  if (query.status) filter.status = query.status;
+
+  const [items, total] = await Promise.all([
+    RoomEquipment.find(filter)
+      .populate({
+        path: 'template',
+        select: 'equipment_name brand model category',
+        populate: { path: 'category', select: 'category_name' },
+      })
+      .sort({ assigned_at: -1 })
+      .skip(skip)
+      .limit(limit),
+    RoomEquipment.countDocuments(filter),
+  ]);
+
+  return {
+    items,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
+  };
+};
+
+const updateRoomEquipment = async (id, body) => {
+  const { quantity, status, condition_notes } = body;
+
+  const equipment = await RoomEquipment.findById(id);
+  if (!equipment) throw new Error('Room equipment not found');
+
+  const updateFields = {};
+  if (quantity !== undefined) updateFields.quantity = quantity;
+  if (status !== undefined) updateFields.status = status;
+  if (condition_notes !== undefined) updateFields.condition_notes = condition_notes;
+
+  const updated = await RoomEquipment.findByIdAndUpdate(
+    id,
+    { $set: updateFields },
+    { new: true }
+  ).populate({
+    path: 'template',
+    select: 'equipment_name brand model category',
+    populate: { path: 'category', select: 'category_name' },
+  });
+
+  return updated;
+};
+
+const deleteRoomEquipment = async (id) => {
+  const equipment = await RoomEquipment.findByIdAndDelete(id);
+  if (!equipment) throw new Error('Room equipment not found');
+  return { message: 'Room equipment deleted successfully' };
+};
+
 // ==================== ROOM TYPE EQUIPMENT CONFIG ====================
 
 const createRoomTypeConfig = async (body) => {
@@ -287,6 +380,10 @@ module.exports = {
   getCategoryById,
   updateCategory,
   deleteCategory,
+  addRoomEquipment,
+  getRoomEquipments,
+  updateRoomEquipment,
+  deleteRoomEquipment,
   createTemplate,
   getTemplates,
   getTemplateById,

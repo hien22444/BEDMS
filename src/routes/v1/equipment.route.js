@@ -1,20 +1,20 @@
-const express = require("express");
-const equipmentController = require("../../controllers/equipment.controller");
-const { authenticate, authorize } = require("../../middleware/auth");
+const express = require('express');
+const equipmentController = require('../../controllers/equipment.controller');
+const { authenticate, authorize } = require('../../middleware/auth');
 
 const router = express.Router();
 
 // All equipment routes are restricted to admin users
-router.use(authenticate, authorize("admin"));
+router.use(authenticate, authorize('admin'));
 
 // ==================== CATEGORY ====================
 router
-  .route("/categories")
+  .route('/categories')
   .get(equipmentController.getCategories)
   .post(equipmentController.createCategory);
 
 router
-  .route("/categories/:id")
+  .route('/categories/:id')
   .get(equipmentController.getCategoryById)
   .put(equipmentController.updateCategory)
   .patch(equipmentController.updateCategory)
@@ -22,25 +22,36 @@ router
 
 // ==================== TEMPLATE ====================
 router
-  .route("/templates")
+  .route('/templates')
   .get(equipmentController.getTemplates)
   .post(equipmentController.createTemplate);
 
 router
-  .route("/templates/:id")
+  .route('/templates/:id')
   .get(equipmentController.getTemplateById)
   .put(equipmentController.updateTemplate)
   .patch(equipmentController.updateTemplate)
   .delete(equipmentController.deleteTemplate);
 
+// ==================== ROOM EQUIPMENT ====================
+router
+  .route('/room-equipments')
+  .get(equipmentController.getRoomEquipments)
+  .post(equipmentController.addRoomEquipment);
+
+router
+  .route('/room-equipments/:id')
+  .patch(equipmentController.updateRoomEquipment)
+  .delete(equipmentController.deleteRoomEquipment);
+
 // ==================== ROOM TYPE EQUIPMENT CONFIG ====================
 router
-  .route("/room-type-configs")
+  .route('/room-type-configs')
   .get(equipmentController.getRoomTypeConfigs)
   .post(equipmentController.createRoomTypeConfig);
 
 router
-  .route("/room-type-configs/:id")
+  .route('/room-type-configs/:id')
   .put(equipmentController.updateRoomTypeConfig)
   .patch(equipmentController.updateRoomTypeConfig)
   .delete(equipmentController.deleteRoomTypeConfig);

@@ -1,5 +1,8 @@
+const crypto = require("crypto");
 const { Room, Block } = require("../models");
 const AppError = require("../utils/AppError");
+const RoomTypeEquipmentConfig = require("../models/roomTypeEquipmentConfig.model");
+const RoomEquipment = require("../models/roomEquipment.model");
 
 const populateBlockDorm = {
   path: "block",
@@ -99,6 +102,22 @@ const createRoom = async (body) => {
 
   const payload = { ...body, floor: blk.floor };
   const room = await new Room(payload).save();
+
+  // Auto-assign default equipment based on RoomTypeEquipmentConfig
+  if (room.room_type) {
+    const configs = await RoomTypeEquipmentConfig.find({ room_type: room.room_type, is_mandatory: true });
+    if (configs.length > 0) {
+      const equipmentDocs = configs.map((cfg) => ({
+        room: room._id,
+        template: cfg.template,
+        equipment_code: `${room.room_number.toUpperCase()}-${cfg.template.toString().slice(-4).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+        quantity: cfg.standard_quantity,
+        status: "good",
+        assigned_at: new Date(),
+      }));
+      await RoomEquipment.insertMany(equipmentDocs, { ordered: false });
+    }
+  }
 
   return await Room.findById(room._id).populate(populateBlockDorm);
 };
