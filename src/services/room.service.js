@@ -224,7 +224,23 @@ const deleteRoom = async (id) => {
     throw new Error("Room not found");
   }
 
+  const blockId = room.block;
+
   await room.deleteOne();
+
+  // After deletion, re-sequence room numbers in this block: 1,2,3,...
+  const roomsInBlock = await Room.find({ block: blockId }).sort({ room_number: 1 });
+
+  let nextNumber = 1;
+  for (const r of roomsInBlock) {
+    const current = String(r.room_number);
+    const target = String(nextNumber);
+    if (current !== target) {
+      r.room_number = target;
+      await r.save();
+    }
+    nextNumber += 1;
+  }
 
   return { message: "Room deleted successfully" };
 };

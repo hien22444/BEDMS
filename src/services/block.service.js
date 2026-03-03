@@ -51,6 +51,10 @@ const getBlockById = async (id) => {
 };
 
 const createBlock = async (body) => {
+  if (String(body.gender_type).toLowerCase() === "mixed") {
+    throw new Error("gender_type 'mixed' is not allowed");
+  }
+
   const dorm = await Dorm.findById(body.dorm);
   if (!dorm) {
     throw new Error("Dorm not found");
@@ -113,6 +117,11 @@ const updateBlock = async (id, body) => {
 
   if (!block) {
     throw new Error("Block not found");
+  }
+
+  const nextGenderType = typeof body.gender_type !== "undefined" ? String(body.gender_type) : String(block.gender_type);
+  if (nextGenderType.toLowerCase() === "mixed") {
+    throw new Error("gender_type 'mixed' is not allowed");
   }
 
   const targetDormId = body.dorm ? body.dorm : block.dorm;
