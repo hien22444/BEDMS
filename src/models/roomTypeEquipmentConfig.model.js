@@ -5,7 +5,6 @@ const RoomTypeEquipmentConfigSchema = new mongoose.Schema({
   room_type: {
     type: String,
     required: true,
-    enum: ["2_person", "4_person", "6_person", "8_person"],
   },
   template: {
     type: mongoose.Types.ObjectId,

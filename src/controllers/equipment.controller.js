@@ -1,6 +1,6 @@
-const httpStatus = require("http-status");
-const equipmentService = require("../services/equipment.service");
-const catchAsync = require("../utils/catchAsync");
+const httpStatus = require('http-status');
+const equipmentService = require('../services/equipment.service');
+const catchAsync = require('../utils/catchAsync');
 
 // ==================== CATEGORY ====================
 
@@ -56,6 +56,28 @@ const deleteTemplate = catchAsync(async (req, res) => {
   res.success(result, httpStatus.OK);
 });
 
+// ==================== ROOM EQUIPMENT ====================
+
+const addRoomEquipment = catchAsync(async (req, res) => {
+  const data = await equipmentService.addRoomEquipment(req.body);
+  res.success(data, httpStatus.CREATED);
+});
+
+const getRoomEquipments = catchAsync(async (req, res) => {
+  const data = await equipmentService.getRoomEquipments(req.query);
+  res.success(data, httpStatus.OK);
+});
+
+const deleteRoomEquipment = catchAsync(async (req, res) => {
+  const result = await equipmentService.deleteRoomEquipment(req.params.id);
+  res.success(result, httpStatus.OK);
+});
+
+const updateRoomEquipment = catchAsync(async (req, res) => {
+  const data = await equipmentService.updateRoomEquipment(req.params.id, req.body);
+  res.success(data, httpStatus.OK);
+});
+
 // ==================== ROOM TYPE EQUIPMENT CONFIG ====================
 
 const createRoomTypeConfig = catchAsync(async (req, res) => {
@@ -84,6 +106,10 @@ module.exports = {
   getCategoryById,
   updateCategory,
   deleteCategory,
+  addRoomEquipment,
+  getRoomEquipments,
+  updateRoomEquipment,
+  deleteRoomEquipment,
   createTemplate,
   getTemplates,
   getTemplateById,

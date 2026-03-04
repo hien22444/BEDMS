@@ -1,5 +1,9 @@
+const crypto = require("crypto");
 const { Room, Block } = require("../models");
 const AppError = require("../utils/AppError");
+const RoomTypeEquipmentConfig = require("../models/roomTypeEquipmentConfig.model");
+const RoomEquipment = require("../models/roomEquipment.model");
+const Bed = require("../models/bed.model");
 
 const populateBlockDorm = {
   path: "block",
@@ -143,6 +147,35 @@ const createRoom = async (body) => {
   const payload = { ...body, floor: blk.floor };
   const room = await new Room(payload).save();
 
+  // Auto-assign default equipment based on RoomTypeEquipmentConfig
+  if (room.room_type) {
+    const configs = await RoomTypeEquipmentConfig.find({ room_type: room.room_type, is_mandatory: true });
+    if (configs.length > 0) {
+      const equipmentDocs = configs.map((cfg) => ({
+        room: room._id,
+        template: cfg.template,
+        equipment_code: `${room.room_number.toUpperCase()}-${cfg.template.toString().slice(-4).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+        quantity: cfg.standard_quantity,
+        status: "good",
+        assigned_at: new Date(),
+      }));
+      await RoomEquipment.insertMany(equipmentDocs, { ordered: false });
+    }
+  }
+
+  // Auto-create Bed documents: beds 1..available_beds → available, rest → maintenance
+  if (totalBeds > 0) {
+    const maxBedDoc = await Bed.findOne({}, { bed_id: 1 }).sort({ bed_id: -1 });
+    const startId = (maxBedDoc?.bed_id || 0) + 1;
+    const bedDocs = Array.from({ length: totalBeds }, (_, i) => ({
+      room: room._id,
+      bed_number: String(i + 1),
+      status: i < availableBeds ? "available" : "maintenance",
+      bed_id: startId + i,
+    }));
+    await Bed.insertMany(bedDocs, { ordered: false });
+  }
+
   return await Room.findById(room._id).populate(populateBlockDorm);
 };
 
@@ -211,8 +244,53 @@ const updateRoom = async (id, body) => {
     body.floor = targetBlock.floor;
   }
 
+  const oldTotalBeds = Number(room.total_beds);
   Object.assign(room, body);
   await room.save();
+
+  // Sync Bed documents when total_beds changes
+  const newTotalBeds = Number(room.total_beds);
+  if (newTotalBeds !== oldTotalBeds) {
+    // Sort by bed_id (numeric) to get correct 1,2,3,...,10 order, not string "1","10","2",...
+    const existingBeds = await Bed.find({ room: id }).sort({ bed_id: 1 });
+    const currentCount = existingBeds.length;
+
+    if (newTotalBeds > currentCount) {
+      // Add new beds (numbered from currentCount+1 to newTotalBeds), status maintenance
+      const maxBedDoc = await Bed.findOne({}, { bed_id: 1 }).sort({ bed_id: -1 });
+      const startId = (maxBedDoc?.bed_id || 0) + 1;
+      const newBedDocs = Array.from({ length: newTotalBeds - currentCount }, (_, i) => ({
+        room: id,
+        bed_number: String(currentCount + i + 1),
+        status: "maintenance",
+        bed_id: startId + i,
+      }));
+      await Bed.insertMany(newBedDocs, { ordered: false });
+    } else if (newTotalBeds < currentCount) {
+      // Remove excess beds from the end (highest bed_number first) if not occupied/reserved
+      const toRemove = existingBeds.slice(newTotalBeds);
+      const occupiedIds = toRemove.filter((b) => b.status === "occupied" || b.status === "reserved").map((b) => b._id);
+      if (occupiedIds.length > 0) {
+        throw new AppError("Cannot reduce total_beds: some beds are occupied or reserved", 400);
+      }
+      await Bed.deleteMany({ _id: { $in: toRemove.map((b) => b._id) } });
+    }
+
+    // Re-apply available/maintenance statuses: first n beds → available, rest → maintenance
+    const newAvailableBeds = Number(room.available_beds);
+    const allBeds = await Bed.find({ room: id }).sort({ bed_id: 1 });
+    const bulkOps = allBeds
+      .filter((b) => b.status !== "occupied" && b.status !== "reserved")
+      .map((bed, idx) => ({
+        updateOne: {
+          filter: { _id: bed._id },
+          update: { $set: { status: idx < newAvailableBeds ? "available" : "maintenance" } },
+        },
+      }));
+    if (bulkOps.length > 0) {
+      await Bed.bulkWrite(bulkOps);
+    }
+  }
 
   return await Room.findById(id).populate(populateBlockDorm);
 };
@@ -224,23 +302,20 @@ const deleteRoom = async (id) => {
     throw new Error("Room not found");
   }
 
-  const blockId = room.block;
-
-  await room.deleteOne();
-
-  // After deletion, re-sequence room numbers in this block: 1,2,3,...
-  const roomsInBlock = await Room.find({ block: blockId }).sort({ room_number: 1 });
-
-  let nextNumber = 1;
-  for (const r of roomsInBlock) {
-    const current = String(r.room_number);
-    const target = String(nextNumber);
-    if (current !== target) {
-      r.room_number = target;
-      await r.save();
-    }
-    nextNumber += 1;
+  // Block deletion if any bed is occupied or reserved
+  const blockedCount = await Bed.countDocuments({
+    room: id,
+    status: { $in: ["occupied", "reserved"] },
+  });
+  if (blockedCount > 0) {
+    throw new AppError(
+      `Cannot delete room: ${blockedCount} bed(s) are currently occupied or reserved. Unassign all students first.`,
+      400
+    );
   }
+
+  await Bed.deleteMany({ room: id });
+  await room.deleteOne();
 
   return { message: "Room deleted successfully" };
 };

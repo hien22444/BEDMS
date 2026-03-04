@@ -5,17 +5,16 @@ const roomController = require("../../controllers/room.controller");
 
 const router = express.Router();
 
-// All routes require authentication and admin role
+// All routes require authentication and admin or manager role
 router
   .route("/")
-  .get(authenticate, authorize("admin"), roomController.getAllRooms)
-  .post(authenticate, authorize("admin"), roomController.createRoom);
+  .get(authenticate, authorize("admin", "manager"), roomController.getAllRooms)
+  .post(authenticate, authorize("admin", "manager"), roomController.createRoom);
 
 router
   .route("/:id")
-  .get(authenticate, authorize("admin"), roomController.getRoomById)
-  .patch(authenticate, authorize("admin"), roomController.updateRoom)
-  .delete(authenticate, authorize("admin"), roomController.deleteRoom);
+  .get(authenticate, authorize("admin", "manager"), roomController.getRoomById)
+  .patch(authenticate, authorize("admin", "manager"), roomController.updateRoom)
+  .delete(authenticate, authorize("admin", "manager"), roomController.deleteRoom);
 
 module.exports = router;
-

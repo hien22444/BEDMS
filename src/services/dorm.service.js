@@ -1,5 +1,6 @@
 const Dorm = require("../models/dorm.model");
 const Block = require("../models/block.model");
+const AppError = require("../utils/AppError");
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -114,13 +115,10 @@ const updateDorm = async (id, body) => {
     if (!Number.isFinite(floors) || floors < 1) {
       throw new Error("total_floors must be at least 1");
     }
-    const blockWithHigherFloor = await Block.findOne({
-      dorm: id,
-      floor: { $gt: floors },
-    });
-    if (blockWithHigherFloor) {
+    const highestBlock = await Block.findOne({ dorm: id }).sort({ floor: -1 });
+    if (highestBlock && highestBlock.floor > floors) {
       throw new Error(
-        "Cannot set total_floors below current blocks: some blocks are on higher floors. Move or remove them first."
+        `Cannot set total_floors to ${floors}. The highest block is on floor ${highestBlock.floor}. total_floors must be >= ${highestBlock.floor}.`
       );
     }
   }
@@ -157,10 +155,20 @@ const updateDorm = async (id, body) => {
  * @param {string} id
  */
 const deleteDorm = async (id) => {
-  const dorm = await Dorm.findByIdAndDelete(id);
+  const dorm = await Dorm.findById(id);
   if (!dorm) {
     throw new Error("Dorm not found");
   }
+
+  const blockCount = await Block.countDocuments({ dorm: id });
+  if (blockCount > 0) {
+    throw new AppError(
+      `Cannot delete dorm "${dorm.dorm_name}": it still has ${blockCount} block(s). Please delete all blocks first.`,
+      400
+    );
+  }
+
+  await dorm.deleteOne();
   return { message: "Dorm deleted successfully" };
 };
 

@@ -1,4 +1,5 @@
 const { Block, Dorm, Room } = require("../models");
+const AppError = require("../utils/AppError");
 
 const getAllBlocks = async (query = {}) => {
   const { page = 1, limit = 50, dorm, is_active, gender_type, search } = query;
@@ -209,6 +210,14 @@ const deleteBlock = async (id) => {
 
   if (!block) {
     throw new Error("Block not found");
+  }
+
+  const roomCount = await Room.countDocuments({ block: id });
+  if (roomCount > 0) {
+    throw new AppError(
+      `Cannot delete block "${block.block_name}": it still has ${roomCount} room(s). Please delete all rooms first.`,
+      400
+    );
   }
 
   await block.deleteOne();
