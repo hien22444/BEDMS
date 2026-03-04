@@ -46,6 +46,10 @@ const StudentSchema = new mongoose.Schema(
     cohort: {
       type: String,
     },
+    student_type: {
+      type: String,
+      enum: ["domestic", "international"],
+    },
     behavioral_score: {
       type: Number,
       default: 10.0,
