@@ -1089,9 +1089,153 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | Violation | ✅ 8 endpoints | ✅ | ✅ | Hoạt động |
 | Visitor | ✅ 11 endpoints | ✅ | ✅ | Hoạt động |
 | Equipment | ✅ 17 endpoints | ✅ | ✅ | Hoạt động (từ dev) |
-| Room/Bed | ❌ | ❌ | ❌ | Chưa có |
+| Room/Bed | ✅ 5 endpoints | ✅ | ✅ | Hoạt động |
 | Booking | ❌ | ❌ | ❌ | Chưa có |
 | Payment | ❌ | ❌ | ❌ | Chưa có |
 | Maintenance | ❌ | ❌ | ❌ | Chưa có |
 | Notification | ✅ 4 endpoints | ✅ | ✅ | Hoạt động (GET/mark-read/delete) |
 | Chat | ✅ 8 endpoints + Socket.io | ✅ | ✅ | Hoạt động — REST + real-time |
+
+---
+
+## 10. BED MANAGEMENT — AUTO-CREATION FIX (2026-03-03)
+
+### Problem
+
+Khi tạo phòng mới (e.g. C501-5, 10 người, 5 giường có sẵn), hệ thống KHÔNG tự tạo các document `Bed` trong MongoDB.
+Kết quả: `GET /beds/room/:roomId` trả về mảng rỗng → FE hiển thị "No beds found in this room".
+
+**Root cause:** `createRoom` trong `room.service.js` chỉ save Room document và auto-assign equipment,
+nhưng không bao giờ gọi `Bed.insertMany()` để tạo giường.
+
+### Solution
+
+Sửa `src/services/room.service.js`:
+
+#### 1. `createRoom` — Auto-create beds sau khi lưu room
+
+```js
+// Auto-create Bed documents: beds 1..available_beds → available, rest → maintenance
+if (totalBeds > 0) {
+  const bedDocs = Array.from({ length: totalBeds }, (_, i) => ({
+    room: room._id,
+    bed_number: String(i + 1),
+    status: i < availableBeds ? 'available' : 'maintenance',
+  }));
+  await Bed.insertMany(bedDocs, { ordered: false });
+}
+```
+
+Ví dụ: `total_beds=10, available_beds=5`
+→ Bed #1–5: `available`, Bed #6–10: `maintenance`
+
+#### 2. `updateRoom` — Sync beds khi `total_beds` thay đổi
+
+```js
+const oldTotalBeds = Number(room.total_beds);
+Object.assign(room, body);
+await room.save();
+
+const newTotalBeds = Number(room.total_beds);
+if (newTotalBeds !== oldTotalBeds) {
+  const existingBeds = await Bed.find({ room: id }).sort({ bed_number: 1 });
+  const currentCount = existingBeds.length;
+
+  if (newTotalBeds > currentCount) {
+    // Thêm giường mới (status: maintenance)
+    const newBedDocs = Array.from({ length: newTotalBeds - currentCount }, (_, i) => ({
+      room: id,
+      bed_number: String(currentCount + i + 1),
+      status: 'maintenance',
+    }));
+    await Bed.insertMany(newBedDocs, { ordered: false });
+  } else if (newTotalBeds < currentCount) {
+    // Xóa giường dư (chỉ nếu không bị occupied/reserved)
+    const toRemove = existingBeds.slice(newTotalBeds);
+    const blocked = toRemove.filter((b) => b.status === 'occupied' || b.status === 'reserved');
+    if (blocked.length > 0) throw new AppError('Cannot reduce total_beds: some beds are occupied or reserved', 400);
+    await Bed.deleteMany({ _id: { $in: toRemove.map((b) => b._id) } });
+  }
+}
+```
+
+#### 3. `deleteRoom` — Xóa tất cả beds của phòng trước khi xóa phòng
+
+```js
+await Bed.deleteMany({ room: id });
+await room.deleteOne();
+```
+
+### Files Changed
+
+| File | Thay đổi |
+|------|---------|
+| `src/services/room.service.js` | Import `Bed`; thêm bed auto-create trong `createRoom`; thêm bed sync trong `updateRoom`; thêm bed cleanup trong `deleteRoom` |
+
+### Bed Numbering Convention
+
+- `bed_number` là string số nguyên tuần tự: `"1"`, `"2"`, ..., `"N"`
+- Dùng cho việc booking và hiển thị: "Bed #1", "Bed #2", ...
+- Index unique: `{ room, bed_number }` → không thể trùng số giường trong cùng phòng
+
+---
+
+## 11. BLOCK MANAGEMENT — FE IMPROVEMENTS (2026-03-04)
+
+### Không có thay đổi BE
+
+Tính năng mới trên FE (Set Status / Change Gender) dùng hoàn toàn endpoint hiện có:
+
+| Tính năng FE | API sử dụng | Endpoint |
+|-------------|------------|---------|
+| Set Maintenance / Set Available | `updateBlock` | `PATCH /v1/blocks/:id { is_active }` |
+| Set Female / Set Male | `updateBlock` | `PATCH /v1/blocks/:id { gender_type }` |
+
+Service `block.service.js` đã xử lý đúng cả hai field:
+- `is_active` update trực tiếp
+- `gender_type` update với guard không cho phép `"mixed"`
+
+### Lưu ý nghiệp vụ
+
+- `is_active: false` trên FE hiển thị là **Maintenance** (không phải Inactive)
+- `block_code` chỉ nhận số nguyên (enforce ở FE via input filter); BE đã có logic suy floor từ chữ số đầu
+- Thay đổi `gender_type` không trigger kiểm tra phòng bên trong → manager cần tự đảm bảo phòng không còn sinh viên khác giới trước khi đổi
+
+---
+
+## 12. ROOM MANAGEMENT — FE FIXES (2026-03-04)
+
+### Không có thay đổi BE
+
+Tính năng quick-change status trên Room dùng endpoint hiện có:
+
+| Tính năng FE | API sử dụng | Endpoint |
+|-------------|------------|---------|
+| Set Maintenance / Set Available | `updateRoom` | `PATCH /v1/rooms/:id { status }` |
+
+### Lưu ý
+
+- Room có 4 status: `available`, `full`, `maintenance`, `inactive`
+- Quick-change chỉ cho phép toggle `available ↔ maintenance`; status `full` không cho đổi thủ công (auto theo available_beds = 0)
+- `description` và `has_private_bathroom` vẫn tồn tại trong schema (`room.model.js`) nhưng bị ẩn khỏi UI — dữ liệu cũ giữ nguyên trong DB
+- Bug fix block picker: FE-only issue (z-index / portal lifecycle), không liên quan BE
+
+---
+
+## 13. MANAGER PAGE SYNC + BLOCK FORM FIX — FE ONLY (2026-03-04)
+
+### Không có thay đổi BE
+
+Tất cả thay đổi trong session này là FE-only. Các endpoint hiện có đã đủ.
+
+| Tính năng FE | API sử dụng | Endpoint |
+|-------------|------------|---------|
+| Set Status block (manager) | `updateBlock` | `PATCH /v1/blocks/:id { is_active }` |
+| Change Gender block (manager) | `updateBlock` | `PATCH /v1/blocks/:id { gender_type }` |
+| Set Status room (manager) | `updateRoom` | `PATCH /v1/rooms/:id { status }` |
+
+### Lưu ý
+
+- Manager blocks giờ giống hoàn toàn admin blocks (Set Status, Change Gender, numeric Block Code)
+- Manager rooms giờ giống hoàn toàn admin rooms (không có Description/Private Bathroom, có Set Status, block picker fixed)
+- Fix validation block field: FE-only — `Form.Item noStyle` + `<Select disabled>`, không thay đổi payload gửi lên BE

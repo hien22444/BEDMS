@@ -5,13 +5,10 @@ const roomTypePricingController = require("../../controllers/roomTypePricing.con
 
 const router = express.Router();
 
-// Admin-only
-router.use(authenticate, authorize("admin"));
-
 router
   .route("/")
-  .get(roomTypePricingController.getRoomTypePricing)
-  .put(roomTypePricingController.updateRoomTypePricing);
+  .get(authenticate, authorize("admin", "manager"), roomTypePricingController.getRoomTypePricing)
+  .put(authenticate, authorize("admin"), roomTypePricingController.updateRoomTypePricing);
 
 module.exports = router;
 

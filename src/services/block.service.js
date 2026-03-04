@@ -1,4 +1,5 @@
 const { Block, Dorm, Room } = require("../models");
+const AppError = require("../utils/AppError");
 
 const getAllBlocks = async (query = {}) => {
   const { page = 1, limit = 50, dorm, is_active, gender_type, search } = query;
@@ -51,6 +52,10 @@ const getBlockById = async (id) => {
 };
 
 const createBlock = async (body) => {
+  if (String(body.gender_type).toLowerCase() === "mixed") {
+    throw new Error("gender_type 'mixed' is not allowed");
+  }
+
   const dorm = await Dorm.findById(body.dorm);
   if (!dorm) {
     throw new Error("Dorm not found");
@@ -113,6 +118,11 @@ const updateBlock = async (id, body) => {
 
   if (!block) {
     throw new Error("Block not found");
+  }
+
+  const nextGenderType = typeof body.gender_type !== "undefined" ? String(body.gender_type) : String(block.gender_type);
+  if (nextGenderType.toLowerCase() === "mixed") {
+    throw new Error("gender_type 'mixed' is not allowed");
   }
 
   const targetDormId = body.dorm ? body.dorm : block.dorm;
@@ -200,6 +210,14 @@ const deleteBlock = async (id) => {
 
   if (!block) {
     throw new Error("Block not found");
+  }
+
+  const roomCount = await Room.countDocuments({ block: id });
+  if (roomCount > 0) {
+    throw new AppError(
+      `Cannot delete block "${block.block_name}": it still has ${roomCount} room(s). Please delete all rooms first.`,
+      400
+    );
   }
 
   await block.deleteOne();

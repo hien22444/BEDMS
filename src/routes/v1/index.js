@@ -10,6 +10,8 @@ const roomRoute = require('./room.route');
 const roomTypePricingRoute = require('./roomTypePricing.route');
 const chatRoute = require('./chat.route');
 const newsRoute = require('./news.route');
+const bedRoute = require('./bed.route');
+const statsRoute = require('./stats.route');
 
 const express = require('express');
 
@@ -63,6 +65,14 @@ const defaultRoutes = [
   {
     path: '/news',
     route: newsRoute,
+  },
+  {
+    path: '/beds',
+    route: bedRoute,
+  },
+  {
+    path: '/stats',
+    route: statsRoute,
   },
 ];
 
