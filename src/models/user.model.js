@@ -2,54 +2,60 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const { DBCollections } = require("../utils/constant");
 
-const UserSchema = new mongoose.Schema({
-  username: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-  },
-  password: {
-    type: String,
-    required: true,
-    minlength: 6,
-  },
-  created_at: {
-    type: Date,
-    default() {
-      return new Date();
+const UserSchema = new mongoose.Schema(
+  {
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+    },
+    password_hash: {
+      type: String,
+      required: false, // Not required for OAuth users
+    },
+    google_id: {
+      type: String,
+      default: null,
+    },
+    fullname: {
+      type: String,
+      default: null,
+    },
+    role: {
+      type: String,
+      required: true,
+      enum: ["student", "manager", "security", "admin"],
+    },
+    is_active: {
+      type: Boolean,
+      default: true,
+    },
+    last_login: {
+      type: Date,
+      default: null,
     },
   },
-  updated_at: {
-    type: Date,
-    default() {
-      return new Date();
-    },
-  },
-});
+  {
+    timestamps: true,
+  }
+);
 
 UserSchema.set("toJSON", {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
     delete ret.__v;
-    delete ret.password;
+    delete ret.password_hash;
   },
 });
 
-UserSchema.virtual("totalOrder", {
-  ref: DBCollections.ORDER,
-  localField: "_id",
-  foreignField: "user",
-  count: true,
-});
-
 UserSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+  if (!this.isModified("password_hash")) return next();
 
   try {
     const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
+    this.password_hash = await bcrypt.hash(this.password_hash, salt);
     next();
   } catch (error) {
     next(error);
@@ -57,7 +63,7 @@ UserSchema.pre("save", async function (next) {
 });
 
 UserSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  return await bcrypt.compare(candidatePassword, this.password_hash);
 };
 
 const User = mongoose.model(DBCollections.USER, UserSchema);

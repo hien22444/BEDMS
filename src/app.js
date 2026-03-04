@@ -1,25 +1,45 @@
 const express = require('express');
+
+const cors = require('cors');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const routes = require('./routes');
 const path = require('path');
 const responseHandler = require('./middleware/responseHandle');
 const { mongo } = require('./utils');
+const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
 require('dotenv').config();
 
 const app = express();
 
+// Security headers
+app.use(helmet());
+
+// CORS — configurable via environment variable
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
+app.use(cookieParser());
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(responseHandler);
 
-// View engine setup
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// API routes
+// v1 api routes
 app.use('/', routes);
+
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -29,34 +49,39 @@ app.use('*', (req, res) => {
   });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err.stack);
+// Error handler — don't leak internal details in production
+app.use((err, req, res, _next) => {
+  const isDev = process.env.NODE_ENV === 'develop' || process.env.NODE_ENV === 'development';
+
+  if (isDev) {
+    console.error(err.stack);
+  }
+
+  // AppError = expected business rule / validation failure (4xx) — always expose the message
+  if (err.name === 'AppError') {
+    return res.status(err.statusCode || 400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  res.status(500).json({
+    success: false,
+    message: isDev ? err.message : 'Internal server error',
+  });
+});
+
   
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation Error',
-      errors: Object.values(err.errors).map((e) => e.message),
-    });
-  }
+  
 
-  // Mongoose duplicate key error
-  if (err.code === 11000) {
-    return res.status(400).json({
-      success: false,
-      message: 'Duplicate field value entered',
-    });
-  }
-
-  // JWT errors
-  if (err.name === 'JsonWebTokenError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid token',
-    });
-  }
+const startServer = async () => {
+  await mongo.connect();
+  scheduleVisitorExpiry();
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`API Documentation: http://localhost:${PORT}/v1`);
+  });
+};
 
   if (err.name === 'TokenExpiredError') {
     return res.status(401).json({
