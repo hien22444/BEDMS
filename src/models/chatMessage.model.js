@@ -34,6 +34,10 @@ const ChatMessageSchema = new mongoose.Schema({
   },
 });
 
+// Load messages in order, filter unread by sender_type
+ChatMessageSchema.index({ conversation: 1, sent_at: 1 });
+ChatMessageSchema.index({ conversation: 1, sender_type: 1, is_read: 1 });
+
 ChatMessageSchema.set("toJSON", {
   virtuals: true,
   transform(doc, ret) {

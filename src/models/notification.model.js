@@ -31,6 +31,7 @@ const NotificationSchema = new mongoose.Schema({
       "visitor",
       "equipment",
       "general",
+      "chat",
     ],
   },
   is_read: {

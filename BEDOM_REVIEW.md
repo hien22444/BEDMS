@@ -1,5 +1,5 @@
 # BEDOM Backend — Review & Documentation
-> Senior Code Review | Updated: 2026-02-22 (post dev-pull merge)
+> Senior Code Review | Updated: 2026-03-02 (session 4)
 
 ---
 
@@ -9,11 +9,13 @@
 
 | Thành phần | Chi tiết |
 |-----------|---------|
-| Runtime | Node.js + Express 5 |
+| Runtime | Node.js + Express 4 |
 | Database | MongoDB + Mongoose |
 | Auth | JWT (access 1h + refresh 7d) + Google OAuth |
 | Upload | Multer (Excel import) |
+| Real-time | Socket.io 4 (chat) |
 | Security | bcrypt, rate-limit, CORS, helmet |
+| Entry point | `app.js` (root) — `nodemon app.js` |
 
 ---
 
@@ -124,7 +126,48 @@
 
 ---
 
-**Tổng số endpoint đang hoạt động: 55**
+### 2.8 Chat — `/v1/chat`
+
+#### Student
+| Method | Path | Auth | Mô tả |
+|--------|------|------|-------|
+| GET | `/chat/my-conversation` | Student | Lấy hoặc tạo mới conversation đang open |
+| PATCH | `/chat/my-conversation/close` | Student | Đóng conversation hiện tại |
+| GET | `/chat/my-conversations` | Student | Lấy tất cả conversations (open + closed), sorted by latest, limit 50 |
+
+#### Manager
+| Method | Path | Auth | Mô tả |
+|--------|------|------|-------|
+| GET | `/chat/conversations` | Manager | Danh sách conversations (filter status, pagination) |
+| PATCH | `/chat/conversations/:id/assign` | Manager | Tự assign mình vào conversation |
+| PATCH | `/chat/conversations/:id/close` | Manager | Đóng conversation |
+
+#### Shared
+| Method | Path | Auth | Mô tả |
+|--------|------|------|-------|
+| GET | `/chat/conversations/:id/messages` | Student/Manager | Lấy messages (pagination) |
+| PATCH | `/chat/conversations/:id/read` | Student/Manager | Mark all messages as read |
+
+#### Socket.io Events
+| Event (emit) | Payload | Mô tả |
+|-------------|---------|-------|
+| `join_conversation` | `{ conversationId }` | Vào room, tự mark as read |
+| `leave_conversation` | `{ conversationId }` | Rời room |
+| `send_message` | `{ conversationId, text }` | Gửi tin nhắn |
+| `mark_read` | `{ conversationId }` | Đánh dấu đã đọc |
+
+| Event (listen) | Payload | Mô tả |
+|---------------|---------|-------|
+| `new_message` | `{ message, conversationId, manager_unread, student_unread }` | Tin nhắn mới |
+| `conversation_updated` | `{ conversation, conversationId, manager_unread, last_message_at }` | Badge update + full conversation (prepend nếu mới) cho manager list |
+| `conversation_read` | `{ conversationId, by }` | Đối phương đã đọc |
+| `conversation_closed` | `{ conversationId }` | Conversation bị đóng |
+
+**Auth Socket:** JWT qua `socket.handshake.auth.token`. Manager tự động join room `'managers'` để nhận badge updates khi student gửi tin.
+
+---
+
+**Tổng số endpoint đang hoạt động: 63** (55 cũ + 7 chat + 1 student chat history)
 
 ---
 
@@ -941,8 +984,8 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | InspectionEquipmentDetail | Chi tiết kiểm tra thiết bị |
 | News | Tin tức/thông báo |
 | Notification | Thông báo cá nhân |
-| ChatConversation | Cuộc trò chuyện |
-| ChatMessage | Tin nhắn |
+| ~~ChatConversation~~ | ✅ Đã có endpoint (chat module) |
+| ~~ChatMessage~~ | ✅ Đã có endpoint (chat module) |
 | SystemConfig | Cấu hình hệ thống |
 | BehavioralScoreHistory | Lịch sử điểm hành vi |
 
@@ -963,6 +1006,7 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | `GOOGLE_CALLBACK_URL` | — | Google OAuth callback |
 | `FRONTEND_URL` | — | default: http://localhost:5173 |
 | `PORT` | — | default: 3001 |
+| `ALLOWED_ORIGINS` | — | CORS whitelist, comma-separated. default: `http://localhost:5173,http://127.0.0.1:5173` |
 
 ---
 
@@ -998,6 +1042,39 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | Feature | `notification.service.js` (new) | 2026-02-22 | Notification system: 4 endpoints GET/PATCH read/PATCH read-all/DELETE |
 | Feature | `visitor.service.js` | 2026-02-22 | Auto-notify student khi visitor request được approve/reject |
 | Fix | `visitor.service.js` | 2026-02-23 | Nới rộng phone regex từ `/^0[35789]\d{8}$/` → `/^0\d{9}$/` (chấp nhận thêm landline 02x) |
+| Feature | `src/services/chat.service.js` (new) | 2026-03-01 | Chat service: getOrCreateConversation, closeConversation, getConversations, assignConversation, getMessages, saveMessage, markAsRead |
+| Feature | `src/controllers/chat.controller.js` (new) | 2026-03-01 | 7 handlers cho chat REST API |
+| Feature | `src/routes/v1/chat.route.js` (new) | 2026-03-01 | 7 chat endpoints: student (2), manager (3), shared (2) |
+| Feature | `src/sockets/index.js` (new) | 2026-03-01 | Socket.io init: JWT auth middleware, managers global room, httpServer integration |
+| Feature | `src/sockets/chat.socket.js` (new) | 2026-03-01 | Socket events: join/leave/send_message/mark_read |
+| Feature | `src/models/chatConversation.model.js` | 2026-03-01 | Thêm manager_unread, student_unread, last_message_at; thêm indexes; đổi ref sang USER |
+| Feature | `src/models/chatMessage.model.js` | 2026-03-01 | Thêm compound indexes cho query hiệu quả |
+| Struct | `app.js` (root) | 2026-03-01 | Thêm helmet, cookieParser, scheduleVisitorExpiry, ALLOWED_ORIGINS env CORS, dev/prod error handler, httpServer + initSocket |
+| Struct | `src/app.js` | 2026-03-01 | Xóa — không bao giờ được chạy (entry point là root app.js), nay redundant |
+| Struct | `src/services/index.js` | 2026-03-01 | Bỏ orderService — model Order/Laptop không tồn tại, dead code |
+| Struct | `src/controllers/index.js` | 2026-03-01 | Bỏ orderController — tương tự |
+| Struct | `.eslintrc.js` | 2026-03-01 | Xóa — trùng với eslint.config.js (flat config v9) |
+| Security | `src/services/chat.service.js` | 2026-03-01 | `saveMessage`: thêm student access control (student chỉ gửi vào conversation của mình); thêm BE message length validation (1–1000 chars) |
+| Fix | `src/services/chat.service.js` | 2026-03-01 | `assignConversation`: atomic `findOneAndUpdate({staff:null})` — tránh race condition 2 manager cùng pick up; phân biệt lỗi 404/400/409 |
+| Fix | `src/services/chat.service.js` | 2026-03-01 | `closeConversation`: thêm check `status==='closed'` trả 400 |
+| Fix | `src/services/chat.service.js` | 2026-03-01 | `getConversations`+`getMessages`: clamp limit max 100, page min 1 — chặn DoS |
+| Feature | `src/sockets/chat.socket.js` | 2026-03-01 | Thêm `close_conversation` event: broadcast `conversation_closed` toàn room rồi leave |
+| Feature | `src/services/chat.service.js` | 2026-03-01 | `closeConversation`: sau khi close, tạo DB notification cho student ("Conversation Closed") — student thấy trong notification bell |
+| Fix | `src/sockets/index.js` | 2026-03-01 | Mọi user khi connect đều join personal room `user_${id}` — cho phép push notification real-time đến bất kỳ user nào dù ở trang nào |
+| Fix | `src/sockets/chat.socket.js` | 2026-03-01 | `close_conversation`: sau khi broadcast `conversation_closed` vào room, thêm emit `new_notification` đến `user_${studentId}` — fix bug student k nhận notify khi không ở chat page |
+| Bug fix | `src/services/notification.service.js` | 2026-03-01 | `getMyNotifications`: xóa `.lean()` — lean() bỏ qua toJSON schema (virtuals + transform), khiến `id` = undefined ở FE → CastError khi mark/delete; thêm guard `notifId === 'undefined'` cho markAsRead + deleteNotification |
+| Security | `src/services/chat.service.js` | 2026-03-01 | `saveMessage`: thêm guard staff — nếu conversation đã có `staff` assign và sender không phải manager đó → throw 403 "already handled by another manager" (Sáng kiến 2: Claim trước chat sau) |
+| Security | `src/services/chat.service.js` | 2026-03-01 | `closeConversation`: thêm guard — nếu `conversation.staff` tồn tại và không phải `managerUserId` hiện tại → throw 403 "Only the assigned manager can close" |
+| Security | `src/services/chat.service.js` | 2026-03-01 | `saveMessage`: thêm guard — nếu `senderType==='staff'` và `conversation.staff === null` → throw 403 "Pick up the conversation first" — manager phải pickup trước khi gửi tin |
+| Fix | `src/sockets/chat.socket.js` | 2026-03-01 | `send_message`: thay `.select().lean()` bằng full `.populate()` fetch; truyền full `conversation` doc vào `conversation_updated` event → FE có thể prepend conversation mới vào list real-time; fix error emit — pass `err.message` thay vì hardcode "Failed to send message" |
+| Feature | `src/services/chat.service.js` | 2026-03-01 | `getStudentConversations(studentUserId, { page, limit })` — trả về tất cả conversations (open + closed) của một student, sorted by latest; limit max 50 |
+| Feature | `src/controllers/chat.controller.js` | 2026-03-01 | Thêm `getMyConversations` handler → gọi `chatService.getStudentConversations` |
+| Feature | `src/routes/v1/chat.route.js` | 2026-03-01 | Thêm `GET /chat/my-conversations` (student only) — lấy lịch sử tất cả conversations của student |
+| Fix | `src/services/chat.service.js` | 2026-03-02 | `getConversations` (manager): thêm filter `last_message_at: { $ne: null }` — ẩn conversations rỗng (student visit trang nhưng chưa gửi tin) khỏi danh sách manager |
+| Feature | `src/models/notification.model.js` | 2026-03-02 | Thêm `"chat"` vào category enum — dùng cho notification khi student nhắn tin |
+| Feature | `src/sockets/chat.socket.js` | 2026-03-02 | Import Notification + User models; trong `send_message`: khi `manager_unread === 1` (first unread batch) — nếu unassigned: tạo DB notification + emit `new_notification` cho tất cả managers; nếu assigned: tạo notification + emit cho manager đó — error wrapped trong try/catch riêng không làm crash main flow |
+| Bug fix | `src/sockets/chat.socket.js` | 2026-03-02 | `send_message`: trước khi tạo notification, kiểm tra `io.sockets.adapter.rooms.get('conv_id')` — nếu có manager socket trong room (đang xem hội thoại) → reset `manager_unread=0` + skip notification; chỉ notify khi manager KHÔNG có mặt trong room |
+| Feature | `src/sockets/chat.socket.js` | 2026-03-02 | `send_message`: thêm block đối xứng cho `senderType === 'staff'` khi `student_unread === 1` — kiểm tra student có trong room không; nếu không → tạo DB notification + emit `new_notification` đến `user_${studentId}`; nếu có → reset `student_unread=0` silently |
 
 ---
 
@@ -1017,6 +1094,7 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | Payment | ❌ | ❌ | ❌ | Chưa có |
 | Maintenance | ❌ | ❌ | ❌ | Chưa có |
 | Notification | ✅ 4 endpoints | ✅ | ✅ | Hoạt động (GET/mark-read/delete) |
+| Chat | ✅ 8 endpoints + Socket.io | ✅ | ✅ | Hoạt động — REST + real-time |
 
 ---
 

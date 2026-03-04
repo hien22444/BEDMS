@@ -11,7 +11,7 @@ const responseHandler = require('./middleware/responseHandle');
 const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
 
 const app = express();
-//fix
+
 // Security headers
 app.use(helmet());
 
@@ -24,6 +24,8 @@ app.use(
   cors({
     origin: allowedOrigins,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Accept-Language'],
   })
 );
 app.use(cookieParser());
@@ -39,15 +41,15 @@ app.set('views', path.join(__dirname, 'views'));
 // v1 api routes
 app.use('/', routes);
 
-app.use('*', (req, res) => {
+app.use('*', (_req, res) => {
   res.status(404).json({
     success: false,
     message: 'Route not found',
   });
 });
 
-// Error handler — don't leak internal details in production
-app.use((err, req, res, _next) => {
+// Error handler
+app.use((err, _req, res, _next) => {
   const isDev = process.env.NODE_ENV === 'develop' || process.env.NODE_ENV === 'development';
 
   if (isDev) {
