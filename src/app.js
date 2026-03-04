@@ -1,18 +1,17 @@
-const express = require('express');
+require('dotenv').config();
 
+const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
-const cors = require('cors');
 const routes = require('./routes');
 const path = require('path');
+const passport = require('./config/passport');
 const responseHandler = require('./middleware/responseHandle');
-const { mongo } = require('./utils');
 const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
-require('dotenv').config();
 
 const app = express();
-
+//fix
 // Security headers
 app.use(helmet());
 
@@ -28,10 +27,10 @@ app.use(
   })
 );
 app.use(cookieParser());
-// Middleware
-app.use(cors());
+app.use(passport.initialize());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
 app.use(responseHandler);
 
 app.set('view engine', 'ejs');
@@ -40,8 +39,6 @@ app.set('views', path.join(__dirname, 'views'));
 // v1 api routes
 app.use('/', routes);
 
-
-// 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -71,34 +68,6 @@ app.use((err, req, res, _next) => {
   });
 });
 
-  
-  
-
-const startServer = async () => {
-  await mongo.connect();
-  scheduleVisitorExpiry();
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`API Documentation: http://localhost:${PORT}/v1`);
-  });
-};
-
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Token expired',
-    });
-  }
-
-  // Default error
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
-
-  res.status(statusCode).json({
-    success: false,
-    message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
-  });
-});
+scheduleVisitorExpiry();
 
 module.exports = app;
