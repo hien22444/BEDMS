@@ -1,14 +1,14 @@
-const express = require('express');
+require('dotenv').config();
 
+const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const routes = require('./routes');
 const path = require('path');
+const passport = require('./config/passport');
 const responseHandler = require('./middleware/responseHandle');
-const { mongo } = require('./utils');
 const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
-require('dotenv').config();
 
 const app = express();
 //fix
@@ -27,6 +27,7 @@ app.use(
   })
 );
 app.use(cookieParser());
+app.use(passport.initialize());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -67,17 +68,6 @@ app.use((err, req, res, _next) => {
   });
 });
 
-const PORT = process.env.PORT || 3001;
-
-const startServer = async () => {
-  await mongo.connect();
-  scheduleVisitorExpiry();
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`API Documentation: http://localhost:${PORT}/v1`);
-  });
-};
-
-startServer();
+scheduleVisitorExpiry();
 
 module.exports = app;

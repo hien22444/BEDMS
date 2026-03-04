@@ -325,7 +325,9 @@ const getAllUsers = async (query = {}) => {
 const deleteUser = async (id) => {
   const user = await User.findById(id);
   if (!user) {
-    throw new Error("User not found");
+    const error = new Error('User not found');
+    error.statusCode = 404;
+    throw error;
   }
 
   if (user.role === "admin") {
