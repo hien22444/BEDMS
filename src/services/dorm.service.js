@@ -1,5 +1,6 @@
 const Dorm = require("../models/dorm.model");
 const Block = require("../models/block.model");
+const AppError = require("../utils/AppError");
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -14,19 +15,24 @@ const createDorm = async (body) => {
     throw new Error("dorm_name and dorm_code are required");
   }
 
+  const code = String(dorm_code).trim();
+  if (!/^[A-Za-z]$/.test(code)) {
+    throw new Error("dorm_code must be 1 letter (A-Z)");
+  }
+
   const floors = Number(total_floors);
   if (!Number.isFinite(floors) || floors < 1) {
     throw new Error("total_floors is required and must be at least 1");
   }
 
-  const existing = await Dorm.findOne({ dorm_code: dorm_code.trim() });
+  const existing = await Dorm.findOne({ dorm_code: code.toUpperCase() });
   if (existing) {
     throw new Error("Dorm code already exists");
   }
 
   const dorm = await Dorm.create({
     dorm_name: dorm_name.trim(),
-    dorm_code: dorm_code.trim(),
+    dorm_code: code.toUpperCase(),
     total_floors: floors,
     total_blocks: 0,
     description: body.description,
@@ -91,8 +97,12 @@ const getDormById = async (id) => {
  */
 const updateDorm = async (id, body) => {
   if (body.dorm_code) {
+    const code = String(body.dorm_code).trim();
+    if (!/^[A-Za-z]$/.test(code)) {
+      throw new Error("dorm_code must be 1 letter (A-Z)");
+    }
     const existing = await Dorm.findOne({
-      dorm_code: body.dorm_code.trim(),
+      dorm_code: code.toUpperCase(),
       _id: { $ne: id },
     });
     if (existing) {
@@ -105,13 +115,10 @@ const updateDorm = async (id, body) => {
     if (!Number.isFinite(floors) || floors < 1) {
       throw new Error("total_floors must be at least 1");
     }
-    const blockWithHigherFloor = await Block.findOne({
-      dorm: id,
-      floor: { $gt: floors },
-    });
-    if (blockWithHigherFloor) {
+    const highestBlock = await Block.findOne({ dorm: id }).sort({ floor: -1 });
+    if (highestBlock && highestBlock.floor > floors) {
       throw new Error(
-        "Cannot set total_floors below current blocks: some blocks are on higher floors. Move or remove them first."
+        `Cannot set total_floors to ${floors}. The highest block is on floor ${highestBlock.floor}. total_floors must be >= ${highestBlock.floor}.`
       );
     }
   }
@@ -148,10 +155,20 @@ const updateDorm = async (id, body) => {
  * @param {string} id
  */
 const deleteDorm = async (id) => {
-  const dorm = await Dorm.findByIdAndDelete(id);
+  const dorm = await Dorm.findById(id);
   if (!dorm) {
     throw new Error("Dorm not found");
   }
+
+  const blockCount = await Block.countDocuments({ dorm: id });
+  if (blockCount > 0) {
+    throw new AppError(
+      `Cannot delete dorm "${dorm.dorm_name}": it still has ${blockCount} block(s). Please delete all blocks first.`,
+      400
+    );
+  }
+
+  await dorm.deleteOne();
   return { message: "Dorm deleted successfully" };
 };
 

@@ -53,6 +53,14 @@ app.use((err, req, res, _next) => {
     console.error(err.stack);
   }
 
+  // AppError = expected business rule / validation failure (4xx) — always expose the message
+  if (err.name === 'AppError') {
+    return res.status(err.statusCode || 400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
   res.status(500).json({
     success: false,
     message: isDev ? err.message : 'Internal server error',

@@ -3,6 +3,11 @@ const { DBCollections } = require("../utils/constant");
 
 const BedSchema = new mongoose.Schema(
   {
+    bed_id: {
+      type: Number,
+      unique: true,
+      sparse: true,
+    },
     room: {
       type: mongoose.Types.ObjectId,
       required: true,

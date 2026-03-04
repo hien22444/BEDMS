@@ -8,13 +8,13 @@ const router = express.Router();
 // All routes require authentication and admin role
 router
   .route("/")
-  .get(authenticate, authorize("admin"), blockController.getAllBlocks)
-  .post(authenticate, authorize("admin"), blockController.createBlock);
+  .get(authenticate, authorize("admin", "manager"), blockController.getAllBlocks)
+  .post(authenticate, authorize("admin", "manager"), blockController.createBlock);
 
 router
   .route("/:id")
-  .get(authenticate, authorize("admin"), blockController.getBlockById)
-  .patch(authenticate, authorize("admin"), blockController.updateBlock)
-  .delete(authenticate, authorize("admin"), blockController.deleteBlock);
+  .get(authenticate, authorize("admin", "manager"), blockController.getBlockById)
+  .patch(authenticate, authorize("admin", "manager"), blockController.updateBlock)
+  .delete(authenticate, authorize("admin", "manager"), blockController.deleteBlock);
 
 module.exports = router;

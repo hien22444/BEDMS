@@ -9,3 +9,4 @@ module.exports.equipmentService = require('./equipment.service');
 module.exports.notificationService = require('./notification.service');
 module.exports.roomService = require('./room.service');
 module.exports.roomTypePricingService = require('./roomTypePricing.service');
+module.exports.newsService = require('./news.service');

@@ -5,6 +5,7 @@ const RoomEquipment = require('../models/roomEquipment.model');
 // const EquipmentHistory = require('../models/equipmentHistory.model'); // reserved for future audit trail
 const RoomTypeEquipmentConfig = require('../models/roomTypeEquipmentConfig.model');
 const { Room } = require('../models');
+const AppError = require('../utils/AppError');
 
 // ==================== CATEGORY ====================
 
@@ -81,13 +82,13 @@ const updateCategory = async (id, body) => {
 const deleteCategory = async (id) => {
   const templateCount = await EquipmentTemplate.countDocuments({ category: id });
   if (templateCount > 0) {
-    throw new Error(
-      `Cannot delete category. ${templateCount} equipment template(s) still reference it.`
+    throw new AppError(
+      `Cannot delete category: ${templateCount} equipment template(s) still linked to it.`
     );
   }
 
   const category = await EquipmentCategory.findByIdAndDelete(id);
-  if (!category) throw new Error('Category not found');
+  if (!category) throw new AppError('Category not found', 404);
   return { message: 'Category deleted successfully' };
 };
 
@@ -186,16 +187,16 @@ const deleteTemplate = async (id) => {
   ]);
 
   if (equipCount > 0) {
-    throw new Error(`Cannot delete template. ${equipCount} room equipment(s) still reference it.`);
+    throw new AppError(`Cannot delete template: ${equipCount} room equipment(s) still linked to it.`);
   }
   if (configCount > 0) {
-    throw new Error(
-      `Cannot delete template. It is used in ${configCount} default room setup config(s). Remove those configs first.`
+    throw new AppError(
+      `Cannot delete template: it is used in ${configCount} default room setup config(s). Remove those configs first.`
     );
   }
 
   const template = await EquipmentTemplate.findByIdAndDelete(id);
-  if (!template) throw new Error('Template not found');
+  if (!template) throw new AppError('Template not found', 404);
   return { message: 'Template deleted successfully' };
 };
 

@@ -3,6 +3,7 @@ const { Room, Block } = require("../models");
 const AppError = require("../utils/AppError");
 const RoomTypeEquipmentConfig = require("../models/roomTypeEquipmentConfig.model");
 const RoomEquipment = require("../models/roomEquipment.model");
+const Bed = require("../models/bed.model");
 
 const populateBlockDorm = {
   path: "block",
@@ -14,7 +15,7 @@ const populateBlockDorm = {
 };
 
 const getAllRooms = async (query = {}) => {
-  const { page = 1, limit = 50, dorm, block, status, room_type } = query;
+  const { page = 1, limit = 50, dorm, block, status, room_type, student_type, search } = query;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   const filter = {};
@@ -24,6 +25,9 @@ const getAllRooms = async (query = {}) => {
   }
   if (room_type) {
     filter.room_type = room_type;
+  }
+  if (student_type) {
+    filter.student_type = student_type;
   }
 
   // Filter by dorm via blocks
@@ -37,10 +41,50 @@ const getAllRooms = async (query = {}) => {
     filter.block = block;
   }
 
+  // Search by room number or block name/code
+  if (search) {
+    const raw = String(search).trim();
+    if (raw) {
+      const regex = new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+
+      // If user types something like "A101-2", split and search block + room separately
+      if (raw.includes("-")) {
+        const [blockPart, roomPart] = raw.split("-", 2).map((p) => p.trim());
+        const roomRegex = roomPart ? new RegExp(roomPart.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
+
+        const blocksByName = await Block.find({
+          $or: [{ block_name: new RegExp(blockPart, "i") }, { block_code: new RegExp(blockPart, "i") }],
+        }).select("_id");
+
+        const blockIds = blocksByName.map((b) => b._id);
+
+        filter.$and = [];
+        if (blockIds.length > 0) {
+          filter.$and.push({ block: { $in: blockIds } });
+        }
+        if (roomRegex) {
+          filter.$and.push({ room_number: roomRegex });
+        }
+      } else {
+        // Generic search on room_number or matching blocks
+        const blocksBySearch = await Block.find({
+          $or: [{ block_name: regex }, { block_code: regex }],
+        }).select("_id");
+        const blockIds = blocksBySearch.map((b) => b._id);
+
+        filter.$or = [{ room_number: regex }];
+        if (blockIds.length > 0) {
+          filter.$or.push({ block: { $in: blockIds } });
+        }
+      }
+    }
+  }
+
   const [rooms, total] = await Promise.all([
     Room.find(filter)
       .populate(populateBlockDorm)
-      .sort({ createdAt: -1 })
+      // Sort by block then room number for stable ordering
+      .sort({ block: 1, room_number: 1 })
       .skip(skip)
       .limit(parseInt(limit)),
     Room.countDocuments(filter),
@@ -119,6 +163,19 @@ const createRoom = async (body) => {
     }
   }
 
+  // Auto-create Bed documents: beds 1..available_beds → available, rest → maintenance
+  if (totalBeds > 0) {
+    const maxBedDoc = await Bed.findOne({}, { bed_id: 1 }).sort({ bed_id: -1 });
+    const startId = (maxBedDoc?.bed_id || 0) + 1;
+    const bedDocs = Array.from({ length: totalBeds }, (_, i) => ({
+      room: room._id,
+      bed_number: String(i + 1),
+      status: i < availableBeds ? "available" : "maintenance",
+      bed_id: startId + i,
+    }));
+    await Bed.insertMany(bedDocs, { ordered: false });
+  }
+
   return await Room.findById(room._id).populate(populateBlockDorm);
 };
 
@@ -187,8 +244,53 @@ const updateRoom = async (id, body) => {
     body.floor = targetBlock.floor;
   }
 
+  const oldTotalBeds = Number(room.total_beds);
   Object.assign(room, body);
   await room.save();
+
+  // Sync Bed documents when total_beds changes
+  const newTotalBeds = Number(room.total_beds);
+  if (newTotalBeds !== oldTotalBeds) {
+    // Sort by bed_id (numeric) to get correct 1,2,3,...,10 order, not string "1","10","2",...
+    const existingBeds = await Bed.find({ room: id }).sort({ bed_id: 1 });
+    const currentCount = existingBeds.length;
+
+    if (newTotalBeds > currentCount) {
+      // Add new beds (numbered from currentCount+1 to newTotalBeds), status maintenance
+      const maxBedDoc = await Bed.findOne({}, { bed_id: 1 }).sort({ bed_id: -1 });
+      const startId = (maxBedDoc?.bed_id || 0) + 1;
+      const newBedDocs = Array.from({ length: newTotalBeds - currentCount }, (_, i) => ({
+        room: id,
+        bed_number: String(currentCount + i + 1),
+        status: "maintenance",
+        bed_id: startId + i,
+      }));
+      await Bed.insertMany(newBedDocs, { ordered: false });
+    } else if (newTotalBeds < currentCount) {
+      // Remove excess beds from the end (highest bed_number first) if not occupied/reserved
+      const toRemove = existingBeds.slice(newTotalBeds);
+      const occupiedIds = toRemove.filter((b) => b.status === "occupied" || b.status === "reserved").map((b) => b._id);
+      if (occupiedIds.length > 0) {
+        throw new AppError("Cannot reduce total_beds: some beds are occupied or reserved", 400);
+      }
+      await Bed.deleteMany({ _id: { $in: toRemove.map((b) => b._id) } });
+    }
+
+    // Re-apply available/maintenance statuses: first n beds → available, rest → maintenance
+    const newAvailableBeds = Number(room.available_beds);
+    const allBeds = await Bed.find({ room: id }).sort({ bed_id: 1 });
+    const bulkOps = allBeds
+      .filter((b) => b.status !== "occupied" && b.status !== "reserved")
+      .map((bed, idx) => ({
+        updateOne: {
+          filter: { _id: bed._id },
+          update: { $set: { status: idx < newAvailableBeds ? "available" : "maintenance" } },
+        },
+      }));
+    if (bulkOps.length > 0) {
+      await Bed.bulkWrite(bulkOps);
+    }
+  }
 
   return await Room.findById(id).populate(populateBlockDorm);
 };
@@ -200,6 +302,19 @@ const deleteRoom = async (id) => {
     throw new Error("Room not found");
   }
 
+  // Block deletion if any bed is occupied or reserved
+  const blockedCount = await Bed.countDocuments({
+    room: id,
+    status: { $in: ["occupied", "reserved"] },
+  });
+  if (blockedCount > 0) {
+    throw new AppError(
+      `Cannot delete room: ${blockedCount} bed(s) are currently occupied or reserved. Unassign all students first.`,
+      400
+    );
+  }
+
+  await Bed.deleteMany({ room: id });
   await room.deleteOne();
 
   return { message: "Room deleted successfully" };
