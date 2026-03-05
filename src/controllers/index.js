@@ -10,3 +10,4 @@ module.exports.roomController = require('./room.controller');
 module.exports.roomTypePricingController = require('./roomTypePricing.controller');
 module.exports.chatController = require('./chat.controller');
 module.exports.newsController = require('./news.controller');
+module.exports.bookingController = require('./booking.controller');

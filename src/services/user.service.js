@@ -22,6 +22,7 @@ const COLUMN_MAP = {
   "phone": "phone",
   "major": "major",
   "cohort": "cohort",
+  "student type": "studentType",
 };
 
 const REQUIRED_COLUMNS = ["email", "fullName", "role"];
@@ -139,6 +140,7 @@ const parseAndValidateRow = (row, _rowNumber, duplicateSets) => {
   const phone = normalizeValue(row.phone || "");
   const major = normalizeValue(row.major || "");
   const cohort = normalizeValue(row.cohort || "");
+  const rawStudentType = normalizeValue(row.studentType || "").toLowerCase();
 
   // Email
   if (!email) {
@@ -202,14 +204,28 @@ const parseAndValidateRow = (row, _rowNumber, duplicateSets) => {
       throw new Error(`Student code already exists: ${studentCode}`);
     }
 
-    // Major validation (if provided)
-    if (major && !isNA(major) && !GENERAL_TEXT_REGEX.test(major)) {
+    // Major (required for students)
+    if (isNA(major) || !major) {
+      throw new Error("Missing required field: major (for student role)");
+    }
+    if (!GENERAL_TEXT_REGEX.test(major)) {
       throw new Error(`Major contains invalid characters: "${major}"`);
     }
 
-    // Cohort validation (if provided)
-    if (cohort && !isNA(cohort) && !GENERAL_TEXT_REGEX.test(cohort)) {
+    // Cohort (required for students)
+    if (isNA(cohort) || !cohort) {
+      throw new Error("Missing required field: cohort (for student role)");
+    }
+    if (!GENERAL_TEXT_REGEX.test(cohort)) {
       throw new Error(`Cohort contains invalid characters: "${cohort}"`);
+    }
+
+    // Student type (required for students)
+    if (!rawStudentType || isNA(rawStudentType)) {
+      throw new Error("Missing required field: student type (for student role)");
+    }
+    if (!["domestic", "international"].includes(rawStudentType)) {
+      throw new Error(`Invalid student type: "${rawStudentType}". Must be: domestic, international`);
     }
 
     return {
@@ -221,8 +237,9 @@ const parseAndValidateRow = (row, _rowNumber, duplicateSets) => {
       dateOfBirth,
       gender,
       phone,
-      major: isNA(major) ? undefined : major,
-      cohort: isNA(cohort) ? undefined : cohort,
+      major,
+      cohort,
+      studentType: rawStudentType,
     };
   } else {
     // manager or security
@@ -482,6 +499,7 @@ const importFromExcel = async (fileBuffer) => {
           phone: parsed.phone,
           major: parsed.major,
           cohort: parsed.cohort,
+          student_type: parsed.studentType,
         });
       } else {
         await Staff.create({
