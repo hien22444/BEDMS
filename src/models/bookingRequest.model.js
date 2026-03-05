@@ -13,6 +13,16 @@ const BookingRequestSchema = new mongoose.Schema(
       required: true,
       ref: DBCollections.ROOM,
     },
+    bed: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.BED,
+      default: null,
+    },
+    invoice: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.INVOICE,
+      default: null,
+    },
     semester: {
       type: String,
       required: true,
@@ -27,14 +37,16 @@ const BookingRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "pending",
-      enum: ["pending", "approved", "rejected", "cancelled"],
+      default: "awaiting_payment",
+      enum: ["awaiting_payment", "approved", "cancelled", "expired"],
     },
-    rejection_reason: {
+    note: {
       type: String,
+      default: null,
     },
-    documents_url: {
-      type: [String],
+    expires_at: {
+      type: Date,
+      default: null,
     },
     requested_at: {
       type: Date,

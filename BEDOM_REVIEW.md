@@ -1,5 +1,5 @@
 # BEDOM Backend — Review & Documentation
-> Senior Code Review | Updated: 2026-03-02 (session 4)
+> Senior Code Review | Updated: 2026-03-05 (session 6)
 
 ---
 
@@ -167,7 +167,29 @@
 
 ---
 
-**Tổng số endpoint đang hoạt động: 63** (55 cũ + 7 chat + 1 student chat history)
+### 2.9 Booking — `/v1/bookings`
+
+#### Student
+| Method | Path | Auth | Mô tả |
+|--------|------|------|-------|
+| GET | `/bookings/next-semester` | Student | Lấy thông tin semester tiếp theo (tự tính) |
+| GET | `/bookings/options/room-types` | Student | Danh sách room types available (filter theo gender + student_type) |
+| GET | `/bookings/options/dorms?room_type=X` | Student | Danh sách dorms có phòng trống theo room type |
+| GET | `/bookings/options/floors?dorm_id=X&room_type=Y` | Student | Danh sách tầng có phòng trống |
+| GET | `/bookings/options/blocks?dorm_id=X&floor=Y&room_type=Z` | Student | Danh sách blocks có phòng trống |
+| GET | `/bookings/options/rooms?block_id=X&room_type=Y` | Student | Danh sách phòng trống (populated block→dorm) |
+| GET | `/bookings/options/beds?room_id=X` | Student | Danh sách giường trống trong phòng |
+| POST | `/bookings` | Student | Submit booking (body: bed_id, note?) → tạo BookingRequest + Invoice, bed=reserved, 10 phút hold |
+| GET | `/bookings/:id/payment-status` | Student | Kiểm tra + simulated confirm payment → tạo Payment, Contract, bed=occupied |
+| GET | `/bookings/my` | Student | Danh sách booking requests của student (paginated) |
+| PATCH | `/bookings/:id/cancel` | Student | Huỷ booking (chỉ awaiting_payment) → rollback bed + invoice |
+
+#### Manager
+| Method | Path | Auth | Mô tả |
+|--------|------|------|-------|
+| GET | `/bookings` | Manager | Danh sách tất cả bookings (filter status, semester, paginated) |
+
+**Tổng số endpoint đang hoạt động: 75** (63 cũ + 12 booking)
 
 ---
 
@@ -1075,6 +1097,15 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | Feature | `src/sockets/chat.socket.js` | 2026-03-02 | Import Notification + User models; trong `send_message`: khi `manager_unread === 1` (first unread batch) — nếu unassigned: tạo DB notification + emit `new_notification` cho tất cả managers; nếu assigned: tạo notification + emit cho manager đó — error wrapped trong try/catch riêng không làm crash main flow |
 | Bug fix | `src/sockets/chat.socket.js` | 2026-03-02 | `send_message`: trước khi tạo notification, kiểm tra `io.sockets.adapter.rooms.get('conv_id')` — nếu có manager socket trong room (đang xem hội thoại) → reset `manager_unread=0` + skip notification; chỉ notify khi manager KHÔNG có mặt trong room |
 | Feature | `src/sockets/chat.socket.js` | 2026-03-02 | `send_message`: thêm block đối xứng cho `senderType === 'staff'` khi `student_unread === 1` — kiểm tra student có trong room không; nếu không → tạo DB notification + emit `new_notification` đến `user_${studentId}`; nếu có → reset `student_unread=0` silently |
+| Struct | `app.js` (root) | 2026-03-05 | Xóa legacy root app.js — chuyển entry point sang `src/server.js`; update package.json main field |
+| Feature | `src/models/bookingRequest.model.js` | 2026-03-05 | Thêm bed, invoice, note, expires_at fields; đổi status enum sang `awaiting_payment/approved/cancelled/expired` |
+| Feature | `src/services/booking.service.js` (new) | 2026-03-05 | 12 service functions: getNextSemester, cascading filters (roomTypes/dorms/floors/blocks/rooms/beds), submitBooking (10-min hold), checkPaymentStatus (simulated confirm → Contract), cancelBooking, getMyBookings, getAllBookings |
+| Feature | `src/controllers/booking.controller.js` (new) | 2026-03-05 | 12 catchAsync handlers cho booking API |
+| Feature | `src/routes/v1/booking.route.js` (new) | 2026-03-05 | 12 routes: 11 student + 1 manager |
+| Feature | `src/services/user.service.js` | 2026-03-05 | Excel import: thêm cột "student type" (domestic/international) bắt buộc; major + cohort bắt buộc cho student |
+| Feature | `src/models/student.model.js` | 2026-03-05 | Thêm `student_type` field enum `["domestic", "international"]` |
+| Migration | MongoDB `students` collection | 2026-03-05 | Fix 21 records thiếu `student_type` → set "domestic"; fix 1 record thiếu `major`; fix 1 record thiếu `cohort` (derive từ student_code) |
+| Bug fix | `src/services/booking.service.js` | 2026-03-05 | `submitBooking`: decrement `room.available_beds` ngay khi reserve (không chờ payment) → slot count chính xác real-time; `checkPaymentStatus`: bỏ duplicate decrement; `cancelBooking`+expire rollback: restore `available_beds` bằng `$inc` |
 
 ---
 
@@ -1090,8 +1121,8 @@ Các model đã định nghĩa trong DB nhưng chưa có routes/services:
 | Visitor | ✅ 11 endpoints | ✅ | ✅ | Hoạt động |
 | Equipment | ✅ 17 endpoints | ✅ | ✅ | Hoạt động (từ dev) |
 | Room/Bed | ✅ 5 endpoints | ✅ | ✅ | Hoạt động |
-| Booking | ❌ | ❌ | ❌ | Chưa có |
-| Payment | ❌ | ❌ | ❌ | Chưa có |
+| Booking | ✅ 12 endpoints | ✅ | ✅ | Hoạt động — cascading filter + payment flow |
+| Payment | (tích hợp trong Booking) | — | — | Simulated confirm qua checkPaymentStatus |
 | Maintenance | ❌ | ❌ | ❌ | Chưa có |
 | Notification | ✅ 4 endpoints | ✅ | ✅ | Hoạt động (GET/mark-read/delete) |
 | Chat | ✅ 8 endpoints + Socket.io | ✅ | ✅ | Hoạt động — REST + real-time |
