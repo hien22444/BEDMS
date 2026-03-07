@@ -11,3 +11,4 @@ module.exports.roomTypePricingService = require('./roomTypePricing.service');
 module.exports.chatService = require('./chat.service');
 module.exports.newsService = require('./news.service');
 module.exports.bookingService = require('./booking.service');
+module.exports.aiRulesService = require('./aiRules.service');

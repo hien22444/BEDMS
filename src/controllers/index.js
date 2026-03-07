@@ -12,3 +12,4 @@ module.exports.chatController = require('./chat.controller');
 module.exports.newsController = require('./news.controller');
 module.exports.bookingController = require('./booking.controller');
 module.exports.payosController = require('./payos.controller');
+module.exports.aiRulesController = require('./aiRules.controller');
