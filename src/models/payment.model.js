@@ -7,6 +7,24 @@ const PaymentSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  // PayOS orderCode (numeric) for querying status/cancel + webhook mapping
+  payos_order_code: {
+    type: Number,
+    default: null,
+    index: true,
+  },
+  payos_payment_link_id: {
+    type: String,
+    default: null,
+  },
+  payos_checkout_url: {
+    type: String,
+    default: null,
+  },
+  payos_qr_code: {
+    type: String,
+    default: null,
+  },
   invoice: {
     type: mongoose.Types.ObjectId,
     required: true,
@@ -24,12 +42,12 @@ const PaymentSchema = new mongoose.Schema({
   payment_method: {
     type: String,
     required: true,
-    enum: ["vnpay", "momo", "bank_transfer", "cash"],
+    enum: ["payos", "vnpay", "momo", "bank_transfer", "cash"],
   },
   payment_status: {
     type: String,
     default: "pending",
-    enum: ["pending", "completed", "failed", "refunded"],
+    enum: ["pending", "completed", "failed", "refunded", "cancelled", "expired"],
   },
   transaction_details: {
     type: mongoose.Schema.Types.Mixed,

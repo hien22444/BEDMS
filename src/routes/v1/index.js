@@ -13,6 +13,7 @@ const newsRoute = require('./news.route');
 const bedRoute = require('./bed.route');
 const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
+const payosRoute = require('./payos.route');
 
 const express = require('express');
 
@@ -78,6 +79,10 @@ const defaultRoutes = [
   {
     path: '/bookings',
     route: bookingRoute,
+  },
+  {
+    path: '/payos',
+    route: payosRoute,
   },
 ];
 

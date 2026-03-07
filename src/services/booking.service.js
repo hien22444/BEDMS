@@ -12,6 +12,40 @@ const {
   Notification,
 } = require('../models');
 const AppError = require('../utils/AppError');
+const {
+  createPayosPaymentLink,
+  getPayosPaymentInfo,
+  cancelPayosPaymentLink,
+} = require('./payos.service');
+const { sendPaymentSuccessEmail } = require('./email.service');
+
+const getEnvOrThrow = (key) => {
+  const v = process.env[key];
+  if (!v) throw new AppError(`Missing env: ${key}`, 500);
+  return v;
+};
+
+const invoiceCodeToOrderCode = (invoiceCode) => {
+  // BOOK-YYYYMMDD-0005 => 202603060005 (safe integer)
+  const m = String(invoiceCode || '').match(/^BOOK-(\d{8})-(\d{4,})$/);
+  if (!m) return Number(Date.now()); // fallback
+  return Number(`${m[1]}${m[2]}`);
+};
+
+const isPayosPaid = (info) => {
+  const status = String(info?.status || info?.data?.status || info?.paymentStatus || '').toLowerCase();
+  return status === 'paid' || status === 'success' || status === 'completed';
+};
+
+const populateBookingForStudent = async (bookingId) => {
+  return BookingRequest.findById(bookingId)
+    .populate({
+      path: 'room',
+      populate: { path: 'block', populate: { path: 'dorm', select: 'dorm_name' } },
+    })
+    .populate('bed', 'bed_number')
+    .populate('invoice');
+};
 
 // ─── Semester Logic ───────────────────────────────────────
 const getNextSemester = () => {
@@ -353,7 +387,84 @@ const submitBooking = async (userId, { bed_id, note }) => {
     })
     .populate('bed', 'bed_number');
 
-  return { booking: populatedBooking, invoice };
+  // Create PayOS payment link + persist Payment record (best-effort).
+  // In dev or if PayOS is misconfigured, we return booking + invoice without failing the whole flow.
+  try {
+    const returnUrl = process.env.PAYOS_RETURN_URL;
+    const cancelUrl = process.env.PAYOS_CANCEL_URL;
+
+    // If PayOS URLs are not configured, skip online payment setup.
+    if (!returnUrl || !cancelUrl) {
+      return {
+        booking: populatedBooking,
+        invoice,
+        payos: null,
+        payment: null,
+      };
+    }
+
+    const orderCode = invoiceCodeToOrderCode(invoice.invoice_code);
+    const buyer = await User.findById(student.user).select('email full_name').lean();
+
+    const paymentLink = await createPayosPaymentLink({
+      orderCode,
+      amount: invoice.total_amount,
+      description: invoice.invoice_code,
+      returnUrl,
+      cancelUrl,
+      buyerEmail: buyer?.email,
+      buyerName: buyer?.full_name || student.full_name,
+      items: [
+        {
+          name: `Dorm booking ${invoice.invoice_code}`,
+          quantity: 1,
+          price: invoice.total_amount,
+        },
+      ],
+    });
+
+    const payosPaymentLinkId = paymentLink?.paymentLinkId || paymentLink?.id || null;
+    const payosCheckoutUrl = paymentLink?.checkoutUrl || paymentLink?.checkout_url || null;
+    const payosQrCode = paymentLink?.qrCode || paymentLink?.qr_code || null;
+
+    const payment = await Payment.create({
+      transaction_code: `PAYOS-${orderCode}`,
+      payos_order_code: orderCode,
+      payos_payment_link_id: payosPaymentLinkId,
+      payos_checkout_url: payosCheckoutUrl,
+      payos_qr_code: payosQrCode,
+      invoice: invoice._id,
+      student: student._id,
+      amount: invoice.total_amount,
+      payment_method: 'payos',
+      payment_status: 'pending',
+      transaction_details: paymentLink || null,
+    });
+
+    return {
+      booking: populatedBooking,
+      invoice,
+      payos: {
+        orderCode,
+        paymentLinkId: payosPaymentLinkId,
+        checkoutUrl: payosCheckoutUrl,
+        qrCode: payosQrCode,
+      },
+      payment,
+    };
+  } catch (err) {
+    // If PayOS fails (network, credentials, etc.), do not keep bed reserved forever.
+    await Bed.findByIdAndUpdate(bed._id, { status: 'available' });
+    await Room.findByIdAndUpdate(room._id, {
+      $inc: { available_beds: 1 },
+      $set: { status: 'available' },
+    });
+    await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
+    await BookingRequest.findByIdAndUpdate(booking._id, { status: 'cancelled' });
+
+    const msg = err?.message || 'Failed to create PayOS payment link';
+    throw new AppError(msg, 500);
+  }
 };
 
 // ─── 9. checkPaymentStatus ────────────────────────────────
@@ -368,14 +479,8 @@ const checkPaymentStatus = async (bookingId, userId) => {
 
   // Already approved
   if (booking.status === 'approved') {
-    const populatedBooking = await BookingRequest.findById(bookingId)
-      .populate({
-        path: 'room',
-        populate: { path: 'block', populate: { path: 'dorm', select: 'dorm_name' } },
-      })
-      .populate('bed', 'bed_number')
-      .populate('invoice');
-    return { booking: populatedBooking, status: 'approved' };
+    const populatedBooking = await populateBookingForStudent(bookingId);
+    return { booking: populatedBooking, status: 'approved', paid: true };
   }
 
   if (booking.status !== 'awaiting_payment') {
@@ -384,6 +489,17 @@ const checkPaymentStatus = async (bookingId, userId) => {
 
   // Check expiration
   if (new Date() > booking.expires_at) {
+    // Best-effort: cancel PayOS payment link if exists
+    const pay = await Payment.findOne({
+      invoice: booking.invoice,
+      payment_method: 'payos',
+      payment_status: 'pending',
+    }).lean();
+    if (pay?.payos_order_code) {
+      await cancelPayosPaymentLink(pay.payos_order_code, 'Booking expired (10-minute hold)');
+      await Payment.updateOne({ _id: pay._id }, { $set: { payment_status: 'expired' } });
+    }
+
     // Rollback bed and restore room available_beds
     await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
     await Room.findByIdAndUpdate(booking.room, {
@@ -396,70 +512,123 @@ const checkPaymentStatus = async (bookingId, userId) => {
     throw new AppError('Booking expired. Bed has been released. Please book again.', 410);
   }
 
-  // ── Simulated payment confirmation ──
   const invoice = await Invoice.findById(booking.invoice);
+  if (!invoice) throw new AppError('Invoice not found', 404);
+
+  const payment = await Payment.findOne({
+    invoice: invoice._id,
+    payment_method: 'payos',
+  });
+
+  if (!payment?.payos_order_code) {
+    const populatedBooking = await populateBookingForStudent(bookingId);
+    return {
+      status: 'pending',
+      paid: false,
+      message: 'Chưa thanh toán',
+      booking: populatedBooking,
+      invoice,
+    };
+  }
+
+  // Ask PayOS for real status
+  const payosInfo = await getPayosPaymentInfo(payment.payos_order_code);
+
+  // Handle PayOS cancellation (user cancelled on PayOS page)
+  const payosStatus = String(payosInfo?.status || payosInfo?.data?.status || '').toLowerCase();
+  if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
+    try {
+      await cancelBooking(bookingId, userId);
+    } catch { /* idempotent – already cancelled */ }
+    return { status: 'cancelled', paid: false, message: 'Booking đã bị hủy.' };
+  }
+
+  if (!isPayosPaid(payosInfo)) {
+    const populatedBooking = await populateBookingForStudent(bookingId);
+    return {
+      status: 'pending',
+      paid: false,
+      message: 'Chưa thanh toán',
+      booking: populatedBooking,
+      invoice,
+      payos: {
+        orderCode: payment.payos_order_code,
+        checkoutUrl: payment.payos_checkout_url,
+        qrCode: payment.payos_qr_code,
+      },
+    };
+  }
+
+  // Paid → finalize booking
   const bed = await Bed.findById(booking.bed);
   const room = await Room.findById(booking.room);
+  if (!bed || !room) throw new AppError('Room/Bed not found', 404);
 
-  // Create payment record
-  const transaction_code = `TXN-${Date.now()}`;
-  const payment = await Payment.create({
-    transaction_code,
-    invoice: invoice._id,
-    student: student._id,
-    amount: invoice.total_amount,
-    payment_method: 'bank_transfer',
-    payment_status: 'completed',
-    paid_at: new Date(),
-  });
+  // Update payment
+  payment.payment_status = 'completed';
+  payment.paid_at = new Date();
+  payment.transaction_details = payosInfo;
+  await payment.save();
 
   // Update invoice
   invoice.payment_status = 'paid';
   invoice.paid_at = new Date();
   await invoice.save();
 
-  // Update bed (available_beds already decremented at submitBooking)
+  // Update bed
   bed.status = 'occupied';
   await bed.save();
 
-  // Create contract
-  const contract = await Contract.create({
+  // Create contract if not exists
+  let contract = await Contract.findOne({
     student: student._id,
-    room: booking.room,
-    bed: booking.bed,
     semester: booking.semester,
-    start_date: booking.start_date,
-    end_date: booking.end_date,
-    room_price: room.price_per_semester,
     status: 'active',
   });
+  if (!contract) {
+    contract = await Contract.create({
+      student: student._id,
+      room: booking.room,
+      bed: booking.bed,
+      semester: booking.semester,
+      start_date: booking.start_date,
+      end_date: booking.end_date,
+      room_price: room.price_per_semester,
+      status: 'active',
+    });
+  }
 
   // Update booking
   booking.status = 'approved';
   await booking.save();
 
-  // Notify student
-  const user = await User.findById(student.user);
+  // Notify student + email
+  const user = await User.findById(student.user).lean();
   if (user) {
     await Notification.create({
       user: user._id,
-      title: 'Booking Confirmed',
-      message: `Your booking for room ${room.room_number} (Bed ${bed.bed_number}) has been confirmed for ${booking.semester}.`,
+      title: 'Payment Successful',
+      message: `Your payment for ${invoice.invoice_code} is successful. Booking is approved.`,
       notification_type: 'success',
-      category: 'booking',
+      category: 'payment',
       related_id: booking._id.toString(),
     });
+
+    // Email is best-effort
+    try {
+      await sendPaymentSuccessEmail({
+        to: user.email,
+        studentName: student.full_name,
+        invoiceCode: invoice.invoice_code,
+        amountVnd: invoice.total_amount,
+      });
+    } catch (e) {
+      console.error('[Email] sendPaymentSuccessEmail failed:', e.message);
+    }
   }
 
-  const populatedBooking = await BookingRequest.findById(bookingId)
-    .populate({
-      path: 'room',
-      populate: { path: 'block', populate: { path: 'dorm', select: 'dorm_name' } },
-    })
-    .populate('bed', 'bed_number')
-    .populate('invoice');
-
-  return { booking: populatedBooking, invoice, payment, contract };
+  const populatedBooking = await populateBookingForStudent(bookingId);
+  return { status: 'paid', paid: true, booking: populatedBooking, invoice, payment, contract };
 };
 
 // ─── 10. getMyBookings ────────────────────────────────────
@@ -487,10 +656,84 @@ const getMyBookings = async (userId, query = {}) => {
     BookingRequest.countDocuments({ student: student._id }),
   ]);
 
+  // Attach PayOS payment info (for resume payment in Payment page / My Requests)
+  const invoiceIds = items
+    .map((i) => i.invoice && (i.invoice._id || i.invoice.id))
+    .filter(Boolean);
+
+  const payments = invoiceIds.length
+    ? await Payment.find({
+        invoice: { $in: invoiceIds },
+        payment_method: 'payos',
+      })
+        .select('invoice payos_order_code payos_payment_link_id payos_checkout_url payos_qr_code payment_status')
+        .lean()
+    : [];
+
+  const payByInvoice = new Map(
+    payments.map((p) => [
+      p.invoice.toString(),
+      {
+        orderCode: p.payos_order_code,
+        paymentLinkId: p.payos_payment_link_id,
+        checkoutUrl: p.payos_checkout_url,
+        qrCode: p.payos_qr_code,
+        status: p.payment_status,
+      },
+    ])
+  );
+
   return {
-    items: items.map((i) => ({ ...i, id: i._id })),
+    items: items.map((i) => {
+      const invId = i.invoice && (i.invoice._id || i.invoice.id);
+      return {
+        ...i,
+        id: i._id,
+        payos: invId ? payByInvoice.get(invId.toString()) || null : null,
+      };
+    }),
     pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / limit) },
   };
+};
+
+/**
+ * Handle PayOS webhook (verified in controller).
+ * We keep it idempotent: if already completed/expired/cancelled, do nothing.
+ */
+const handlePayosWebhook = async (webhookData) => {
+  const data = webhookData?.data || webhookData;
+  const orderCode = data?.orderCode || data?.order_code;
+  const status = String(data?.status || data?.paymentStatus || '').toLowerCase();
+
+  if (!orderCode) return { ok: true, ignored: true, reason: 'missing orderCode' };
+
+  const payment = await Payment.findOne({ payos_order_code: Number(orderCode) });
+  if (!payment) return { ok: true, ignored: true, reason: 'payment not found' };
+
+  if (payment.payment_status === 'completed') return { ok: true, ignored: true, reason: 'already completed' };
+  if (['cancelled', 'expired'].includes(payment.payment_status)) return { ok: true, ignored: true, reason: 'already closed' };
+
+  const booking = await BookingRequest.findOne({ invoice: payment.invoice });
+  if (!booking) return { ok: true, ignored: true, reason: 'booking not found' };
+
+  const student = await Student.findById(payment.student).lean();
+  if (!student) return { ok: true, ignored: true, reason: 'student not found' };
+
+  if (status === 'paid' || status === 'success' || status === 'completed') {
+    // Re-use checkPaymentStatus() which finalizes booking + sends email.
+    return checkPaymentStatus(booking._id.toString(), student.user.toString());
+  }
+
+  if (status === 'cancelled' || status === 'canceled') {
+    try {
+      await cancelBooking(booking._id.toString(), student.user.toString());
+    } catch (err) {
+      console.error('[PayOS Webhook] cancelBooking failed:', err?.message || err);
+    }
+    return { ok: true, handled: true, status: 'cancelled' };
+  }
+
+  return { ok: true, ignored: true, status };
 };
 
 // ─── 11. cancelBooking ────────────────────────────────────
@@ -504,6 +747,17 @@ const cancelBooking = async (bookingId, userId) => {
   }
   if (booking.status !== 'awaiting_payment') {
     throw new AppError('Can only cancel unpaid bookings', 400);
+  }
+
+  // Best-effort: cancel PayOS payment link if exists
+  const payment = await Payment.findOne({
+    invoice: booking.invoice,
+    payment_method: 'payos',
+    payment_status: 'pending',
+  }).lean();
+  if (payment?.payos_order_code) {
+    await cancelPayosPaymentLink(payment.payos_order_code, 'User cancelled booking');
+    await Payment.updateOne({ _id: payment._id }, { $set: { payment_status: 'cancelled' } });
   }
 
   // Rollback bed and restore room available_beds
@@ -572,4 +826,5 @@ module.exports = {
   getMyBookings,
   cancelBooking,
   getAllBookings,
+  handlePayosWebhook,
 };
