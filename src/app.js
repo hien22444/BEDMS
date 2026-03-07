@@ -9,6 +9,8 @@ const path = require('path');
 const passport = require('./config/passport');
 const responseHandler = require('./middleware/responseHandle');
 const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
+const { scheduleBookingExpiry } = require('./jobs/bookingExpiryScheduler');
+const { confirmPayosWebhook } = require('./services/payos.service');
 
 const app = express();
 
@@ -71,5 +73,7 @@ app.use((err, _req, res, _next) => {
 });
 
 scheduleVisitorExpiry();
+scheduleBookingExpiry();
+confirmPayosWebhook();
 
 module.exports = app;
