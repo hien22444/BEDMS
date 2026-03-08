@@ -19,9 +19,7 @@ const enrichReporterStudentCode = async (report) => {
 
   if (code) {
     report.reporter.student_code = code;
-    if (!report.reporter_code) {
-      report.reporter_code = code;
-    }
+    report.reporter_code = code;
   }
 
   return report;
@@ -74,9 +72,7 @@ const enrichReportsReporterStudentCode = async (reports) => {
 
     if (code) {
       r.reporter.student_code = code;
-      if (!r.reporter_code) {
-        r.reporter_code = code;
-      }
+      r.reporter_code = code;
     }
   });
 
@@ -141,13 +137,14 @@ const createViolationReport = async (body) => {
   let student;
   let reporterCode = null;
 
-  // If reporter is a student, attach the currently logged-in student as reported_student
+  // If reporter is a student, only set reporter code; reported_student stays null until manager penalizes
   if (body.reporter_type === "student") {
-    student = await Student.findOne({ user: body.reporter_id });
-    if (!student) {
+    const reporterStudent = await Student.findOne({ user: body.reporter_id });
+    if (!reporterStudent) {
       throw new Error("Student profile not found for current user");
     }
-    reporterCode = student.student_code;
+    reporterCode = reporterStudent.student_code;
+    student = null;
   } else {
     // Manager / security must specify student_code explicitly
     if (!body.student_code) {
@@ -173,7 +170,7 @@ const createViolationReport = async (body) => {
 
   const violationReport = new ViolationReport({
     report_code: reportCode,
-    reported_student: student._id,
+    ...(student ? { reported_student: student._id } : {}),
     reporter: body.reporter_id,
     reporter_type: body.reporter_type,
     reporter_code: reporterCode,
@@ -318,6 +315,16 @@ const reviewViolationReport = async (id, body, staffId) => {
   report.reviewed_by = staffId;
   report.reviewed_at = new Date();
 
+  // When penalizing, set reported_student to the student being penalized (so details show correctly)
+  if (body.status === 'resolved_penalized' && body.penalty?.student_code) {
+    const penalizedStudent = await Student.findOne({
+      student_code: { $regex: new RegExp(`^${escapeRegex(body.penalty.student_code.trim())}$`, 'i') },
+    }).select('_id');
+    if (penalizedStudent) {
+      report.reported_student = penalizedStudent._id;
+    }
+  }
+
   await report.save();
 
   // If penalized, create penalty and update student score
@@ -427,11 +434,15 @@ const getStudentPenalties = async (studentCode) => {
 };
 
 /**
- * Search student by student code
+ * Search student by student code — full code only (exact match).
+ * Partial input (e.g. "DE" or "DE1") does not return a result.
  */
 const searchStudentByCode = async (studentCode) => {
+  const code = (studentCode || '').trim();
+  if (!code) return null;
+
   const student = await Student.findOne({
-    student_code: { $regex: escapeRegex(studentCode), $options: 'i' },
+    student_code: { $regex: new RegExp(`^${escapeRegex(code)}$`, 'i') },
   }).select('student_code full_name phone behavioral_score violations_current_semester');
 
   return student;

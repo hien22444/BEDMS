@@ -10,8 +10,9 @@ const ViolationReportSchema = new mongoose.Schema(
     },
     reported_student: {
       type: mongoose.Types.ObjectId,
-      required: true,
+      required: false,
       ref: DBCollections.STUDENT,
+      default: null,
     },
     reporter: {
       type: mongoose.Types.ObjectId,
@@ -22,6 +23,12 @@ const ViolationReportSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: ["student", "security", "manager"],
+    },
+    /** Code of the reporter: student_code (student) or staff_code (manager/security). Filled on create or by enrich. */
+    reporter_code: {
+      type: String,
+      required: false,
+      default: null,
     },
     // Type of violation, aligned with student + manager UIs
     violation_type: {
