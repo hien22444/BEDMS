@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const NewsSchema = new mongoose.Schema(
   {
@@ -17,7 +17,7 @@ const NewsSchema = new mongoose.Schema(
     category: {
       type: String,
       required: true,
-      enum: ["announcement", "event", "policy", "maintenance", "general"],
+      enum: ['announcement', 'event', 'policy', 'maintenance', 'general'],
     },
     is_published: {
       type: Boolean,
@@ -38,7 +38,7 @@ const NewsSchema = new mongoose.Schema(
   }
 );
 
-NewsSchema.set("toJSON", {
+NewsSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const BehavioralScoreHistorySchema = new mongoose.Schema({
   student: {
@@ -10,7 +10,7 @@ const BehavioralScoreHistorySchema = new mongoose.Schema({
   change_type: {
     type: String,
     required: true,
-    enum: ["penalty", "reward", "auto_increment"],
+    enum: ['penalty', 'reward', 'auto_increment'],
   },
   points_changed: {
     type: Number,
@@ -43,7 +43,7 @@ const BehavioralScoreHistorySchema = new mongoose.Schema({
   },
 });
 
-BehavioralScoreHistorySchema.set("toJSON", {
+BehavioralScoreHistorySchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

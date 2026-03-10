@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { visitorService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { visitorService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 // ─── Student endpoints ───
 
@@ -15,10 +15,7 @@ const getMyVisitorRequests = catchAsync(async (req, res) => {
 });
 
 const cancelVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.cancelVisitorRequest(
-    req.params.id,
-    req.user.id
-  );
+  const data = await visitorService.cancelVisitorRequest(req.params.id, req.user.id);
   res.success(data, status.OK);
 });
 
@@ -35,10 +32,7 @@ const getVisitorRequestDetail = catchAsync(async (req, res) => {
 });
 
 const approveVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.approveVisitorRequest(
-    req.params.id,
-    req.user.id
-  );
+  const data = await visitorService.approveVisitorRequest(req.params.id, req.user.id);
   res.success(data, status.OK);
 });
 
@@ -52,27 +46,17 @@ const rejectVisitorRequest = catchAsync(async (req, res) => {
 });
 
 const completeVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.completeVisitorRequest(
-    req.params.id,
-    req.user.id
-  );
+  const data = await visitorService.completeVisitorRequest(req.params.id, req.user.id);
   res.success(data, status.OK);
 });
 
 const checkinVisitor = catchAsync(async (req, res) => {
-  const data = await visitorService.checkinVisitor(
-    req.params.id,
-    req.body.visitorId,
-    req.user.id
-  );
+  const data = await visitorService.checkinVisitor(req.params.id, req.body.visitorId, req.user.id);
   res.success(data, status.OK);
 });
 
 const checkoutVisitor = catchAsync(async (req, res) => {
-  const data = await visitorService.checkoutVisitor(
-    req.params.checkinId,
-    req.user.id
-  );
+  const data = await visitorService.checkoutVisitor(req.params.checkinId, req.user.id);
   res.success(data, status.OK);
 });
 

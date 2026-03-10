@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const PaymentSchema = new mongoose.Schema({
   transaction_code: {
@@ -42,12 +42,12 @@ const PaymentSchema = new mongoose.Schema({
   payment_method: {
     type: String,
     required: true,
-    enum: ["payos", "vnpay", "momo", "bank_transfer", "cash"],
+    enum: ['payos', 'vnpay', 'momo', 'bank_transfer', 'cash'],
   },
   payment_status: {
     type: String,
-    default: "pending",
-    enum: ["pending", "completed", "failed", "refunded", "cancelled", "expired"],
+    default: 'pending',
+    enum: ['pending', 'completed', 'failed', 'refunded', 'cancelled', 'expired'],
   },
   transaction_details: {
     type: mongoose.Schema.Types.Mixed,
@@ -62,7 +62,7 @@ const PaymentSchema = new mongoose.Schema({
   },
 });
 
-PaymentSchema.set("toJSON", {
+PaymentSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

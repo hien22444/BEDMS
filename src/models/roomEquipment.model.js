@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const RoomEquipmentSchema = new mongoose.Schema(
   {
@@ -24,8 +24,8 @@ const RoomEquipmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "good",
-      enum: ["good", "normal", "damaged", "broken", "missing"],
+      default: 'good',
+      enum: ['good', 'normal', 'damaged', 'broken', 'missing'],
     },
     condition_notes: {
       type: String,
@@ -52,7 +52,7 @@ const RoomEquipmentSchema = new mongoose.Schema(
   }
 );
 
-RoomEquipmentSchema.set("toJSON", {
+RoomEquipmentSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -60,9 +60,6 @@ RoomEquipmentSchema.set("toJSON", {
   },
 });
 
-const RoomEquipment = mongoose.model(
-  DBCollections.ROOM_EQUIPMENT,
-  RoomEquipmentSchema
-);
+const RoomEquipment = mongoose.model(DBCollections.ROOM_EQUIPMENT, RoomEquipmentSchema);
 
 module.exports = RoomEquipment;

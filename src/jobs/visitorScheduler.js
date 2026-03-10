@@ -23,7 +23,15 @@ const scheduleVisitorExpiry = () => {
       try {
         const now = new Date();
         // "tomorrow at 00:00" — so visit_date < tomorrowStart covers today AND all past dates
-        const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+        const tomorrowStart = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate() + 1,
+          0,
+          0,
+          0,
+          0
+        );
 
         // 1. Cancel pending requests whose visit date is today or earlier (visit window already over)
         const cancelResult = await VisitorRequest.updateMany(

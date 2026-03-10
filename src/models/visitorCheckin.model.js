@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const VisitorCheckinSchema = new mongoose.Schema(
   {
@@ -40,7 +40,7 @@ const VisitorCheckinSchema = new mongoose.Schema(
   }
 );
 
-VisitorCheckinSchema.set("toJSON", {
+VisitorCheckinSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -48,9 +48,6 @@ VisitorCheckinSchema.set("toJSON", {
   },
 });
 
-const VisitorCheckin = mongoose.model(
-  DBCollections.VISITOR_CHECKIN,
-  VisitorCheckinSchema
-);
+const VisitorCheckin = mongoose.model(DBCollections.VISITOR_CHECKIN, VisitorCheckinSchema);
 
 module.exports = VisitorCheckin;

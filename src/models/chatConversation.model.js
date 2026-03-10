@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const ChatConversationSchema = new mongoose.Schema(
   {
@@ -15,8 +15,8 @@ const ChatConversationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "open",
-      enum: ["open", "closed"],
+      default: 'open',
+      enum: ['open', 'closed'],
     },
     manager_unread: {
       type: Number,
@@ -41,7 +41,7 @@ ChatConversationSchema.index({ student: 1, status: 1 });
 // Manager query conversations sorted by latest activity
 ChatConversationSchema.index({ status: 1, last_message_at: -1 });
 
-ChatConversationSchema.set("toJSON", {
+ChatConversationSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -49,9 +49,6 @@ ChatConversationSchema.set("toJSON", {
   },
 });
 
-const ChatConversation = mongoose.model(
-  DBCollections.CHAT_CONVERSATION,
-  ChatConversationSchema
-);
+const ChatConversation = mongoose.model(DBCollections.CHAT_CONVERSATION, ChatConversationSchema);
 
 module.exports = ChatConversation;

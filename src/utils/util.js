@@ -1,5 +1,5 @@
 const trimObject = (obj, exceptFields = []) => {
-  if (obj && typeof obj === "object") {
+  if (obj && typeof obj === 'object') {
     if (Array.isArray(obj)) {
       return obj.map((item) => trimObject(item));
     }
@@ -7,10 +7,10 @@ const trimObject = (obj, exceptFields = []) => {
       if (exceptFields.includes(key)) {
         return;
       }
-      if (typeof obj[key] === "string") {
-        obj[key] = obj[key].trim().replace(/[ ]{2,}/g, " ");
+      if (typeof obj[key] === 'string') {
+        obj[key] = obj[key].trim().replace(/[ ]{2,}/g, ' ');
       }
-      if (typeof obj[key] === "object") {
+      if (typeof obj[key] === 'object') {
         obj[key] = trimObject(obj[key]);
       }
     });

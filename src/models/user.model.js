@@ -1,6 +1,6 @@
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const { DBCollections } = require('../utils/constant');
 
 const UserSchema = new mongoose.Schema(
   {
@@ -25,7 +25,7 @@ const UserSchema = new mongoose.Schema(
     role: {
       type: String,
       required: true,
-      enum: ["student", "manager", "security", "admin"],
+      enum: ['student', 'manager', 'security', 'admin'],
     },
     is_active: {
       type: Boolean,
@@ -41,7 +41,7 @@ const UserSchema = new mongoose.Schema(
   }
 );
 
-UserSchema.set("toJSON", {
+UserSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -50,8 +50,8 @@ UserSchema.set("toJSON", {
   },
 });
 
-UserSchema.pre("save", async function (next) {
-  if (!this.isModified("password_hash")) return next();
+UserSchema.pre('save', async function (next) {
+  if (!this.isModified('password_hash')) return next();
 
   try {
     const salt = await bcrypt.genSalt(10);

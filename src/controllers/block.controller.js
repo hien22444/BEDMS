@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { blockService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { blockService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 const getAllBlocks = catchAsync(async (req, res) => {
   const data = await blockService.getAllBlocks(req.query);

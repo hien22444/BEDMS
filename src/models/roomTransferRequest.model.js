@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const RoomTransferRequestSchema = new mongoose.Schema({
   student: {
@@ -23,8 +23,8 @@ const RoomTransferRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    default: "pending",
-    enum: ["pending", "approved", "rejected", "cancelled"],
+    default: 'pending',
+    enum: ['pending', 'approved', 'rejected', 'cancelled'],
   },
   rejection_reason: {
     type: String,
@@ -44,7 +44,7 @@ const RoomTransferRequestSchema = new mongoose.Schema({
   },
 });
 
-RoomTransferRequestSchema.set("toJSON", {
+RoomTransferRequestSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

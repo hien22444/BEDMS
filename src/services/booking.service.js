@@ -3,7 +3,6 @@ const {
   Room,
   Bed,
   Block,
-  Dorm,
   Student,
   User,
   Invoice,
@@ -19,12 +18,6 @@ const {
 } = require('./payos.service');
 const { sendPaymentSuccessEmail } = require('./email.service');
 
-const getEnvOrThrow = (key) => {
-  const v = process.env[key];
-  if (!v) throw new AppError(`Missing env: ${key}`, 500);
-  return v;
-};
-
 const invoiceCodeToOrderCode = (invoiceCode) => {
   // BOOK-YYYYMMDD-0005 => 202603060005 (safe integer)
   const m = String(invoiceCode || '').match(/^BOOK-(\d{8})-(\d{4,})$/);
@@ -33,7 +26,9 @@ const invoiceCodeToOrderCode = (invoiceCode) => {
 };
 
 const isPayosPaid = (info) => {
-  const status = String(info?.status || info?.data?.status || info?.paymentStatus || '').toLowerCase();
+  const status = String(
+    info?.status || info?.data?.status || info?.paymentStatus || ''
+  ).toLowerCase();
   return status === 'paid' || status === 'success' || status === 'completed';
 };
 
@@ -54,21 +49,35 @@ const getNextSemester = () => {
   const year = now.getFullYear();
 
   if (month <= 4) {
-    return { semester: `Summer-${year}`, start_date: new Date(year, 4, 1), end_date: new Date(year, 7, 31) };
+    return {
+      semester: `Summer-${year}`,
+      start_date: new Date(year, 4, 1),
+      end_date: new Date(year, 7, 31),
+    };
   }
   if (month <= 8) {
-    return { semester: `Fall-${year}`, start_date: new Date(year, 8, 1), end_date: new Date(year, 11, 31) };
+    return {
+      semester: `Fall-${year}`,
+      start_date: new Date(year, 8, 1),
+      end_date: new Date(year, 11, 31),
+    };
   }
-  return { semester: `Spring-${year + 1}`, start_date: new Date(year + 1, 0, 1), end_date: new Date(year + 1, 3, 30) };
+  return {
+    semester: `Spring-${year + 1}`,
+    start_date: new Date(year + 1, 0, 1),
+    end_date: new Date(year + 1, 3, 30),
+  };
 };
 
 // ─── Student Filter Logic ─────────────────────────────────
 const getStudentFilter = (student) => ({
   roomStudentType: student.student_type === 'international' ? 'international' : 'vietnamese',
   genderTypes:
-    student.gender === 'male' ? ['male', 'mixed'] :
-    student.gender === 'female' ? ['female', 'mixed'] :
-    ['mixed'],
+    student.gender === 'male'
+      ? ['male', 'mixed']
+      : student.gender === 'female'
+        ? ['female', 'mixed']
+        : ['mixed'],
 });
 
 const findStudent = async (userId) => {
@@ -110,7 +119,9 @@ const getAvailableRoomTypes = async (userId) => {
   const student = await findStudent(userId);
   const { roomStudentType, genderTypes } = getStudentFilter(student);
 
-  const blocks = await Block.find({ gender_type: { $in: genderTypes }, is_active: true }).select('_id');
+  const blocks = await Block.find({ gender_type: { $in: genderTypes }, is_active: true }).select(
+    '_id'
+  );
   const blockIds = blocks.map((b) => b._id);
 
   const rooms = await Room.find({
@@ -172,7 +183,12 @@ const getDormsForBooking = async (userId, roomType) => {
     if (!dorm) continue;
     const dormId = dorm._id.toString();
     if (!dormMap[dormId]) {
-      dormMap[dormId] = { dorm_id: dormId, dorm_name: dorm.dorm_name, dorm_code: dorm.dorm_code, available_slots: 0 };
+      dormMap[dormId] = {
+        dorm_id: dormId,
+        dorm_name: dorm.dorm_name,
+        dorm_code: dorm.dorm_code,
+        available_slots: 0,
+      };
     }
     dormMap[dormId].available_slots += room.available_beds;
   }
@@ -235,7 +251,12 @@ const getBlocksForBooking = async (userId, dormId, floor, roomType) => {
 
   const blockMap = {};
   for (const b of blocks) {
-    blockMap[b._id.toString()] = { block_id: b._id.toString(), block_name: b.block_name, block_code: b.block_code, available_slots: 0 };
+    blockMap[b._id.toString()] = {
+      block_id: b._id.toString(),
+      block_name: b.block_name,
+      block_code: b.block_code,
+      available_slots: 0,
+    };
   }
   for (const room of rooms) {
     const bid = room.block.toString();
@@ -378,7 +399,8 @@ const submitBooking = async (userId, { bed_id, note }) => {
   const populatedBooking = await BookingRequest.findById(booking._id)
     .populate({
       path: 'room',
-      select: 'room_number room_type floor total_beds available_beds price_per_semester student_type',
+      select:
+        'room_number room_type floor total_beds available_beds price_per_semester student_type',
       populate: {
         path: 'block',
         select: 'block_name block_code gender_type',
@@ -539,7 +561,9 @@ const checkPaymentStatus = async (bookingId, userId) => {
   if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
     try {
       await cancelBooking(bookingId, userId);
-    } catch { /* idempotent – already cancelled */ }
+    } catch {
+      /* idempotent – already cancelled */
+    }
     return { status: 'cancelled', paid: false, message: 'Booking đã bị hủy.' };
   }
 
@@ -657,16 +681,16 @@ const getMyBookings = async (userId, query = {}) => {
   ]);
 
   // Attach PayOS payment info (for resume payment in Payment page / My Requests)
-  const invoiceIds = items
-    .map((i) => i.invoice && (i.invoice._id || i.invoice.id))
-    .filter(Boolean);
+  const invoiceIds = items.map((i) => i.invoice && (i.invoice._id || i.invoice.id)).filter(Boolean);
 
   const payments = invoiceIds.length
     ? await Payment.find({
         invoice: { $in: invoiceIds },
         payment_method: 'payos',
       })
-        .select('invoice payos_order_code payos_payment_link_id payos_checkout_url payos_qr_code payment_status')
+        .select(
+          'invoice payos_order_code payos_payment_link_id payos_checkout_url payos_qr_code payment_status'
+        )
         .lean()
     : [];
 
@@ -692,7 +716,12 @@ const getMyBookings = async (userId, query = {}) => {
         payos: invId ? payByInvoice.get(invId.toString()) || null : null,
       };
     }),
-    pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / limit) },
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
   };
 };
 
@@ -710,8 +739,10 @@ const handlePayosWebhook = async (webhookData) => {
   const payment = await Payment.findOne({ payos_order_code: Number(orderCode) });
   if (!payment) return { ok: true, ignored: true, reason: 'payment not found' };
 
-  if (payment.payment_status === 'completed') return { ok: true, ignored: true, reason: 'already completed' };
-  if (['cancelled', 'expired'].includes(payment.payment_status)) return { ok: true, ignored: true, reason: 'already closed' };
+  if (payment.payment_status === 'completed')
+    return { ok: true, ignored: true, reason: 'already completed' };
+  if (['cancelled', 'expired'].includes(payment.payment_status))
+    return { ok: true, ignored: true, reason: 'already closed' };
 
   const booking = await BookingRequest.findOne({ invoice: payment.invoice });
   if (!booking) return { ok: true, ignored: true, reason: 'booking not found' };
@@ -809,7 +840,12 @@ const getAllBookings = async (query = {}) => {
 
   return {
     items: items.map((i) => ({ ...i, id: i._id })),
-    pagination: { page: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / limit) },
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
   };
 };
 

@@ -61,9 +61,7 @@ const authenticate = async (req, res, next) => {
     }
 
     const statusCode =
-      typeof httpStatus.INTERNAL_SERVER_ERROR === "number"
-        ? httpStatus.INTERNAL_SERVER_ERROR
-        : 500;
+      typeof httpStatus.INTERNAL_SERVER_ERROR === 'number' ? httpStatus.INTERNAL_SERVER_ERROR : 500;
 
     return res.status(statusCode).json({
       success: false,

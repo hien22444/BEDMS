@@ -1,4 +1,4 @@
-const { trimObject } = require("./util");
+const { trimObject } = require('./util');
 
 const catchAsync = (fn) => (req, res, next) => {
   req.body = trimObject(req.body);

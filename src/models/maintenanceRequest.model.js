@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const MaintenanceRequestSchema = new mongoose.Schema({
   request_code: {
@@ -25,12 +25,12 @@ const MaintenanceRequestSchema = new mongoose.Schema({
   issue_type: {
     type: String,
     required: true,
-    enum: ["electrical", "water", "ac", "furniture", "cleaning", "other"],
+    enum: ['electrical', 'water', 'ac', 'furniture', 'cleaning', 'other'],
   },
   priority: {
     type: String,
     required: true,
-    enum: ["urgent", "high", "medium", "low"],
+    enum: ['urgent', 'high', 'medium', 'low'],
   },
   description: {
     type: String,
@@ -41,19 +41,19 @@ const MaintenanceRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    default: "pending",
+    default: 'pending',
     enum: [
-      "pending",
-      "approved",
-      "rejected",
-      "assigned",
-      "in_progress",
-      "waiting_parts",
-      "completed",
-      "done",
-      "need_rework",
-      "cannot_fix",
-      "cancelled",
+      'pending',
+      'approved',
+      'rejected',
+      'assigned',
+      'in_progress',
+      'waiting_parts',
+      'completed',
+      'done',
+      'need_rework',
+      'cannot_fix',
+      'cancelled',
     ],
   },
   rejection_reason: {
@@ -90,7 +90,7 @@ const MaintenanceRequestSchema = new mongoose.Schema({
   },
 });
 
-MaintenanceRequestSchema.set("toJSON", {
+MaintenanceRequestSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

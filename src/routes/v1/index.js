@@ -84,6 +84,8 @@ const defaultRoutes = [
   {
     path: '/payos',
     route: payosRoute,
+  },
+  {
     path: '/ai',
     route: aiRulesRoute,
   },

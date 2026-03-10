@@ -55,12 +55,7 @@ router.get(
   bookingController.getBedsForBooking
 );
 
-router.post(
-  '/',
-  authenticate,
-  authorize('student'),
-  bookingController.submitBooking
-);
+router.post('/', authenticate, authorize('student'), bookingController.submitBooking);
 
 router.get(
   '/:id/payment-status',
@@ -69,27 +64,12 @@ router.get(
   bookingController.checkPaymentStatus
 );
 
-router.get(
-  '/my',
-  authenticate,
-  authorize('student'),
-  bookingController.getMyBookings
-);
+router.get('/my', authenticate, authorize('student'), bookingController.getMyBookings);
 
-router.patch(
-  '/:id/cancel',
-  authenticate,
-  authorize('student'),
-  bookingController.cancelBooking
-);
+router.patch('/:id/cancel', authenticate, authorize('student'), bookingController.cancelBooking);
 
 // ─── Manager endpoints ───
 
-router.get(
-  '/',
-  authenticate,
-  authorize('manager'),
-  bookingController.getAllBookings
-);
+router.get('/', authenticate, authorize('manager'), bookingController.getAllBookings);
 
 module.exports = router;

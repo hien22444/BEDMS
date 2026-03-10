@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const VisitorRequestSchema = new mongoose.Schema(
   {
@@ -19,11 +19,11 @@ const VisitorRequestSchema = new mongoose.Schema(
     },
     visit_time_from: {
       type: String,
-      default: "07:00",
+      default: '07:00',
     },
     visit_time_to: {
       type: String,
-      default: "17:00",
+      default: '17:00',
     },
     purpose: {
       type: String,
@@ -31,8 +31,8 @@ const VisitorRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "pending",
-      enum: ["pending", "approved", "rejected", "completed", "cancelled"],
+      default: 'pending',
+      enum: ['pending', 'approved', 'rejected', 'completed', 'cancelled'],
     },
     rejection_reason: {
       type: String,
@@ -52,7 +52,7 @@ const VisitorRequestSchema = new mongoose.Schema(
   }
 );
 
-VisitorRequestSchema.set("toJSON", {
+VisitorRequestSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -60,9 +60,6 @@ VisitorRequestSchema.set("toJSON", {
   },
 });
 
-const VisitorRequest = mongoose.model(
-  DBCollections.VISITOR_REQUEST,
-  VisitorRequestSchema
-);
+const VisitorRequest = mongoose.model(DBCollections.VISITOR_REQUEST, VisitorRequestSchema);
 
 module.exports = VisitorRequest;

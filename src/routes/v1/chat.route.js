@@ -33,12 +33,7 @@ router.patch(
 // ─── Manager endpoints ─────────────────────────────────────
 
 // List all conversations with filters (manager)
-router.get(
-  '/conversations',
-  authenticate,
-  authorize('manager'),
-  chatController.getConversations
-);
+router.get('/conversations', authenticate, authorize('manager'), chatController.getConversations);
 
 // Manager picks up a conversation (assign self as staff)
 router.patch(

@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const RoomSchema = new mongoose.Schema(
   {
@@ -34,8 +34,8 @@ const RoomSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "available",
-      enum: ["available", "full", "maintenance", "inactive"],
+      default: 'available',
+      enum: ['available', 'full', 'maintenance', 'inactive'],
     },
     has_private_bathroom: {
       type: Boolean,
@@ -44,8 +44,8 @@ const RoomSchema = new mongoose.Schema(
     student_type: {
       type: String,
       required: true,
-      enum: ["vietnamese", "international"],
-      default: "vietnamese",
+      enum: ['vietnamese', 'international'],
+      default: 'vietnamese',
     },
     description: {
       type: String,
@@ -58,7 +58,7 @@ const RoomSchema = new mongoose.Schema(
 
 RoomSchema.index({ block: 1, room_number: 1 }, { unique: true });
 
-RoomSchema.set("toJSON", {
+RoomSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

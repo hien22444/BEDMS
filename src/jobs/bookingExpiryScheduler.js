@@ -39,11 +39,11 @@ const scheduleBookingExpiry = () => {
           }).lean();
 
           if (payment?.payos_order_code) {
-            await cancelPayosPaymentLink(payment.payos_order_code, 'Booking expired (10-minute hold)');
-            await Payment.updateOne(
-              { _id: payment._id },
-              { $set: { payment_status: 'expired' } }
+            await cancelPayosPaymentLink(
+              payment.payos_order_code,
+              'Booking expired (10-minute hold)'
             );
+            await Payment.updateOne({ _id: payment._id }, { $set: { payment_status: 'expired' } });
           }
 
           // Rollback bed and restore room available_beds
@@ -71,4 +71,3 @@ const scheduleBookingExpiry = () => {
 };
 
 module.exports = { scheduleBookingExpiry };
-

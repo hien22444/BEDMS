@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const PenaltySchema = new mongoose.Schema({
   student: {
@@ -15,7 +15,7 @@ const PenaltySchema = new mongoose.Schema({
   penalty_type: {
     type: String,
     required: true,
-    enum: ["severe", "minor"],
+    enum: ['severe', 'minor'],
   },
   points_deducted: {
     type: Number,
@@ -40,7 +40,7 @@ const PenaltySchema = new mongoose.Schema({
   },
 });
 
-PenaltySchema.set("toJSON", {
+PenaltySchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

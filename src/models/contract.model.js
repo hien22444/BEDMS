@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const ContractSchema = new mongoose.Schema(
   {
@@ -36,8 +36,8 @@ const ContractSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "active",
-      enum: ["active", "expired", "terminated", "extended"],
+      default: 'active',
+      enum: ['active', 'expired', 'terminated', 'extended'],
     },
     contract_url: {
       type: String,
@@ -57,7 +57,7 @@ const ContractSchema = new mongoose.Schema(
   }
 );
 
-ContractSchema.set("toJSON", {
+ContractSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

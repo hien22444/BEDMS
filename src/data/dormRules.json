@@ -12,13 +12,7 @@
       "title": "Dormitory opening hours",
       "rule": "Dormitory gates are open from 05:30 to 22:00.",
       "details": "Students should return before 22:00 unless approved by dorm management.",
-      "keywords": [
-        "curfew",
-        "closing time",
-        "opening hours",
-        "late entry",
-        "gate closing"
-      ],
+      "keywords": ["curfew", "closing time", "opening hours", "late entry", "gate closing"],
       "example_questions": [
         "What time does the dorm close?",
         "Can I come back after 10PM?",
@@ -35,13 +29,7 @@
       "title": "Guest policy",
       "rule": "Guests must present identification at the security desk.",
       "details": "Guests are not allowed to stay in the dorm after 22:00.",
-      "keywords": [
-        "guest",
-        "visitor",
-        "friend visit",
-        "bring friend",
-        "overnight guest"
-      ],
+      "keywords": ["guest", "visitor", "friend visit", "bring friend", "overnight guest"],
       "example_questions": [
         "Can my friend visit me in the dorm?",
         "Can someone stay overnight?",
@@ -58,13 +46,7 @@
       "title": "Cooking in dorm rooms",
       "rule": "Cooking in dorm rooms is strictly prohibited.",
       "details": "Students cannot bring cooking equipment such as stoves or hot plates.",
-      "keywords": [
-        "cook",
-        "cooking",
-        "stove",
-        "hot pot",
-        "food preparation"
-      ],
+      "keywords": ["cook", "cooking", "stove", "hot pot", "food preparation"],
       "example_questions": [
         "Can I cook in my dorm room?",
         "Is hotpot allowed in the dorm?",
@@ -81,14 +63,7 @@
       "title": "Smoking, alcohol, and substances",
       "rule": "Smoking, alcohol, and tobacco products including e-cigarettes are prohibited in the dormitory.",
       "details": "Drugs or narcotics are strictly forbidden and will be handled according to the law.",
-      "keywords": [
-        "smoking",
-        "cigarette",
-        "vape",
-        "alcohol",
-        "beer",
-        "drug"
-      ],
+      "keywords": ["smoking", "cigarette", "vape", "alcohol", "beer", "drug"],
       "example_questions": [
         "Can I smoke in the dorm?",
         "Is alcohol allowed in the dorm?",
@@ -104,16 +79,8 @@
       "category": "living_rules",
       "title": "Keeping pets",
       "rule": "Students are not allowed to keep animals or pets in the dormitory.",
-      "keywords": [
-        "pet",
-        "dog",
-        "cat",
-        "animal"
-      ],
-      "example_questions": [
-        "Can I keep a cat in my dorm?",
-        "Are pets allowed in the dorm?"
-      ],
+      "keywords": ["pet", "dog", "cat", "animal"],
+      "example_questions": ["Can I keep a cat in my dorm?", "Are pets allowed in the dorm?"],
       "penalty": {
         "fine_vnd": 500000
       }
@@ -123,16 +90,8 @@
       "category": "security",
       "title": "Noise and disturbance",
       "rule": "Students must not make loud noise or disturb other residents.",
-      "keywords": [
-        "noise",
-        "party",
-        "loud music",
-        "disturbance"
-      ],
-      "example_questions": [
-        "Can we have a party in the dorm?",
-        "Is loud music allowed?"
-      ],
+      "keywords": ["noise", "party", "loud music", "disturbance"],
+      "example_questions": ["Can we have a party in the dorm?", "Is loud music allowed?"],
       "penalty": {
         "fine_vnd": 200000
       }
@@ -142,16 +101,8 @@
       "category": "room_management",
       "title": "Changing rooms",
       "rule": "Students are not allowed to change rooms without permission from dorm management.",
-      "keywords": [
-        "change room",
-        "switch room",
-        "move bed",
-        "swap room"
-      ],
-      "example_questions": [
-        "Can I change my dorm room?",
-        "Can I swap rooms with a friend?"
-      ],
+      "keywords": ["change room", "switch room", "move bed", "swap room"],
+      "example_questions": ["Can I change my dorm room?", "Can I swap rooms with a friend?"],
       "penalty": {
         "fine_vnd": 1000000
       }
@@ -168,27 +119,15 @@
         "study lamp",
         "refrigerator under 110L"
       ],
-      "keywords": [
-        "electronics",
-        "devices",
-        "allowed appliances"
-      ],
-      "example_questions": [
-        "What electrical devices can I bring?",
-        "Can I bring a refrigerator?"
-      ]
+      "keywords": ["electronics", "devices", "allowed appliances"],
+      "example_questions": ["What electrical devices can I bring?", "Can I bring a refrigerator?"]
     },
     {
       "id": "KTX-FIRE-SAFETY",
       "category": "safety",
       "title": "Fire safety",
       "rule": "Flammable materials such as gasoline, gas cylinders, or explosives are prohibited.",
-      "keywords": [
-        "fire safety",
-        "flammable",
-        "gas",
-        "fuel"
-      ],
+      "keywords": ["fire safety", "flammable", "gas", "fuel"],
       "example_questions": [
         "Can I bring gas into the dorm?",
         "What items are banned for fire safety?"

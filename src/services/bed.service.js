@@ -28,7 +28,9 @@ const attachContracts = async (beds) => {
   }).populate(populateStudent);
 
   const contractByBed = {};
-  contracts.forEach((c) => { contractByBed[String(c.bed)] = c; });
+  contracts.forEach((c) => {
+    contractByBed[String(c.bed)] = c;
+  });
 
   return beds.map((bed) => ({
     ...bed.toJSON(),
@@ -57,11 +59,7 @@ const getAllBeds = async (query = {}) => {
   }
 
   const [beds, total] = await Promise.all([
-    Bed.find(filter)
-      .populate(populateRoom)
-      .sort({ bed_id: 1 })
-      .skip(skip)
-      .limit(parseInt(limit)),
+    Bed.find(filter).populate(populateRoom).sort({ bed_id: 1 }).skip(skip).limit(parseInt(limit)),
     Bed.countDocuments(filter),
   ]);
 
@@ -84,9 +82,7 @@ const getBedsByRoom = async (roomId) => {
   const room = await Room.findById(roomId);
   if (!room) throw new AppError('Room not found', 404);
 
-  const beds = await Bed.find({ room: roomId })
-    .populate(populateRoom)
-    .sort({ bed_id: 1 });
+  const beds = await Bed.find({ room: roomId }).populate(populateRoom).sort({ bed_id: 1 });
 
   return attachContracts(beds);
 };
