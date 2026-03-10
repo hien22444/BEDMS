@@ -54,7 +54,12 @@ const googleCallback = catchAsync(async (req, res) => {
   };
 
   // Store sensitive data server-side; give FE a one-time opaque code
-  const code = authService.storeOAuthData({ token, refreshToken: refreshTkn, user: userData, profile });
+  const code = authService.storeOAuthData({
+    token,
+    refreshToken: refreshTkn,
+    user: userData,
+    profile,
+  });
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   res.redirect(`${frontendUrl}/auth/google/callback?code=${code}`);

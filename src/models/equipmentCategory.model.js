@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const EquipmentCategorySchema = new mongoose.Schema({
   category_name: {
@@ -16,7 +16,7 @@ const EquipmentCategorySchema = new mongoose.Schema({
   },
 });
 
-EquipmentCategorySchema.set("toJSON", {
+EquipmentCategorySchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -24,9 +24,6 @@ EquipmentCategorySchema.set("toJSON", {
   },
 });
 
-const EquipmentCategory = mongoose.model(
-  DBCollections.EQUIPMENT_CATEGORY,
-  EquipmentCategorySchema
-);
+const EquipmentCategory = mongoose.model(DBCollections.EQUIPMENT_CATEGORY, EquipmentCategorySchema);
 
 module.exports = EquipmentCategory;

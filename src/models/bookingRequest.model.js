@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const BookingRequestSchema = new mongoose.Schema(
   {
@@ -37,8 +37,8 @@ const BookingRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "awaiting_payment",
-      enum: ["awaiting_payment", "approved", "cancelled", "expired"],
+      default: 'awaiting_payment',
+      enum: ['awaiting_payment', 'approved', 'cancelled', 'expired'],
     },
     note: {
       type: String,
@@ -67,7 +67,7 @@ const BookingRequestSchema = new mongoose.Schema(
   }
 );
 
-BookingRequestSchema.set("toJSON", {
+BookingRequestSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -75,9 +75,6 @@ BookingRequestSchema.set("toJSON", {
   },
 });
 
-const BookingRequest = mongoose.model(
-  DBCollections.BOOKING_REQUEST,
-  BookingRequestSchema
-);
+const BookingRequest = mongoose.model(DBCollections.BOOKING_REQUEST, BookingRequestSchema);
 
 module.exports = BookingRequest;

@@ -1,9 +1,12 @@
-const { Notification } = require("../models");
+const { Notification } = require('../models');
 
 /**
  * Create a notification for a user
  */
-const createNotification = async (userId, { title, message, category, notification_type = "info", related_id }) => {
+const createNotification = async (
+  userId,
+  { title, message, category, notification_type = 'info', related_id }
+) => {
   return Notification.create({
     user: userId,
     title,
@@ -20,18 +23,16 @@ const createNotification = async (userId, { title, message, category, notificati
 const getMyNotifications = async (userId) => {
   // Do NOT use .lean() — the schema's toJSON transform adds the virtual `id`
   // field and removes `_id`/`__v`. Without it, n.id is undefined on the FE.
-  return Notification.find({ user: userId })
-    .sort({ created_at: -1 })
-    .limit(50);
+  return Notification.find({ user: userId }).sort({ created_at: -1 }).limit(50);
 };
 
 /**
  * Mark a single notification as read
  */
 const markAsRead = async (notifId, userId) => {
-  if (!notifId || notifId === 'undefined') throw new Error("Invalid notification id");
+  if (!notifId || notifId === 'undefined') throw new Error('Invalid notification id');
   const notif = await Notification.findOne({ _id: notifId, user: userId });
-  if (!notif) throw new Error("Notification not found");
+  if (!notif) throw new Error('Notification not found');
   notif.is_read = true;
   await notif.save();
   return notif;
@@ -48,9 +49,9 @@ const markAllRead = async (userId) => {
  * Delete a notification (owner only)
  */
 const deleteNotification = async (notifId, userId) => {
-  if (!notifId || notifId === 'undefined') throw new Error("Invalid notification id");
+  if (!notifId || notifId === 'undefined') throw new Error('Invalid notification id');
   const notif = await Notification.findOne({ _id: notifId, user: userId });
-  if (!notif) throw new Error("Notification not found");
+  if (!notif) throw new Error('Notification not found');
   await notif.deleteOne();
 };
 

@@ -3,6 +3,7 @@
 ## 📋 Tổng Quan
 
 Project của bạn hiện có 1 workflow GitHub Actions:
+
 - **CI.yml**: Kiểm tra code quality (linting, formatting, security)
 
 ---
@@ -10,7 +11,9 @@ Project của bạn hiện có 1 workflow GitHub Actions:
 ## 🔧 Cấu Hình CI Workflow (ci.yml)
 
 ### Triggers
+
 Workflow chạy tự động khi:
+
 ```
 - Push code vào branches: main, develop, feat/*
 - Tạo/update Pull Request vào main hoặc develop
@@ -19,6 +22,7 @@ Workflow chạy tự động khi:
 ### Jobs
 
 #### 1. **code-quality**
+
 - **Chạy trên**: Ubuntu Latest
 - **Node versions**: 18.x, 20.x (test trên 2 phiên bản)
 - **Các bước**:
@@ -30,6 +34,7 @@ Workflow chạy tự động khi:
   - ✅ Check Prettier formatting
 
 #### 2. **security**
+
 - **Chạy trên**: Ubuntu Latest
 - **Các bước**:
   - ✅ Scan vulnerabilities bằng Trivy
@@ -42,6 +47,7 @@ Workflow chạy tự động khi:
 ## 📝 Cách Sử Dụng
 
 ### Lần đầu tiên:
+
 ```bash
 # Push code lên GitHub
 git add .
@@ -50,6 +56,7 @@ git push origin feat/fixfacility
 ```
 
 ### Tạo Pull Request:
+
 - Workflow **ci.yml** tự động chạy
 - Kiểm tra kết quả ở tab **Actions**
 - Nếu pass ✅ → được merge vào main
@@ -70,7 +77,9 @@ git push origin feat/fixfacility
 ## 🔧 Tùy Chỉnh Workflows
 
 ### Nếu bạn có test suite:
+
 Thêm vào `ci.yml` trong job `code-quality`:
+
 ```yaml
 - name: Run tests
   run: npm test
@@ -78,6 +87,7 @@ Thêm vào `ci.yml` trong job `code-quality`:
 ```
 
 ### Nếu bạn có database setup:
+
 ```yaml
 services:
   mongodb:
@@ -94,6 +104,7 @@ services:
 ## 📊 Monitoring
 
 ### Xem kết quả workflows:
+
 1. Vào **GitHub repo**
 2. Tab **Actions**
 3. Click workflow muốn xem
@@ -101,11 +112,11 @@ services:
 
 ### Common Issues:
 
-| Vấn đề | Giải pháp |
-|--------|----------|
-| ESLint errors | Chạy `npm run lint:fix` locally trước khi push |
-| Prettier formatting | Chạy `npm run format` để tự động format |
-| Slow builds | Dùng `cache: 'npm'` để cache dependencies |
+| Vấn đề              | Giải pháp                                      |
+| ------------------- | ---------------------------------------------- |
+| ESLint errors       | Chạy `npm run lint:fix` locally trước khi push |
+| Prettier formatting | Chạy `npm run format` để tự động format        |
+| Slow builds         | Dùng `cache: 'npm'` để cache dependencies      |
 
 ---
 
@@ -125,4 +136,3 @@ services:
 - [Prettier](https://prettier.io/)
 - [Heroku Deploy Action](https://github.com/akhileshns/heroku-deploy)
 - [Trivy Security Scanner](https://github.com/aquasecurity/trivy-action)
-

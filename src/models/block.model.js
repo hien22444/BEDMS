@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const BlockSchema = new mongoose.Schema(
   {
@@ -31,7 +31,7 @@ const BlockSchema = new mongoose.Schema(
     gender_type: {
       type: String,
       required: true,
-      enum: ["male", "female", "mixed"],
+      enum: ['male', 'female', 'mixed'],
     },
     is_active: {
       type: Boolean,
@@ -45,7 +45,7 @@ const BlockSchema = new mongoose.Schema(
 
 BlockSchema.index({ dorm: 1, block_code: 1 }, { unique: true });
 
-BlockSchema.set("toJSON", {
+BlockSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

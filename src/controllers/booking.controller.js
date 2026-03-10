@@ -18,17 +18,30 @@ const getDormsForBooking = catchAsync(async (req, res) => {
 });
 
 const getFloorsForBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.getFloorsForBooking(req.user.id, req.query.dorm_id, req.query.room_type);
+  const data = await bookingService.getFloorsForBooking(
+    req.user.id,
+    req.query.dorm_id,
+    req.query.room_type
+  );
   res.success(data, status.OK);
 });
 
 const getBlocksForBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.getBlocksForBooking(req.user.id, req.query.dorm_id, req.query.floor, req.query.room_type);
+  const data = await bookingService.getBlocksForBooking(
+    req.user.id,
+    req.query.dorm_id,
+    req.query.floor,
+    req.query.room_type
+  );
   res.success(data, status.OK);
 });
 
 const getRoomsForBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.getRoomsForBooking(req.user.id, req.query.block_id, req.query.room_type);
+  const data = await bookingService.getRoomsForBooking(
+    req.user.id,
+    req.query.block_id,
+    req.query.room_type
+  );
   res.success(data, status.OK);
 });
 

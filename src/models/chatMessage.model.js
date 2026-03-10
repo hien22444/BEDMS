@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const ChatMessageSchema = new mongoose.Schema({
   conversation: {
@@ -15,7 +15,7 @@ const ChatMessageSchema = new mongoose.Schema({
   sender_type: {
     type: String,
     required: true,
-    enum: ["student", "staff"],
+    enum: ['student', 'staff'],
   },
   message_text: {
     type: String,
@@ -38,7 +38,7 @@ const ChatMessageSchema = new mongoose.Schema({
 ChatMessageSchema.index({ conversation: 1, sent_at: 1 });
 ChatMessageSchema.index({ conversation: 1, sender_type: 1, is_read: 1 });
 
-ChatMessageSchema.set("toJSON", {
+ChatMessageSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -46,9 +46,6 @@ ChatMessageSchema.set("toJSON", {
   },
 });
 
-const ChatMessage = mongoose.model(
-  DBCollections.CHAT_MESSAGE,
-  ChatMessageSchema
-);
+const ChatMessage = mongoose.model(DBCollections.CHAT_MESSAGE, ChatMessageSchema);
 
 module.exports = ChatMessage;

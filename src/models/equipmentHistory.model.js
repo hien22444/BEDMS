@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const EquipmentHistorySchema = new mongoose.Schema({
   equipment: {
@@ -10,7 +10,7 @@ const EquipmentHistorySchema = new mongoose.Schema({
   action_type: {
     type: String,
     required: true,
-    enum: ["added", "removed", "repaired", "replaced", "status_changed", "moved"],
+    enum: ['added', 'removed', 'repaired', 'replaced', 'status_changed', 'moved'],
   },
   old_status: {
     type: String,
@@ -42,7 +42,7 @@ const EquipmentHistorySchema = new mongoose.Schema({
   },
 });
 
-EquipmentHistorySchema.set("toJSON", {
+EquipmentHistorySchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -50,9 +50,6 @@ EquipmentHistorySchema.set("toJSON", {
   },
 });
 
-const EquipmentHistory = mongoose.model(
-  DBCollections.EQUIPMENT_HISTORY,
-  EquipmentHistorySchema
-);
+const EquipmentHistory = mongoose.model(DBCollections.EQUIPMENT_HISTORY, EquipmentHistorySchema);
 
 module.exports = EquipmentHistory;

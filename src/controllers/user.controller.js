@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { userService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { userService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 const getAllUsers = catchAsync(async (req, res) => {
   const data = await userService.getAllUsers(req.query);
@@ -11,12 +11,12 @@ const getAllUsers = catchAsync(async (req, res) => {
 const deleteUser = catchAsync(async (req, res) => {
   await userService.deleteUser(req.params.id);
 
-  res.success("User Deleted", status.CREATED);
+  res.success('User Deleted', status.CREATED);
 });
 
 const importExcel = catchAsync(async (req, res) => {
   if (!req.file) {
-    throw new Error("Please upload an Excel file (.xlsx)");
+    throw new Error('Please upload an Excel file (.xlsx)');
   }
 
   const result = await userService.importFromExcel(req.file.buffer);

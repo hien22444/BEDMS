@@ -1,1 +1,1 @@
-module.exports.mongo = require("./connection");
+module.exports.mongo = require('./connection');

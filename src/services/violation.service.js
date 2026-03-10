@@ -27,13 +27,9 @@ const enrichReporterStudentCode = async (report) => {
 
 /** Add reporter.student_code for multiple reports */
 const enrichReportsReporterStudentCode = async (reports) => {
-  const studentReporters = reports.filter(
-    (r) => r.reporter_type === 'student' && r.reporter,
-  );
+  const studentReporters = reports.filter((r) => r.reporter_type === 'student' && r.reporter);
   const staffReporters = reports.filter(
-    (r) =>
-      (r.reporter_type === 'manager' || r.reporter_type === 'security') &&
-      r.reporter,
+    (r) => (r.reporter_type === 'manager' || r.reporter_type === 'security') && r.reporter
   );
 
   const studentUserIds = [
@@ -48,12 +44,8 @@ const enrichReportsReporterStudentCode = async (reports) => {
     Staff.find({ user: { $in: staffUserIds } }).select('user staff_code'),
   ]);
 
-  const studentMap = Object.fromEntries(
-    students.map((s) => [s.user.toString(), s.student_code]),
-  );
-  const staffMap = Object.fromEntries(
-    staff.map((s) => [s.user.toString(), s.staff_code]),
-  );
+  const studentMap = Object.fromEntries(students.map((s) => [s.user.toString(), s.student_code]));
+  const staffMap = Object.fromEntries(staff.map((s) => [s.user.toString(), s.staff_code]));
 
   reports.forEach((r) => {
     const reporterId = r.reporter?._id && r.reporter._id.toString();
@@ -138,17 +130,17 @@ const createViolationReport = async (body) => {
   let reporterCode = null;
 
   // If reporter is a student, only set reporter code; reported_student stays null until manager penalizes
-  if (body.reporter_type === "student") {
+  if (body.reporter_type === 'student') {
     const reporterStudent = await Student.findOne({ user: body.reporter_id });
     if (!reporterStudent) {
-      throw new Error("Student profile not found for current user");
+      throw new Error('Student profile not found for current user');
     }
     reporterCode = reporterStudent.student_code;
     student = null;
   } else {
     // Manager / security must specify student_code explicitly
     if (!body.student_code) {
-      throw new Error("student_code is required for manager/security reports");
+      throw new Error('student_code is required for manager/security reports');
     }
     student = await Student.findOne({ student_code: body.student_code });
     if (!student) {
@@ -162,7 +154,7 @@ const createViolationReport = async (body) => {
     }
   }
 
-  if (body.violation_type === "other" && !body.violation_other_detail) {
+  if (body.violation_type === 'other' && !body.violation_other_detail) {
     throw new Error("violation_other_detail is required when violation_type is 'other'");
   }
 
@@ -318,7 +310,9 @@ const reviewViolationReport = async (id, body, staffId) => {
   // When penalizing, set reported_student to the student being penalized (so details show correctly)
   if (body.status === 'resolved_penalized' && body.penalty?.student_code) {
     const penalizedStudent = await Student.findOne({
-      student_code: { $regex: new RegExp(`^${escapeRegex(body.penalty.student_code.trim())}$`, 'i') },
+      student_code: {
+        $regex: new RegExp(`^${escapeRegex(body.penalty.student_code.trim())}$`, 'i'),
+      },
     }).select('_id');
     if (penalizedStudent) {
       report.reported_student = penalizedStudent._id;
@@ -349,7 +343,9 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
 
   if (penaltyData.student_code) {
     const studentByCode = await Student.findOne({
-      student_code: { $regex: new RegExp(`^${escapeRegex(penaltyData.student_code.trim())}$`, 'i') },
+      student_code: {
+        $regex: new RegExp(`^${escapeRegex(penaltyData.student_code.trim())}$`, 'i'),
+      },
     });
     if (!studentByCode) {
       throw new Error(`Student with code "${penaltyData.student_code}" not found`);
@@ -491,9 +487,7 @@ const getViolationStatistics = async () => {
  */
 const getMyViolationReports = async (reporterId) => {
   const reports = await ViolationReport.find({ reporter: reporterId })
-    .populate([
-      { path: 'reported_student', select: 'student_code full_name' },
-    ])
+    .populate([{ path: 'reported_student', select: 'student_code full_name' }])
     .sort({ createdAt: -1 })
     .limit(100);
 

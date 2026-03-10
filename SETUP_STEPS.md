@@ -3,12 +3,14 @@
 ## **BƯỚC 1: Commit & Push lên GitHub**
 
 ### 1.1 - Kiểm tra tình trạng files
+
 ```bash
 cd D:\FPT_Document\CN9\code\BEDMS
 git status
 ```
 
 **Bạn sẽ thấy:**
+
 ```
 On branch feat/fixfacility
 
@@ -18,21 +20,25 @@ Untracked files:
 ```
 
 ### 1.2 - Add tất cả files
+
 ```bash
 git add .
 ```
 
 ### 1.3 - Commit
+
 ```bash
 git commit -m "Add GitHub Actions CI workflow for code quality checks"
 ```
 
 ### 1.4 - Push lên GitHub
+
 ```bash
 git push origin feat/fixfacility
 ```
 
 **Kết quả:**
+
 ```
 Enumerating objects: ...
 Total 3 (delta 0), reused 0 (delta 0), pack-reused 0
@@ -45,19 +51,24 @@ remote:      https://github.com/your-username/your-repo/pull/new/feat/fixfacilit
 ## **BƯỚC 2: Tạo Pull Request (PR) trên GitHub**
 
 ### 2.1 - Vào GitHub
+
 ```
 Link: https://github.com/your-org/your-repo
 ```
 
 ### 2.2 - Xem thông báo PR
+
 Sau khi push, GitHub sẽ hiện nút:
+
 ```
 ✨ Compare & pull request
 ```
 
 ### 2.3 - Click vào nút đó
+
 - **Title:** "Add CI workflow for code quality"
 - **Description:**
+
 ```
 ## Changes
 - Add ESLint & Prettier checks
@@ -75,6 +86,7 @@ Sau khi push, GitHub sẽ hiện nút:
 ## **BƯỚC 3: Xem CI chạy**
 
 ### 3.1 - Xem Actions
+
 ```
 Trên GitHub PR page:
   1. Scroll xuống → Xem "Checks" section
@@ -85,6 +97,7 @@ Trên GitHub PR page:
 ### 3.2 - Kết quả sẽ là một trong 2:
 
 **✅ PASSED:**
+
 ```
 ✅ CI/CD Backend
    All checks passed
@@ -94,6 +107,7 @@ Trên GitHub PR page:
 ```
 
 **❌ FAILED:**
+
 ```
 ❌ CI/CD Backend
    Some checks failed
@@ -101,6 +115,7 @@ Trên GitHub PR page:
 ```
 
 ### 3.3 - Nếu FAIL → Fix lỗi
+
 ```bash
 # Xem lỗi chi tiết trên GitHub Actions
 # Fix code locally
@@ -120,11 +135,13 @@ git push origin feat/fixfacility
 ## **BƯỚC 4: Assign Reviewer & Merge**
 
 ### 4.1 - Assign reviewer
+
 ```
 GitHub PR page → "Reviewers" → Chọn tech lead
 ```
 
 ### 4.2 - Reviewer xem code
+
 ```
 Reviewer sẽ:
   1. Kiểm tra logic (CI đã check format/lint rồi)
@@ -133,6 +150,7 @@ Reviewer sẽ:
 ```
 
 ### 4.3 - Merge vào main
+
 ```
 Nếu approved:
   1. Click "Merge pull request"
@@ -145,6 +163,7 @@ Nếu approved:
 ## **BƯỚC 5: Cho team members biết**
 
 ### 5.1 - Gửi instruction cho team
+
 Gửi message họ cái này:
 
 ```
@@ -191,6 +210,7 @@ chmod +x .git/hooks/pre-commit
 ```
 
 **Cách hoạt động:**
+
 - Mỗi khi `git commit`, tự động chạy lint + format
 - Nếu có lỗi không fix được → prevent commit
 - Nếu ok → allow commit
@@ -198,6 +218,7 @@ chmod +x .git/hooks/pre-commit
 ### 6.2 - Team member Standard Workflow
 
 **Mỗi sáng:**
+
 ```bash
 cd BEDMS
 git pull origin develop     # Cập nhật latest code
@@ -207,6 +228,7 @@ git checkout -b feat/my-awesome-feature
 ```
 
 **Làm việc:**
+
 ```bash
 # Code...
 # Code...
@@ -218,6 +240,7 @@ npm run lint        # Verify không còn lỗi
 ```
 
 **Push:**
+
 ```bash
 git add .
 git commit -m "Add my awesome feature"
@@ -247,14 +270,17 @@ git push origin feat/my-awesome-feature
 ## 🎯 **NEXT STEPS**
 
 ### Tuần 1:
+
 - ✅ Setup xong CI
 - ✅ Team bắt đầu dùng CI cho daily work
 
 ### Tuần 2:
+
 - ✅ Nếu muốn: Thêm Unit Tests
 - ✅ Setup Code Coverage
 
 ### Tuần 3+:
+
 - ✅ Nếu muốn: Thêm Deploy workflow
 - ✅ Setup production environment
 
@@ -263,7 +289,9 @@ git push origin feat/my-awesome-feature
 ## 🆘 **TROUBLESHOOTING**
 
 ### Problem: ESLint errors khi push
+
 **Solution:**
+
 ```bash
 npm run lint:fix     # Auto fix
 git add .
@@ -272,7 +300,9 @@ git push
 ```
 
 ### Problem: Prettier formatting khác nhau
+
 **Solution:**
+
 ```bash
 npm run format       # Format all files
 git add .
@@ -281,12 +311,16 @@ git push
 ```
 
 ### Problem: CI lâu quá
+
 **Solution:**
+
 - Bình thường: 1-2 phút
 - Nếu > 5 phút: Check GitHub Actions logs
 
 ### Problem: Workflow file not showing up
+
 **Solution:**
+
 ```bash
 # Verify file exist
 ls -la .github/workflows/
@@ -302,6 +336,7 @@ cat .github/workflows/ci.yml
 ## 📊 **Monitoring CI Status**
 
 ### Mỗi ngày:
+
 ```
 GitHub Repo → Actions tab
   ├─ Xem tất cả PR projects
@@ -310,6 +345,7 @@ GitHub Repo → Actions tab
 ```
 
 ### Weekly:
+
 ```
 GitHub Repo → Security tab
   ├─ Xem vulnerability reports

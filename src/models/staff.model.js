@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const StaffSchema = new mongoose.Schema(
   {
@@ -24,7 +24,7 @@ const StaffSchema = new mongoose.Schema(
     },
     gender: {
       type: String,
-      enum: ["male", "female", "other"],
+      enum: ['male', 'female', 'other'],
     },
     phone: {
       type: String,
@@ -38,7 +38,7 @@ const StaffSchema = new mongoose.Schema(
   }
 );
 
-StaffSchema.set("toJSON", {
+StaffSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

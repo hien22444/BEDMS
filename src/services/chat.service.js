@@ -177,13 +177,16 @@ const closeConversation = async (conversationId, managerUserId) => {
   await conversation.save();
 
   // Notify the student that their conversation was closed
-  notificationService.createNotification(conversation.student.toString(), {
-    title: 'Conversation Closed',
-    message: 'Your support conversation has been closed by the manager. You can start a new one anytime.',
-    notification_type: 'info',
-    category: 'general',
-    related_id: conversationId,
-  }).catch((err) => console.error('[Chat] Failed to create close notification:', err.message));
+  notificationService
+    .createNotification(conversation.student.toString(), {
+      title: 'Conversation Closed',
+      message:
+        'Your support conversation has been closed by the manager. You can start a new one anytime.',
+      notification_type: 'info',
+      category: 'general',
+      related_id: conversationId,
+    })
+    .catch((err) => console.error('[Chat] Failed to create close notification:', err.message));
 
   return conversation;
 };
@@ -273,7 +276,11 @@ const saveMessage = async (conversationId, senderUserId, senderType, messageText
   }
 
   // Access control: if conversation is already assigned, only that manager can send
-  if (senderType === 'staff' && conversation.staff && conversation.staff.toString() !== senderUserId.toString()) {
+  if (
+    senderType === 'staff' &&
+    conversation.staff &&
+    conversation.staff.toString() !== senderUserId.toString()
+  ) {
     const err = new Error('This conversation is already handled by another manager');
     err.statusCode = 403;
     throw err;

@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const NotificationSchema = new mongoose.Schema({
   user: {
@@ -17,21 +17,21 @@ const NotificationSchema = new mongoose.Schema({
   },
   notification_type: {
     type: String,
-    default: "info",
-    enum: ["info", "warning", "error", "success"],
+    default: 'info',
+    enum: ['info', 'warning', 'error', 'success'],
   },
   category: {
     type: String,
     required: true,
     enum: [
-      "payment",
-      "booking",
-      "maintenance",
-      "violation",
-      "visitor",
-      "equipment",
-      "general",
-      "chat",
+      'payment',
+      'booking',
+      'maintenance',
+      'violation',
+      'visitor',
+      'equipment',
+      'general',
+      'chat',
     ],
   },
   is_read: {
@@ -47,7 +47,7 @@ const NotificationSchema = new mongoose.Schema({
   },
 });
 
-NotificationSchema.set("toJSON", {
+NotificationSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -55,9 +55,6 @@ NotificationSchema.set("toJSON", {
   },
 });
 
-const Notification = mongoose.model(
-  DBCollections.NOTIFICATION,
-  NotificationSchema
-);
+const Notification = mongoose.model(DBCollections.NOTIFICATION, NotificationSchema);
 
 module.exports = Notification;

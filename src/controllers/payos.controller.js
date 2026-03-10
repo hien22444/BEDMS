@@ -24,4 +24,3 @@ const handleWebhook = catchAsync(async (req, res) => {
 module.exports = {
   handleWebhook,
 };
-

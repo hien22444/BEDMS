@@ -187,7 +187,9 @@ const deleteTemplate = async (id) => {
   ]);
 
   if (equipCount > 0) {
-    throw new AppError(`Cannot delete template: ${equipCount} room equipment(s) still linked to it.`);
+    throw new AppError(
+      `Cannot delete template: ${equipCount} room equipment(s) still linked to it.`
+    );
   }
   if (configCount > 0) {
     throw new AppError(

@@ -5,14 +5,7 @@ let transporter = null;
 const getTransporter = () => {
   if (transporter) return transporter;
 
-  const {
-    SMTP_HOST,
-    SMTP_PORT,
-    SMTP_SECURE,
-    SMTP_USER,
-    SMTP_PASS,
-    SMTP_FROM,
-  } = process.env;
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
 
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
     // Email is optional at runtime but required by the task;
@@ -77,4 +70,3 @@ module.exports = {
   sendMail,
   sendPaymentSuccessEmail,
 };
-

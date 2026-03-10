@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const UtilityReadingSchema = new mongoose.Schema({
   room: {
@@ -46,14 +46,13 @@ const UtilityReadingSchema = new mongoose.Schema({
 
 UtilityReadingSchema.index({ room: 1, reading_month: 1 }, { unique: true });
 
-UtilityReadingSchema.pre("save", function (next) {
-  this.electricity_consumption =
-    this.electricity_new_reading - this.electricity_old_reading;
+UtilityReadingSchema.pre('save', function (next) {
+  this.electricity_consumption = this.electricity_new_reading - this.electricity_old_reading;
   this.water_consumption = this.water_new_reading - this.water_old_reading;
   next();
 });
 
-UtilityReadingSchema.set("toJSON", {
+UtilityReadingSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -61,9 +60,6 @@ UtilityReadingSchema.set("toJSON", {
   },
 });
 
-const UtilityReading = mongoose.model(
-  DBCollections.UTILITY_READING,
-  UtilityReadingSchema
-);
+const UtilityReading = mongoose.model(DBCollections.UTILITY_READING, UtilityReadingSchema);
 
 module.exports = UtilityReading;

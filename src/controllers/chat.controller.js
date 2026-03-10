@@ -39,12 +39,7 @@ const closeConversation = catchAsync(async (req, res) => {
 // ─── Shared endpoints ─────────────────────────────────────
 
 const getMessages = catchAsync(async (req, res) => {
-  const data = await chatService.getMessages(
-    req.params.id,
-    req.user.id,
-    req.user.role,
-    req.query
-  );
+  const data = await chatService.getMessages(req.params.id, req.user.id, req.user.role, req.query);
   res.success(data, status.OK);
 });
 

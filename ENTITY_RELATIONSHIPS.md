@@ -109,16 +109,16 @@ Tai lieu nay duoc viet theo kieu de ban ve Entity Relationship Diagram thu cong,
 Nhung quan he duoi day khong phai foreign key truc tiep trong MongoDB, nhung nen ve trong ERD nghiep vu neu ban muon so do de doc hon:
 
 1. `Rooms` - `belongs to room type` - `RoomType` : `N - 1`
-Ghi chu: hien tai `room_type` dang la `string`, chua co bang `RoomTypes` rieng.
+   Ghi chu: hien tai `room_type` dang la `string`, chua co bang `RoomTypes` rieng.
 
 2. `RoomType` - `has standard equipment` - `RoomTypeEquipmentConfigs` : `1 - N`
-Ghi chu: ban co the tao them thuc the logic `RoomType` khi ve ERD cho de hieu.
+   Ghi chu: ban co the tao them thuc the logic `RoomType` khi ve ERD cho de hieu.
 
 3. `Students` - `lives in` - `Rooms` : `N - 1`
-Ghi chu: quan he nay duoc xac dinh gian tiep thong qua `Contracts`.
+   Ghi chu: quan he nay duoc xac dinh gian tiep thong qua `Contracts`.
 
 4. `Students` - `occupies` - `Beds` : `N - 1`
-Ghi chu: quan he nay duoc xac dinh gian tiep thong qua `Contracts`.
+   Ghi chu: quan he nay duoc xac dinh gian tiep thong qua `Contracts`.
 
 ## 12. De xuat cach ve Chen ERD giong hinh mau
 

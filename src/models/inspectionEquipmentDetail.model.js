@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const InspectionEquipmentDetailSchema = new mongoose.Schema({
   inspection: {
@@ -15,7 +15,7 @@ const InspectionEquipmentDetailSchema = new mongoose.Schema({
   status_at_inspection: {
     type: String,
     required: true,
-    enum: ["good", "normal", "damaged", "broken", "missing"],
+    enum: ['good', 'normal', 'damaged', 'broken', 'missing'],
   },
   notes: {
     type: String,
@@ -25,7 +25,7 @@ const InspectionEquipmentDetailSchema = new mongoose.Schema({
   },
 });
 
-InspectionEquipmentDetailSchema.set("toJSON", {
+InspectionEquipmentDetailSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

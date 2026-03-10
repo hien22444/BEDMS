@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const DormSchema = new mongoose.Schema(
   {
@@ -36,7 +36,7 @@ const DormSchema = new mongoose.Schema(
   }
 );
 
-DormSchema.set("toJSON", {
+DormSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

@@ -67,8 +67,11 @@ const cancelPayosPaymentLink = async (orderCode, cancellationReason) => {
   const payOS = await getPayOS();
   try {
     // Some SDK versions accept only orderCode; keep it compatible.
-    return await payOS.paymentRequests.cancel(orderCode, cancellationReason ? { cancellationReason } : undefined);
-  } catch (err) {
+    return await payOS.paymentRequests.cancel(
+      orderCode,
+      cancellationReason ? { cancellationReason } : undefined
+    );
+  } catch (_) {
     // Cancellation is best-effort; do not hard-fail business rollback.
     return null;
   }
@@ -109,4 +112,3 @@ module.exports = {
   verifyPayosWebhook,
   confirmPayosWebhook,
 };
-

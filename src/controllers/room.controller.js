@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { roomService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { roomService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 const getAllRooms = catchAsync(async (req, res) => {
   const data = await roomService.getAllRooms(req.query);
@@ -39,4 +39,3 @@ module.exports = {
   updateRoom,
   deleteRoom,
 };
-

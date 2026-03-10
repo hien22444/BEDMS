@@ -1,6 +1,6 @@
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
-const { User, Student, Staff } = require("../models");
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { User, Student, Staff } = require('../models');
 
 // Hash ADMIN_PASSWORD once at first use (prevents plaintext string comparison + timing attacks).
 // The raw password stays in .env for human readability; comparison is via bcrypt constant-time.
@@ -23,7 +23,7 @@ const getAdminPasswordHash = async () => {
  */
 const generateToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || "1h",
+    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
   });
 };
 
@@ -34,7 +34,7 @@ const generateToken = (payload) => {
  */
 const generateRefreshToken = (payload) => {
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   });
 };
 
@@ -68,19 +68,23 @@ const login = async (body) => {
   const { email, password } = body;
 
   // Special-case: built-in admin account (credentials from .env)
-  const adminUsername = process.env.ADMIN_USERNAME || "admin";
+  const adminUsername = process.env.ADMIN_USERNAME || 'admin';
   const adminPasswordHash = await getAdminPasswordHash();
-  if (adminPasswordHash && email === adminUsername && await bcrypt.compare(password, adminPasswordHash)) {
+  if (
+    adminPasswordHash &&
+    email === adminUsername &&
+    (await bcrypt.compare(password, adminPasswordHash))
+  ) {
     // Ensure there is a real User document to back this admin
-    const adminEmail = "admin@dorm.local";
+    const adminEmail = 'admin@dorm.local';
 
     let adminUser = await User.findOne({ email: adminEmail });
     if (!adminUser) {
       adminUser = await User.create({
         email: adminEmail,
         password_hash: password, // hashed by pre-save hook
-        role: "admin",
-        fullname: "System Admin",
+        role: 'admin',
+        fullname: 'System Admin',
         is_active: true,
       });
     }
@@ -109,34 +113,34 @@ const login = async (body) => {
 
   // Normal login flow (email/password)
   if (!email || !password) {
-    throw new Error("Email and password are required");
+    throw new Error('Email and password are required');
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Invalid email format");
+    throw new Error('Invalid email format');
   }
 
   const user = await User.findOne({ email: email.toLowerCase().trim() });
   if (!user) {
-    throw new Error("Account not authorized. Please contact the dormitory management office.");
+    throw new Error('Account not authorized. Please contact the dormitory management office.');
   }
 
   if (!user.is_active) {
-    throw new Error("Account has been locked. Please contact the dormitory management office.");
+    throw new Error('Account has been locked. Please contact the dormitory management office.');
   }
 
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
-    throw new Error("Incorrect password");
+    throw new Error('Incorrect password');
   }
 
   user.last_login = new Date();
   await user.save();
 
   let profile = null;
-  if (user.role === "student") {
+  if (user.role === 'student') {
     profile = await Student.findOne({ user: user._id });
-  } else if (user.role === "manager" || user.role === "security") {
+  } else if (user.role === 'manager' || user.role === 'security') {
     profile = await Staff.findOne({ user: user._id });
   }
 
@@ -167,7 +171,7 @@ const login = async (body) => {
  */
 const refreshAccessToken = async (token) => {
   if (!token) {
-    throw new Error("Refresh token is required");
+    throw new Error('Refresh token is required');
   }
 
   const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -175,10 +179,10 @@ const refreshAccessToken = async (token) => {
   // Verify user still exists and is active
   const user = await User.findById(decoded.id);
   if (!user) {
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
   if (!user.is_active) {
-    throw new Error("Account has been locked");
+    throw new Error('Account has been locked');
   }
 
   const tokenPayload = { id: user._id, role: user.role };
@@ -198,33 +202,33 @@ const refreshAccessToken = async (token) => {
  * @returns {Object} { token, user }
  */
 const register = async (body) => {
-  const { email, password, role = "student" } = body;
+  const { email, password, role = 'student' } = body;
 
   // Validation
   if (!email || !password) {
-    throw new Error("Email and password are required");
+    throw new Error('Email and password are required');
   }
 
   if (!isValidEmail(email)) {
-    throw new Error("Invalid email format");
+    throw new Error('Invalid email format');
   }
 
   if (!isValidPassword(password)) {
     throw new Error(
-      "Password must be at least 8 characters, including uppercase, lowercase and a number"
+      'Password must be at least 8 characters, including uppercase, lowercase and a number'
     );
   }
 
   // Validate role
-  const validRoles = ["student", "manager", "security", "admin"];
+  const validRoles = ['student', 'manager', 'security', 'admin'];
   if (!validRoles.includes(role)) {
-    throw new Error("Invalid role");
+    throw new Error('Invalid role');
   }
 
   // Check if user already exists
   const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
   if (existingUser) {
-    throw new Error("Email is already in use");
+    throw new Error('Email is already in use');
   }
 
   // Create user
@@ -260,13 +264,13 @@ const register = async (body) => {
 const getProfile = async (userId) => {
   const user = await User.findById(userId);
   if (!user) {
-    throw new Error("User not found");
+    throw new Error('User not found');
   }
 
   let profile = null;
-  if (user.role === "student") {
+  if (user.role === 'student') {
     profile = await Student.findOne({ user: user._id });
-  } else if (user.role === "manager" || user.role === "security") {
+  } else if (user.role === 'manager' || user.role === 'security') {
     profile = await Staff.findOne({ user: user._id });
   }
 
@@ -285,7 +289,7 @@ const getProfile = async (userId) => {
 // ─── OAuth one-time code exchange store ───────────────────────────────────────
 // Stores { token, refreshToken, user, profile } keyed by a random code.
 // TTL: 5 minutes. Each code is single-use (deleted after exchange).
-const crypto = require("crypto");
+const crypto = require('crypto');
 const _oauthStore = new Map();
 
 const storeOAuthData = (data) => {
@@ -294,7 +298,7 @@ const storeOAuthData = (data) => {
   for (const [k, v] of _oauthStore.entries()) {
     if (v.expiresAt < now) _oauthStore.delete(k);
   }
-  const code = crypto.randomBytes(32).toString("hex");
+  const code = crypto.randomBytes(32).toString('hex');
   _oauthStore.set(code, { data, expiresAt: now + 5 * 60 * 1000 });
   return code;
 };
@@ -303,7 +307,7 @@ const exchangeOAuthCode = (code) => {
   const entry = _oauthStore.get(code);
   if (!entry || entry.expiresAt < Date.now()) {
     _oauthStore.delete(code);
-    throw new Error("Invalid or expired OAuth code");
+    throw new Error('Invalid or expired OAuth code');
   }
   _oauthStore.delete(code); // single-use
   return entry.data;
