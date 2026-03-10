@@ -71,7 +71,7 @@ const cancelPayosPaymentLink = async (orderCode, cancellationReason) => {
       orderCode,
       cancellationReason ? { cancellationReason } : undefined
     );
-  } catch (_) {
+  } catch {
     // Cancellation is best-effort; do not hard-fail business rollback.
     return null;
   }

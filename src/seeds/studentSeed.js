@@ -66,7 +66,7 @@ const seedStudents = async () => {
     try {
       await mongoose.connection.collection('users').dropIndex('username_1');
       console.log('🗑️  Dropped old username index');
-    } catch (_) {
+    } catch {
       // Index might not exist, ignore
     }
 
