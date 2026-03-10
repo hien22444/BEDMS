@@ -15,12 +15,24 @@ router
   .route("/student/:studentCode/penalties")
   .get(authenticate, authorize("manager", "security"), violationController.getStudentPenalties);
 
-// Create violation — manager and security only
+// Create violation — manager, security, and student
+router
+  .route("/")
+  .post(
+    authenticate,
+    authorize("manager", "security", "student"),
+    violationController.createViolationReport
+  );
+
 // List violations — manager and security only
 router
   .route("/")
-  .post(authenticate, authorize("manager", "security"), violationController.createViolationReport)
   .get(authenticate, authorize("manager", "security"), violationController.getAllViolationReports);
+
+// My violation reports — student only (must be before /:id)
+router
+  .route("/my-reports")
+  .get(authenticate, authorize("student"), violationController.getMyViolationReports);
 
 // View single violation — manager and security
 // Delete violation — manager only

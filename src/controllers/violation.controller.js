@@ -26,6 +26,15 @@ const getAllViolationReports = catchAsync(async (req, res) => {
 });
 
 /**
+ * Get my violation reports (student only — reports created by current user)
+ * GET /violations/my-reports
+ */
+const getMyViolationReports = catchAsync(async (req, res) => {
+  const data = await violationService.getMyViolationReports(req.user.id);
+  res.success(data, status.OK);
+});
+
+/**
  * Get violation report by ID
  * GET /violations/:id
  */
@@ -99,6 +108,7 @@ module.exports = {
   createViolationReport,
   getAllViolationReports,
   getViolationReportById,
+  getMyViolationReports,
   reviewViolationReport,
   getStudentPenalties,
   searchStudent,
