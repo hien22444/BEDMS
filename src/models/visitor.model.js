@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const VisitorSchema = new mongoose.Schema(
   {
@@ -23,7 +23,7 @@ const VisitorSchema = new mongoose.Schema(
     relationship: {
       type: String,
       required: true,
-      enum: ["parent", "sibling", "friend", "other"],
+      enum: ['parent', 'sibling', 'friend', 'other'],
     },
     relationship_other: {
       type: String,
@@ -34,7 +34,7 @@ const VisitorSchema = new mongoose.Schema(
   }
 );
 
-VisitorSchema.set("toJSON", {
+VisitorSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

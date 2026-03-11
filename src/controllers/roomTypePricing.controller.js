@@ -1,6 +1,6 @@
-const httpStatus = require("http-status");
-const { roomTypePricingService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const httpStatus = require('http-status');
+const { roomTypePricingService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 const getRoomTypePricing = catchAsync(async (req, res) => {
   const data = await roomTypePricingService.getRoomTypePricing();
@@ -16,4 +16,3 @@ module.exports = {
   getRoomTypePricing,
   updateRoomTypePricing,
 };
-

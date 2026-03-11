@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const InvoiceLineItemSchema = new mongoose.Schema({
   invoice: {
@@ -10,7 +10,7 @@ const InvoiceLineItemSchema = new mongoose.Schema({
   item_type: {
     type: String,
     required: true,
-    enum: ["room_fee", "electricity", "water", "service", "other"],
+    enum: ['room_fee', 'electricity', 'water', 'service', 'other'],
   },
   description: {
     type: String,
@@ -29,12 +29,12 @@ const InvoiceLineItemSchema = new mongoose.Schema({
   },
 });
 
-InvoiceLineItemSchema.pre("save", function (next) {
+InvoiceLineItemSchema.pre('save', function (next) {
   this.amount = this.quantity * this.unit_price;
   next();
 });
 
-InvoiceLineItemSchema.set("toJSON", {
+InvoiceLineItemSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -42,9 +42,6 @@ InvoiceLineItemSchema.set("toJSON", {
   },
 });
 
-const InvoiceLineItem = mongoose.model(
-  DBCollections.INVOICE_LINE_ITEM,
-  InvoiceLineItemSchema
-);
+const InvoiceLineItem = mongoose.model(DBCollections.INVOICE_LINE_ITEM, InvoiceLineItemSchema);
 
 module.exports = InvoiceLineItem;

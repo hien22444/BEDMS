@@ -1,5 +1,4 @@
 module.exports.authService = require('./auth.service');
-module.exports.orderService = require('./order.service');
 module.exports.userService = require('./user.service');
 module.exports.dormService = require('./dorm.service');
 module.exports.violationService = require('./violation.service');
@@ -9,4 +8,7 @@ module.exports.equipmentService = require('./equipment.service');
 module.exports.notificationService = require('./notification.service');
 module.exports.roomService = require('./room.service');
 module.exports.roomTypePricingService = require('./roomTypePricing.service');
+module.exports.chatService = require('./chat.service');
 module.exports.newsService = require('./news.service');
+module.exports.bookingService = require('./booking.service');
+module.exports.aiRulesService = require('./aiRules.service');

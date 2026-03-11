@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { newsService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { newsService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 /**
  * Create a new news item
@@ -17,7 +17,7 @@ const createNews = catchAsync(async (req, res) => {
  */
 const getNewsList = catchAsync(async (req, res) => {
   const role = req.user?.role;
-  const forStudent = role === "student";
+  const forStudent = role === 'student';
 
   const data = await newsService.getNewsList(req.query, forStudent);
   res.success(data, status.OK);
@@ -28,7 +28,7 @@ const getNewsList = catchAsync(async (req, res) => {
  */
 const getNewsById = catchAsync(async (req, res) => {
   const role = req.user?.role;
-  const forStudent = role === "student";
+  const forStudent = role === 'student';
 
   const data = await newsService.getNewsById(req.params.id, forStudent);
   res.success(data, status.OK);
@@ -47,7 +47,7 @@ const updateNews = catchAsync(async (req, res) => {
  */
 const deleteNews = catchAsync(async (req, res) => {
   await newsService.deleteNews(req.params.id);
-  res.success({ message: "News deleted successfully" }, status.OK);
+  res.success({ message: 'News deleted successfully' }, status.OK);
 });
 
 module.exports = {
@@ -57,4 +57,3 @@ module.exports = {
   updateNews,
   deleteNews,
 };
-

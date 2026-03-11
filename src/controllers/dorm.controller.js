@@ -1,6 +1,6 @@
-const { status: httpStatus } = require("http-status");
-const { dormService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status: httpStatus } = require('http-status');
+const { dormService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 /**
  * POST /v1/dorms
@@ -49,4 +49,3 @@ module.exports = {
   updateDorm,
   deleteDorm,
 };
-

@@ -5,7 +5,10 @@ const { orderController } = require('../../controllers');
 
 const router = express.Router();
 
-router.route('/').post(authenticate, orderController.createOrder).get(authenticate, orderController.getAllOrder);
+router
+  .route('/')
+  .post(authenticate, orderController.createOrder)
+  .get(authenticate, orderController.getAllOrder);
 
 router.route('/ordersByDate').get(authenticate, orderController.getAllOrdersByDate);
 

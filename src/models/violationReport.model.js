@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const ViolationReportSchema = new mongoose.Schema(
   {
@@ -10,8 +10,9 @@ const ViolationReportSchema = new mongoose.Schema(
     },
     reported_student: {
       type: mongoose.Types.ObjectId,
-      required: true,
+      required: false,
       ref: DBCollections.STUDENT,
+      default: null,
     },
     reporter: {
       type: mongoose.Types.ObjectId,
@@ -21,12 +22,23 @@ const ViolationReportSchema = new mongoose.Schema(
     reporter_type: {
       type: String,
       required: true,
-      enum: ["student", "security", "manager"],
+      enum: ['student', 'security', 'manager'],
     },
+    /** Code of the reporter: student_code (student) or staff_code (manager/security). Filled on create or by enrich. */
+    reporter_code: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    // Type of violation, aligned with student + manager UIs
     violation_type: {
       type: String,
       required: true,
-      enum: ["policy_violation", "other"],
+      enum: ['noise', 'cleanliness', 'guest', 'alcohol', 'other'],
+    },
+    // When violation_type === "other", reporter must specify details here
+    violation_other_detail: {
+      type: String,
     },
     description: {
       type: String,
@@ -44,14 +56,8 @@ const ViolationReportSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "new",
-      enum: [
-        "new",
-        "under_review",
-        "resolved_penalized",
-        "resolved_no_action",
-        "rejected",
-      ],
+      default: 'new',
+      enum: ['new', 'under_review', 'resolved_penalized', 'resolved_no_action', 'rejected'],
     },
     reviewed_at: {
       type: Date,
@@ -71,7 +77,7 @@ const ViolationReportSchema = new mongoose.Schema(
   }
 );
 
-ViolationReportSchema.set("toJSON", {
+ViolationReportSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -79,9 +85,6 @@ ViolationReportSchema.set("toJSON", {
   },
 });
 
-const ViolationReport = mongoose.model(
-  DBCollections.VIOLATION_REPORT,
-  ViolationReportSchema
-);
+const ViolationReport = mongoose.model(DBCollections.VIOLATION_REPORT, ViolationReportSchema);
 
 module.exports = ViolationReport;

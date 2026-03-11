@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const RoomTypeEquipmentConfigSchema = new mongoose.Schema({
   room_type: {
@@ -25,12 +25,9 @@ const RoomTypeEquipmentConfigSchema = new mongoose.Schema({
   },
 });
 
-RoomTypeEquipmentConfigSchema.index(
-  { room_type: 1, template: 1 },
-  { unique: true }
-);
+RoomTypeEquipmentConfigSchema.index({ room_type: 1, template: 1 }, { unique: true });
 
-RoomTypeEquipmentConfigSchema.set("toJSON", {
+RoomTypeEquipmentConfigSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

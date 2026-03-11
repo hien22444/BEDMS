@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const EquipmentTemplateSchema = new mongoose.Schema(
   {
@@ -37,7 +37,7 @@ const EquipmentTemplateSchema = new mongoose.Schema(
   }
 );
 
-EquipmentTemplateSchema.set("toJSON", {
+EquipmentTemplateSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -45,9 +45,6 @@ EquipmentTemplateSchema.set("toJSON", {
   },
 });
 
-const EquipmentTemplate = mongoose.model(
-  DBCollections.EQUIPMENT_TEMPLATE,
-  EquipmentTemplateSchema
-);
+const EquipmentTemplate = mongoose.model(DBCollections.EQUIPMENT_TEMPLATE, EquipmentTemplateSchema);
 
 module.exports = EquipmentTemplate;

@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { notificationService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { notificationService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 const getMyNotifications = catchAsync(async (req, res) => {
   const data = await notificationService.getMyNotifications(req.user.id);
@@ -14,12 +14,12 @@ const markAsRead = catchAsync(async (req, res) => {
 
 const markAllRead = catchAsync(async (req, res) => {
   await notificationService.markAllRead(req.user.id);
-  res.success({ message: "All notifications marked as read" }, status.OK);
+  res.success({ message: 'All notifications marked as read' }, status.OK);
 });
 
 const deleteNotification = catchAsync(async (req, res) => {
   await notificationService.deleteNotification(req.params.id, req.user.id);
-  res.success({ message: "Notification deleted" }, status.OK);
+  res.success({ message: 'Notification deleted' }, status.OK);
 });
 
 module.exports = {

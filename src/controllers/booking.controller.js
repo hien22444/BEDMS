@@ -1,0 +1,91 @@
+const { status } = require('http-status');
+const { bookingService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
+
+const getNextSemesterInfo = catchAsync(async (req, res) => {
+  const data = await bookingService.getNextSemesterInfo(req.user.id);
+  res.success(data, status.OK);
+});
+
+const getAvailableRoomTypes = catchAsync(async (req, res) => {
+  const data = await bookingService.getAvailableRoomTypes(req.user.id);
+  res.success(data, status.OK);
+});
+
+const getDormsForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.getDormsForBooking(req.user.id, req.query.room_type);
+  res.success(data, status.OK);
+});
+
+const getFloorsForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.getFloorsForBooking(
+    req.user.id,
+    req.query.dorm_id,
+    req.query.room_type
+  );
+  res.success(data, status.OK);
+});
+
+const getBlocksForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.getBlocksForBooking(
+    req.user.id,
+    req.query.dorm_id,
+    req.query.floor,
+    req.query.room_type
+  );
+  res.success(data, status.OK);
+});
+
+const getRoomsForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.getRoomsForBooking(
+    req.user.id,
+    req.query.block_id,
+    req.query.room_type
+  );
+  res.success(data, status.OK);
+});
+
+const getBedsForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.getBedsForBooking(req.user.id, req.query.room_id);
+  res.success(data, status.OK);
+});
+
+const submitBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.submitBooking(req.user.id, req.body);
+  res.success(data, status.CREATED);
+});
+
+const checkPaymentStatus = catchAsync(async (req, res) => {
+  const data = await bookingService.checkPaymentStatus(req.params.id, req.user.id);
+  res.success(data, status.OK);
+});
+
+const getMyBookings = catchAsync(async (req, res) => {
+  const data = await bookingService.getMyBookings(req.user.id, req.query);
+  res.success(data, status.OK);
+});
+
+const cancelBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.cancelBooking(req.params.id, req.user.id);
+  res.success(data, status.OK);
+});
+
+const getAllBookings = catchAsync(async (req, res) => {
+  const data = await bookingService.getAllBookings(req.query);
+  res.success(data, status.OK);
+});
+
+module.exports = {
+  getNextSemesterInfo,
+  getAvailableRoomTypes,
+  getDormsForBooking,
+  getFloorsForBooking,
+  getBlocksForBooking,
+  getRoomsForBooking,
+  getBedsForBooking,
+  submitBooking,
+  checkPaymentStatus,
+  getMyBookings,
+  cancelBooking,
+  getAllBookings,
+};

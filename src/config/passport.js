@@ -1,6 +1,6 @@
-const passport = require("passport");
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
-const { User, Student, Staff } = require("../models");
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const { User, Student, Staff } = require('../models');
 
 // Google OAuth Strategy
 // Rule: User MUST be pre-registered (imported from Excel) before login
@@ -11,7 +11,7 @@ passport.use(
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
-      scope: ["profile", "email"],
+      scope: ['profile', 'email'],
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
@@ -23,14 +23,14 @@ passport.use(
         if (!user) {
           // User not found -> NOT ALLOWED to self-register
           return done(null, false, {
-            message: "Account not yet authorized. Please contact the dormitory management.",
+            message: 'Account not yet authorized. Please contact the dormitory management.',
           });
         }
 
         // Check if user is active
         if (!user.is_active) {
           return done(null, false, {
-            message: "Account is locked. Please contact the dormitory management.",
+            message: 'Account is locked. Please contact the dormitory management.',
           });
         }
 
@@ -50,9 +50,9 @@ passport.use(
 
         // Get profile based on role
         let userProfile = null;
-        if (user.role === "student") {
+        if (user.role === 'student') {
           userProfile = await Student.findOne({ user: user._id });
-        } else if (["manager", "security"].includes(user.role)) {
+        } else if (['manager', 'security'].includes(user.role)) {
           userProfile = await Staff.findOne({ user: user._id });
         }
 

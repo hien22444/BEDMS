@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const SystemConfigSchema = new mongoose.Schema({
   config_key: {
@@ -16,8 +16,8 @@ const SystemConfigSchema = new mongoose.Schema({
   },
   value_type: {
     type: String,
-    default: "string",
-    enum: ["string", "number", "boolean", "json"],
+    default: 'string',
+    enum: ['string', 'number', 'boolean', 'json'],
   },
   updated_by: {
     type: mongoose.Types.ObjectId,
@@ -30,7 +30,7 @@ const SystemConfigSchema = new mongoose.Schema({
   },
 });
 
-SystemConfigSchema.set("toJSON", {
+SystemConfigSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -38,9 +38,6 @@ SystemConfigSchema.set("toJSON", {
   },
 });
 
-const SystemConfig = mongoose.model(
-  DBCollections.SYSTEM_CONFIG,
-  SystemConfigSchema
-);
+const SystemConfig = mongoose.model(DBCollections.SYSTEM_CONFIG, SystemConfigSchema);
 
 module.exports = SystemConfig;

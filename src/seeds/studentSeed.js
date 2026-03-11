@@ -3,29 +3,29 @@
  * Run: npm run seed
  */
 
-require("dotenv").config();
-const mongoose = require("mongoose");
-const { User, Student } = require("../models");
+require('dotenv').config();
+const mongoose = require('mongoose');
+const { User, Student } = require('../models');
 
 // Student data to seed
 const studentsData = [
   {
     user: {
-      email: "se170001@fpt.edu.vn",
-      password_hash: "Student@123",
-      role: "student",
+      email: 'se170001@fpt.edu.vn',
+      password_hash: 'Student@123',
+      role: 'student',
       is_active: true,
     },
     student: {
-      student_code: "SE170001",
-      full_name: "Nguyễn Văn An",
-      date_of_birth: new Date("2003-05-15"),
-      gender: "male",
-      phone: "0901234567",
-      citizen_id: "001203012345",
-      permanent_address: "123 Nguyễn Văn Linh, Quận 7, TP.HCM",
-      major: "Software Engineering",
-      cohort: "K17",
+      student_code: 'SE170001',
+      full_name: 'Nguyễn Văn An',
+      date_of_birth: new Date('2003-05-15'),
+      gender: 'male',
+      phone: '0901234567',
+      citizen_id: '001203012345',
+      permanent_address: '123 Nguyễn Văn Linh, Quận 7, TP.HCM',
+      major: 'Software Engineering',
+      cohort: 'K17',
       behavioral_score: 10.0,
       violations_current_semester: 0,
       is_banned_permanently: false,
@@ -33,21 +33,21 @@ const studentsData = [
   },
   {
     user: {
-      email: "se170002@fpt.edu.vn",
-      password_hash: "Student@123",
-      role: "student",
+      email: 'se170002@fpt.edu.vn',
+      password_hash: 'Student@123',
+      role: 'student',
       is_active: true,
     },
     student: {
-      student_code: "SE170002",
-      full_name: "Trần Thị Bình",
-      date_of_birth: new Date("2003-08-20"),
-      gender: "female",
-      phone: "0907654321",
-      citizen_id: "001203054321",
-      permanent_address: "456 Lê Văn Việt, Quận 9, TP.HCM",
-      major: "Software Engineering",
-      cohort: "K17",
+      student_code: 'SE170002',
+      full_name: 'Trần Thị Bình',
+      date_of_birth: new Date('2003-08-20'),
+      gender: 'female',
+      phone: '0907654321',
+      citizen_id: '001203054321',
+      permanent_address: '456 Lê Văn Việt, Quận 9, TP.HCM',
+      major: 'Software Engineering',
+      cohort: 'K17',
       behavioral_score: 10.0,
       violations_current_semester: 0,
       is_banned_permanently: false,
@@ -58,19 +58,19 @@ const studentsData = [
 const seedStudents = async () => {
   try {
     // Connect to MongoDB
-    console.log("🔌 Connecting to MongoDB...");
+    console.log('🔌 Connecting to MongoDB...');
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log("✅ Connected to MongoDB");
+    console.log('✅ Connected to MongoDB');
 
     // Drop old username index if exists (from old schema)
     try {
-      await mongoose.connection.collection("users").dropIndex("username_1");
-      console.log("🗑️  Dropped old username index");
-    } catch (e) {
+      await mongoose.connection.collection('users').dropIndex('username_1');
+      console.log('🗑️  Dropped old username index');
+    } catch {
       // Index might not exist, ignore
     }
 
-    console.log("\n📋 Seeding 2 Student accounts...\n");
+    console.log('\n📋 Seeding 2 Student accounts...\n');
 
     for (const data of studentsData) {
       // Check if user already exists
@@ -87,7 +87,7 @@ const seedStudents = async () => {
 
       // Check if student already exists
       const existingStudent = await Student.findOne({
-        student_code: data.student.student_code
+        student_code: data.student.student_code,
       });
 
       if (existingStudent) {
@@ -103,24 +103,23 @@ const seedStudents = async () => {
       console.log(`✅ Created Student: ${student.full_name} (${student.student_code})`);
     }
 
-    console.log("\n" + "=".repeat(50));
-    console.log("🎉 Seed completed successfully!");
-    console.log("=".repeat(50));
-    console.log("\n📝 Test accounts:");
-    console.log("   Email: se170001@fpt.edu.vn");
-    console.log("   Password: Student@123");
-    console.log("");
-    console.log("   Email: se170002@fpt.edu.vn");
-    console.log("   Password: Student@123");
-    console.log("=".repeat(50) + "\n");
-
+    console.log('\n' + '='.repeat(50));
+    console.log('🎉 Seed completed successfully!');
+    console.log('='.repeat(50));
+    console.log('\n📝 Test accounts:');
+    console.log('   Email: se170001@fpt.edu.vn');
+    console.log('   Password: Student@123');
+    console.log('');
+    console.log('   Email: se170002@fpt.edu.vn');
+    console.log('   Password: Student@123');
+    console.log('='.repeat(50) + '\n');
   } catch (error) {
-    console.error("❌ Seed failed:", error.message);
+    console.error('❌ Seed failed:', error.message);
     process.exit(1);
   } finally {
     // Disconnect from MongoDB
     await mongoose.disconnect();
-    console.log("🔌 Disconnected from MongoDB");
+    console.log('🔌 Disconnected from MongoDB');
     process.exit(0);
   }
 };

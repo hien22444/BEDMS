@@ -1,11 +1,29 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const PaymentSchema = new mongoose.Schema({
   transaction_code: {
     type: String,
     required: true,
     unique: true,
+  },
+  // PayOS orderCode (numeric) for querying status/cancel + webhook mapping
+  payos_order_code: {
+    type: Number,
+    default: null,
+    index: true,
+  },
+  payos_payment_link_id: {
+    type: String,
+    default: null,
+  },
+  payos_checkout_url: {
+    type: String,
+    default: null,
+  },
+  payos_qr_code: {
+    type: String,
+    default: null,
   },
   invoice: {
     type: mongoose.Types.ObjectId,
@@ -24,12 +42,12 @@ const PaymentSchema = new mongoose.Schema({
   payment_method: {
     type: String,
     required: true,
-    enum: ["vnpay", "momo", "bank_transfer", "cash"],
+    enum: ['payos', 'vnpay', 'momo', 'bank_transfer', 'cash'],
   },
   payment_status: {
     type: String,
-    default: "pending",
-    enum: ["pending", "completed", "failed", "refunded"],
+    default: 'pending',
+    enum: ['pending', 'completed', 'failed', 'refunded', 'cancelled', 'expired'],
   },
   transaction_details: {
     type: mongoose.Schema.Types.Mixed,
@@ -44,7 +62,7 @@ const PaymentSchema = new mongoose.Schema({
   },
 });
 
-PaymentSchema.set("toJSON", {
+PaymentSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

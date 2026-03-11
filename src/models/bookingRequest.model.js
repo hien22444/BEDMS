@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const BookingRequestSchema = new mongoose.Schema(
   {
@@ -12,6 +12,16 @@ const BookingRequestSchema = new mongoose.Schema(
       type: mongoose.Types.ObjectId,
       required: true,
       ref: DBCollections.ROOM,
+    },
+    bed: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.BED,
+      default: null,
+    },
+    invoice: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.INVOICE,
+      default: null,
     },
     semester: {
       type: String,
@@ -27,14 +37,16 @@ const BookingRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "pending",
-      enum: ["pending", "approved", "rejected", "cancelled"],
+      default: 'awaiting_payment',
+      enum: ['awaiting_payment', 'approved', 'cancelled', 'expired'],
     },
-    rejection_reason: {
+    note: {
       type: String,
+      default: null,
     },
-    documents_url: {
-      type: [String],
+    expires_at: {
+      type: Date,
+      default: null,
     },
     requested_at: {
       type: Date,
@@ -55,7 +67,7 @@ const BookingRequestSchema = new mongoose.Schema(
   }
 );
 
-BookingRequestSchema.set("toJSON", {
+BookingRequestSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -63,9 +75,6 @@ BookingRequestSchema.set("toJSON", {
   },
 });
 
-const BookingRequest = mongoose.model(
-  DBCollections.BOOKING_REQUEST,
-  BookingRequestSchema
-);
+const BookingRequest = mongoose.model(DBCollections.BOOKING_REQUEST, BookingRequestSchema);
 
 module.exports = BookingRequest;

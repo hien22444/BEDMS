@@ -8,9 +8,13 @@ const equipmentRoute = require('./equipment.route');
 const notificationRoute = require('./notification.route');
 const roomRoute = require('./room.route');
 const roomTypePricingRoute = require('./roomTypePricing.route');
+const chatRoute = require('./chat.route');
 const newsRoute = require('./news.route');
 const bedRoute = require('./bed.route');
 const statsRoute = require('./stats.route');
+const bookingRoute = require('./booking.route');
+const payosRoute = require('./payos.route');
+const aiRulesRoute = require('./aiRules.route');
 
 const express = require('express');
 
@@ -58,6 +62,10 @@ const defaultRoutes = [
     route: roomTypePricingRoute,
   },
   {
+    path: '/chat',
+    route: chatRoute,
+  },
+  {
     path: '/news',
     route: newsRoute,
   },
@@ -68,6 +76,18 @@ const defaultRoutes = [
   {
     path: '/stats',
     route: statsRoute,
+  },
+  {
+    path: '/bookings',
+    route: bookingRoute,
+  },
+  {
+    path: '/payos',
+    route: payosRoute,
+  },
+  {
+    path: '/ai',
+    route: aiRulesRoute,
   },
 ];
 
