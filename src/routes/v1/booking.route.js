@@ -7,6 +7,13 @@ const router = express.Router();
 // ─── Student endpoints ───
 
 router.get(
+  '/window-status',
+  authenticate,
+  authorize('student'),
+  bookingController.getBookingWindowStatus
+);
+
+router.get(
   '/next-semester',
   authenticate,
   authorize('student'),
@@ -54,6 +61,8 @@ router.get(
   authorize('student'),
   bookingController.getBedsForBooking
 );
+
+router.post('/keep-bed', authenticate, authorize('student'), bookingController.keepBed);
 
 router.post('/', authenticate, authorize('student'), bookingController.submitBooking);
 

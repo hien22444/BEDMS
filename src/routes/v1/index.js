@@ -15,6 +15,7 @@ const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
 const payosRoute = require('./payos.route');
 const aiRulesRoute = require('./aiRules.route');
+const dateConfigRoute = require('./dateConfig.route');
 
 const express = require('express');
 
@@ -88,6 +89,10 @@ const defaultRoutes = [
   {
     path: '/ai',
     route: aiRulesRoute,
+  },
+  {
+    path: '/date-config',
+    route: dateConfigRoute,
   },
 ];
 

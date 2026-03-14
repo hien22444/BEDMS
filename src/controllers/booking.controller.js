@@ -2,6 +2,11 @@ const { status } = require('http-status');
 const { bookingService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
+const getBookingWindowStatus = catchAsync(async (req, res) => {
+  const data = await bookingService.getBookingWindowStatus(req.user.id);
+  res.success(data, status.OK);
+});
+
 const getNextSemesterInfo = catchAsync(async (req, res) => {
   const data = await bookingService.getNextSemesterInfo(req.user.id);
   res.success(data, status.OK);
@@ -70,12 +75,19 @@ const cancelBooking = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const keepBed = catchAsync(async (req, res) => {
+  const data = await bookingService.keepBed(req.user.id);
+  res.success(data, status.CREATED);
+});
+
 const getAllBookings = catchAsync(async (req, res) => {
   const data = await bookingService.getAllBookings(req.query);
   res.success(data, status.OK);
 });
 
 module.exports = {
+  getBookingWindowStatus,
+  keepBed,
   getNextSemesterInfo,
   getAvailableRoomTypes,
   getDormsForBooking,

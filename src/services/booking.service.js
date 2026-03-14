@@ -9,6 +9,7 @@ const {
   Payment,
   Contract,
   Notification,
+  SystemConfig,
 } = require('../models');
 const AppError = require('../utils/AppError');
 const {
@@ -40,6 +41,22 @@ const populateBookingForStudent = async (bookingId) => {
     })
     .populate('bed', 'bed_number')
     .populate('invoice');
+};
+
+// ─── Booking Window Config Keys ───────────────────────────
+const BOOKING_CONFIG_KEYS = {
+  HOLD_START: 'booking_hold_window_start',
+  HOLD_END: 'booking_hold_window_end',
+  NEW_START: 'booking_new_window_start',
+  NEW_END: 'booking_new_window_end',
+};
+
+const isWithinWindow = (now, startStr, endStr) => {
+  if (!startStr || !endStr) return false;
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  end.setHours(23, 59, 59, 999);
+  return now >= start && now <= end;
 };
 
 // ─── Semester Logic ───────────────────────────────────────
@@ -106,6 +123,37 @@ const generateInvoiceCode = async () => {
   }
 
   return `${prefix}${String(seq).padStart(4, '0')}`;
+};
+
+// ─── 0. getBookingWindowStatus ────────────────────────────
+const getBookingWindowStatus = async (userId) => {
+  const student = await findStudent(userId);
+
+  const configs = await SystemConfig.find({
+    config_key: { $in: Object.values(BOOKING_CONFIG_KEYS) },
+  }).lean();
+
+  const map = {};
+  configs.forEach((c) => {
+    map[c.config_key] = c.config_value;
+  });
+
+  const now = new Date();
+
+  // Student has active contract → "giữ giường" category
+  const activeContract = await Contract.findOne({
+    student: student._id,
+    status: 'active',
+  });
+
+  if (activeContract) {
+    const allowed = isWithinWindow(now, map[BOOKING_CONFIG_KEYS.HOLD_START], map[BOOKING_CONFIG_KEYS.HOLD_END]);
+    return { allowed, window_type: allowed ? 'hold' : null };
+  }
+
+  // No contract → "book mới" category
+  const allowed = isWithinWindow(now, map[BOOKING_CONFIG_KEYS.NEW_START], map[BOOKING_CONFIG_KEYS.NEW_END]);
+  return { allowed, window_type: allowed ? 'new' : null };
 };
 
 // ─── 1. getNextSemesterInfo ───────────────────────────────
@@ -324,6 +372,12 @@ const getBedsForBooking = async (userId, roomId) => {
 
 // ─── 8. submitBooking ─────────────────────────────────────
 const submitBooking = async (userId, { bed_id, note }) => {
+  // Enforce booking window
+  const windowStatus = await getBookingWindowStatus(userId);
+  if (!windowStatus.allowed) {
+    throw new AppError('Dormitory booking is not currently open', 403);
+  }
+
   const student = await findStudent(userId);
   const { roomStudentType, genderTypes } = getStudentFilter(student);
 
@@ -806,7 +860,132 @@ const cancelBooking = async (bookingId, userId) => {
   return booking;
 };
 
-// ─── 12. getAllBookings (manager) ──────────────────────────
+// ─── 12. keepBed ──────────────────────────────────────────
+const keepBed = async (userId) => {
+  // Must be in hold window
+  const windowStatus = await getBookingWindowStatus(userId);
+  if (!windowStatus.allowed || windowStatus.window_type !== 'hold') {
+    throw new AppError('Bed hold period is not currently active', 403);
+  }
+
+  const student = await findStudent(userId);
+  const nextSem = getNextSemester();
+
+  // Check no existing booking for next semester
+  const existingBooking = await BookingRequest.findOne({
+    student: student._id,
+    semester: nextSem.semester,
+    status: { $in: ['awaiting_payment', 'approved'] },
+  });
+  if (existingBooking) {
+    throw new AppError('You already have an active booking for the next semester', 409);
+  }
+
+  // Find active contract
+  const contract = await Contract.findOne({ student: student._id, status: 'active' })
+    .populate({
+      path: 'room',
+      populate: { path: 'block', populate: { path: 'dorm', select: 'dorm_name dorm_code' } },
+    })
+    .populate('bed', 'bed_number');
+  if (!contract) throw new AppError('No active contract found', 404);
+
+  const room = contract.room;
+  const bed = contract.bed;
+
+  // Generate invoice
+  const invoice_code = await generateInvoiceCode();
+  const invoice = await Invoice.create({
+    invoice_code,
+    student: student._id,
+    room: room._id,
+    invoice_month: nextSem.semester,
+    room_fee: room.price_per_semester,
+    electricity_fee: 0,
+    water_fee: 0,
+    service_fee: 0,
+    total_amount: room.price_per_semester,
+    payment_status: 'unpaid',
+    due_date: nextSem.start_date,
+  });
+
+  const expires_at = new Date(Date.now() + 10 * 60 * 1000);
+  const booking = await BookingRequest.create({
+    student: student._id,
+    room: room._id,
+    bed: bed._id,
+    invoice: invoice._id,
+    semester: nextSem.semester,
+    start_date: nextSem.start_date,
+    end_date: nextSem.end_date,
+    expires_at,
+    status: 'awaiting_payment',
+  });
+
+  const populatedBooking = await BookingRequest.findById(booking._id)
+    .populate({
+      path: 'room',
+      select: 'room_number room_type floor total_beds available_beds price_per_semester student_type',
+      populate: {
+        path: 'block',
+        select: 'block_name block_code gender_type',
+        populate: { path: 'dorm', select: 'dorm_name dorm_code' },
+      },
+    })
+    .populate('bed', 'bed_number');
+
+  try {
+    const returnUrl = process.env.PAYOS_RETURN_URL;
+    const cancelUrl = process.env.PAYOS_CANCEL_URL;
+    if (!returnUrl || !cancelUrl) {
+      return { booking: populatedBooking, invoice, payos: null, payment: null };
+    }
+
+    const orderCode = invoiceCodeToOrderCode(invoice.invoice_code);
+    const buyer = await User.findById(student.user).select('email full_name').lean();
+
+    const paymentLink = await createPayosPaymentLink({
+      orderCode,
+      amount: invoice.total_amount,
+      description: invoice.invoice_code,
+      returnUrl,
+      cancelUrl,
+      buyerEmail: buyer?.email,
+      buyerName: buyer?.full_name || student.full_name,
+      items: [{ name: `Keep bed ${invoice.invoice_code}`, quantity: 1, price: invoice.total_amount }],
+    });
+
+    const payosPaymentLinkId = paymentLink?.paymentLinkId || paymentLink?.id || null;
+    const payosCheckoutUrl = paymentLink?.checkoutUrl || paymentLink?.checkout_url || null;
+    const payosQrCode = paymentLink?.qrCode || paymentLink?.qr_code || null;
+
+    await Payment.create({
+      transaction_code: `PAYOS-${orderCode}`,
+      payos_order_code: orderCode,
+      payos_payment_link_id: payosPaymentLinkId,
+      payos_checkout_url: payosCheckoutUrl,
+      payos_qr_code: payosQrCode,
+      invoice: invoice._id,
+      student: student._id,
+      amount: invoice.total_amount,
+      payment_method: 'payos',
+      payment_status: 'pending',
+      transaction_details: paymentLink || null,
+    });
+
+    return {
+      booking: populatedBooking,
+      invoice,
+      payos: { orderCode, paymentLinkId: payosPaymentLinkId, checkoutUrl: payosCheckoutUrl, qrCode: payosQrCode },
+    };
+  } catch (err) {
+    await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
+    await BookingRequest.findByIdAndUpdate(booking._id, { status: 'cancelled' });
+    throw new AppError(err?.message || 'Failed to create payment link', 500);
+  }
+};
+
+// ─── 13. getAllBookings (manager) ──────────────────────────
 const getAllBookings = async (query = {}) => {
   const { status, semester, page = 1, limit = 20 } = query;
   const filter = {};
@@ -850,6 +1029,8 @@ const getAllBookings = async (query = {}) => {
 };
 
 module.exports = {
+  getBookingWindowStatus,
+  keepBed,
   getNextSemesterInfo,
   getAvailableRoomTypes,
   getDormsForBooking,
