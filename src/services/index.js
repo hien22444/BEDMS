@@ -12,3 +12,4 @@ module.exports.chatService = require('./chat.service');
 module.exports.newsService = require('./news.service');
 module.exports.bookingService = require('./booking.service');
 module.exports.aiRulesService = require('./aiRules.service');
+module.exports.dateConfigService = require('./dateConfig.service');
