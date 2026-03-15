@@ -85,6 +85,16 @@ const getAllBookings = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const searchStudentForCheckout = catchAsync(async (req, res) => {
+  const data = await bookingService.searchStudentForCheckout(req.query.student_code);
+  res.success(data, status.OK);
+});
+
+const checkoutStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.checkoutStudent(req.body.student_code, req.user.id);
+  res.success(data, status.OK);
+});
+
 module.exports = {
   getBookingWindowStatus,
   keepBed,
@@ -100,4 +110,6 @@ module.exports = {
   getMyBookings,
   cancelBooking,
   getAllBookings,
+  searchStudentForCheckout,
+  checkoutStudent,
 };

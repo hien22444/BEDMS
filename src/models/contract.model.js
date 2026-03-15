@@ -46,6 +46,10 @@ const ContractSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    terminated_at: {
+      type: Date,
+      default: null,
+    },
     created_by: {
       type: mongoose.Types.ObjectId,
       ref: DBCollections.STAFF,
