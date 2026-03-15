@@ -60,31 +60,48 @@ const isWithinWindow = (now, startStr, endStr) => {
 };
 
 // ─── Semester Logic ───────────────────────────────────────
-const getNextSemester = () => {
+const SEMESTER_DATES = {
+  Spring: (year) => ({ start_date: new Date(year, 0, 1), end_date: new Date(year, 3, 30) }),
+  Summer: (year) => ({ start_date: new Date(year, 4, 1), end_date: new Date(year, 7, 31) }),
+  Fall: (year) => ({ start_date: new Date(year, 8, 1), end_date: new Date(year, 11, 31) }),
+};
+
+const getNextSemesterAuto = () => {
   const now = new Date();
   const month = now.getMonth() + 1;
   const year = now.getFullYear();
 
   if (month <= 4) {
-    return {
-      semester: `Summer-${year}`,
-      start_date: new Date(year, 4, 1),
-      end_date: new Date(year, 7, 31),
-    };
+    return { semester: `Summer-${year}`, ...SEMESTER_DATES.Summer(year) };
   }
   if (month <= 8) {
-    return {
-      semester: `Fall-${year}`,
-      start_date: new Date(year, 8, 1),
-      end_date: new Date(year, 11, 31),
-    };
+    return { semester: `Fall-${year}`, ...SEMESTER_DATES.Fall(year) };
   }
-  return {
-    semester: `Spring-${year + 1}`,
-    start_date: new Date(year + 1, 0, 1),
-    end_date: new Date(year + 1, 3, 30),
-  };
+  return { semester: `Spring-${year + 1}`, ...SEMESTER_DATES.Spring(year + 1) };
 };
+
+const getTargetSemester = async () => {
+  const configs = await SystemConfig.find({
+    config_key: { $in: ['booking_target_semester', 'booking_target_year'] },
+  }).lean();
+
+  const map = {};
+  configs.forEach((c) => {
+    map[c.config_key] = c.config_value;
+  });
+
+  const semName = map['booking_target_semester'];
+  const year = map['booking_target_year'] ? Number(map['booking_target_year']) : null;
+
+  if (semName && year && SEMESTER_DATES[semName]) {
+    return { semester: `${semName}-${year}`, ...SEMESTER_DATES[semName](year) };
+  }
+
+  return getNextSemesterAuto();
+};
+
+// Keep sync version for backward-compat (violation.service.js has its own copy)
+const getNextSemester = getNextSemesterAuto;
 
 // ─── Student Filter Logic ─────────────────────────────────
 const getStudentFilter = (student) => ({
@@ -147,19 +164,27 @@ const getBookingWindowStatus = async (userId) => {
   });
 
   if (activeContract) {
-    const allowed = isWithinWindow(now, map[BOOKING_CONFIG_KEYS.HOLD_START], map[BOOKING_CONFIG_KEYS.HOLD_END]);
+    const allowed = isWithinWindow(
+      now,
+      map[BOOKING_CONFIG_KEYS.HOLD_START],
+      map[BOOKING_CONFIG_KEYS.HOLD_END]
+    );
     return { allowed, window_type: allowed ? 'hold' : null };
   }
 
   // No contract → "book mới" category
-  const allowed = isWithinWindow(now, map[BOOKING_CONFIG_KEYS.NEW_START], map[BOOKING_CONFIG_KEYS.NEW_END]);
+  const allowed = isWithinWindow(
+    now,
+    map[BOOKING_CONFIG_KEYS.NEW_START],
+    map[BOOKING_CONFIG_KEYS.NEW_END]
+  );
   return { allowed, window_type: allowed ? 'new' : null };
 };
 
 // ─── 1. getNextSemesterInfo ───────────────────────────────
 const getNextSemesterInfo = async (userId) => {
   await findStudent(userId);
-  return getNextSemester();
+  return getTargetSemester();
 };
 
 // ─── 2. getAvailableRoomTypes ─────────────────────────────
@@ -398,13 +423,14 @@ const submitBooking = async (userId, { bed_id, note }) => {
     throw new AppError('Room block does not match your gender', 403);
   }
 
-  const nextSem = getNextSemester();
+  const nextSem = await getTargetSemester();
 
-  // Check for existing active booking
+  // Check for existing active booking (exclude checked-out bookings)
   const existingBooking = await BookingRequest.findOne({
     student: student._id,
     semester: nextSem.semester,
     status: { $in: ['awaiting_payment', 'approved'] },
+    checkout_date: null,
   });
   if (existingBooking) {
     throw new AppError('You already have an active booking for this semester', 409);
@@ -869,7 +895,7 @@ const keepBed = async (userId) => {
   }
 
   const student = await findStudent(userId);
-  const nextSem = getNextSemester();
+  const nextSem = await getTargetSemester();
 
   // Check no existing booking for next semester
   const existingBooking = await BookingRequest.findOne({
@@ -925,7 +951,8 @@ const keepBed = async (userId) => {
   const populatedBooking = await BookingRequest.findById(booking._id)
     .populate({
       path: 'room',
-      select: 'room_number room_type floor total_beds available_beds price_per_semester student_type',
+      select:
+        'room_number room_type floor total_beds available_beds price_per_semester student_type',
       populate: {
         path: 'block',
         select: 'block_name block_code gender_type',
@@ -952,7 +979,9 @@ const keepBed = async (userId) => {
       cancelUrl,
       buyerEmail: buyer?.email,
       buyerName: buyer?.full_name || student.full_name,
-      items: [{ name: `Keep bed ${invoice.invoice_code}`, quantity: 1, price: invoice.total_amount }],
+      items: [
+        { name: `Keep bed ${invoice.invoice_code}`, quantity: 1, price: invoice.total_amount },
+      ],
     });
 
     const payosPaymentLinkId = paymentLink?.paymentLinkId || paymentLink?.id || null;
@@ -976,7 +1005,12 @@ const keepBed = async (userId) => {
     return {
       booking: populatedBooking,
       invoice,
-      payos: { orderCode, paymentLinkId: payosPaymentLinkId, checkoutUrl: payosCheckoutUrl, qrCode: payosQrCode },
+      payos: {
+        orderCode,
+        paymentLinkId: payosPaymentLinkId,
+        checkoutUrl: payosCheckoutUrl,
+        qrCode: payosQrCode,
+      },
     };
   } catch (err) {
     await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
@@ -985,7 +1019,118 @@ const keepBed = async (userId) => {
   }
 };
 
-// ─── 13. getAllBookings (manager) ──────────────────────────
+// ─── 13. searchStudentForCheckout (manager) ───────────────
+const searchStudentForCheckout = async (studentCode) => {
+  if (!studentCode) throw new AppError('student_code is required', 400);
+
+  const student = await Student.findOne({
+    student_code: { $regex: new RegExp(`^${studentCode}$`, 'i') },
+  })
+    .populate({ path: 'user', select: 'email full_name' })
+    .lean();
+  if (!student) throw new AppError('Student not found', 404);
+
+  const contract = await Contract.findOne({ student: student._id, status: 'active' })
+    .populate({
+      path: 'room',
+      select: 'room_number room_type floor price_per_semester',
+      populate: {
+        path: 'block',
+        select: 'block_name block_code',
+        populate: { path: 'dorm', select: 'dorm_name dorm_code' },
+      },
+    })
+    .populate('bed', 'bed_number')
+    .lean();
+
+  return {
+    student: {
+      id: student._id,
+      full_name: student.full_name,
+      student_code: student.student_code,
+      gender: student.gender,
+      student_type: student.student_type,
+      email: student.user?.email,
+    },
+    active_contract: contract
+      ? {
+          id: contract._id,
+          semester: contract.semester,
+          start_date: contract.start_date,
+          end_date: contract.end_date,
+          room_price: contract.room_price,
+          status: contract.status,
+          room: contract.room,
+          bed: contract.bed,
+        }
+      : null,
+  };
+};
+
+// ─── 14. checkoutStudent (manager) ────────────────────────
+const checkoutStudent = async (studentCode, managerId) => {
+  if (!studentCode) throw new AppError('student_code is required', 400);
+
+  const student = await Student.findOne({
+    student_code: { $regex: new RegExp(`^${studentCode}$`, 'i') },
+  });
+  if (!student) throw new AppError('Student not found', 404);
+
+  const contract = await Contract.findOne({ student: student._id, status: 'active' });
+  if (!contract) throw new AppError('No active contract found for this student', 404);
+
+  const now = new Date();
+
+  // Terminate contract
+  await Contract.findByIdAndUpdate(contract._id, {
+    status: 'terminated',
+    terminated_at: now,
+  });
+
+  // Free up bed
+  await Bed.findByIdAndUpdate(contract.bed, { status: 'available' });
+
+  // Restore room available_beds
+  await Room.findByIdAndUpdate(contract.room, {
+    $inc: { available_beds: 1 },
+    $set: { status: 'available' },
+  });
+
+  // Update the approved booking request with checkout_date
+  await BookingRequest.findOneAndUpdate(
+    { student: student._id, bed: contract.bed, status: 'approved' },
+    { checkout_date: now },
+    { sort: { requested_at: -1 } }
+  );
+
+  // Notify student
+  const user = await User.findById(student.user).select('_id').lean();
+  if (user) {
+    const formattedDate = now.toLocaleString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    await Notification.create({
+      user: user._id,
+      title: 'Checkout Successful',
+      message: `You have been checked out by management on ${formattedDate}. If you think this is a mistake, please contact the dormitory management office.`,
+      notification_type: 'info',
+      category: 'system',
+    });
+  }
+
+  return {
+    message: 'Checkout successful',
+    student_code: student.student_code,
+    full_name: student.full_name,
+    checkout_date: now,
+  };
+};
+
+// ─── 15. getAllBookings (manager) ──────────────────────────
 const getAllBookings = async (query = {}) => {
   const { status, semester, page = 1, limit = 20 } = query;
   const filter = {};
@@ -1043,5 +1188,7 @@ module.exports = {
   getMyBookings,
   cancelBooking,
   getAllBookings,
+  searchStudentForCheckout,
+  checkoutStudent,
   handlePayosWebhook,
 };

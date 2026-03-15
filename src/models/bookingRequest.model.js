@@ -61,6 +61,10 @@ const BookingRequestSchema = new mongoose.Schema(
       ref: DBCollections.STAFF,
       default: null,
     },
+    checkout_date: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

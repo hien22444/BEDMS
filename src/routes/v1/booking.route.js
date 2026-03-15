@@ -81,4 +81,18 @@ router.patch('/:id/cancel', authenticate, authorize('student'), bookingControlle
 
 router.get('/', authenticate, authorize('manager'), bookingController.getAllBookings);
 
+router.get(
+  '/checkout/search',
+  authenticate,
+  authorize('manager'),
+  bookingController.searchStudentForCheckout
+);
+
+router.post(
+  '/checkout',
+  authenticate,
+  authorize('manager'),
+  bookingController.checkoutStudent
+);
+
 module.exports = router;
