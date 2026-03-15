@@ -12,3 +12,6 @@ module.exports.chatService = require('./chat.service');
 module.exports.newsService = require('./news.service');
 module.exports.bookingService = require('./booking.service');
 module.exports.aiRulesService = require('./aiRules.service');
+module.exports.faceRecognitionService = require('./faceRecognition.service');
+module.exports.accessLogService = require('./accessLog.service');
+module.exports.cameraService = require('./camera.service');

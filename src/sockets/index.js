@@ -54,6 +54,11 @@ const initSocket = (httpServer) => {
       socket.join('managers');
     }
 
+    // Security guards join a room to receive live camera detection events
+    if (role === 'security') {
+      socket.join('security_cameras');
+    }
+
     // Register chat event handlers
     registerChatEvents(io, socket);
 

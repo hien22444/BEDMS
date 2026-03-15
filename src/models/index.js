@@ -57,3 +57,8 @@ module.exports.News = require('./news.model');
 
 // System Configuration
 module.exports.SystemConfig = require('./systemConfig.model');
+
+// Face Recognition & Camera
+module.exports.FaceEmbedding = require('./faceEmbedding.model');
+module.exports.StudentAccessLog = require('./studentAccessLog.model');
+module.exports.CameraConfig = require('./cameraConfig.model');

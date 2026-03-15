@@ -15,6 +15,9 @@ const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
 const payosRoute = require('./payos.route');
 const aiRulesRoute = require('./aiRules.route');
+const faceRecognitionRoute = require('./faceRecognition.route');
+const accessLogRoute = require('./accessLog.route');
+const cameraRoute = require('./camera.route');
 
 const express = require('express');
 
@@ -88,6 +91,18 @@ const defaultRoutes = [
   {
     path: '/ai',
     route: aiRulesRoute,
+  },
+  {
+    path: '/face-recognition',
+    route: faceRecognitionRoute,
+  },
+  {
+    path: '/access-logs',
+    route: accessLogRoute,
+  },
+  {
+    path: '/cameras',
+    route: cameraRoute,
   },
 ];
 
