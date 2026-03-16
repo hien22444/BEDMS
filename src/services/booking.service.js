@@ -1083,12 +1083,11 @@ const checkoutStudent = async (studentCode, managerId) => {
 
   // Terminate contract
   await Contract.findByIdAndUpdate(contract._id, {
-    status: 'terminated',
-    terminated_at: now,
+    $set: { status: 'terminated', terminated_at: now },
   });
 
   // Free up bed
-  await Bed.findByIdAndUpdate(contract.bed, { status: 'available' });
+  await Bed.findByIdAndUpdate(contract.bed, { $set: { status: 'available' } });
 
   // Restore room available_beds
   await Room.findByIdAndUpdate(contract.room, {
@@ -1098,8 +1097,8 @@ const checkoutStudent = async (studentCode, managerId) => {
 
   // Update the approved booking request with checkout_date
   await BookingRequest.findOneAndUpdate(
-    { student: student._id, bed: contract.bed, status: 'approved' },
-    { checkout_date: now },
+    { student: student._id, semester: contract.semester, status: 'approved', checkout_date: null },
+    { $set: { checkout_date: now } },
     { sort: { requested_at: -1 } }
   );
 
@@ -1116,9 +1115,9 @@ const checkoutStudent = async (studentCode, managerId) => {
     await Notification.create({
       user: user._id,
       title: 'Checkout Successful',
-      message: `You have been checked out by management on ${formattedDate}. If you think this is a mistake, please contact the dormitory management office.`,
+      message: `You have been checked out by management on ${formattedDate}. You may now book a new room. If you think this is a mistake, please contact the dormitory management office.`,
       notification_type: 'info',
-      category: 'system',
+      category: 'general',
     });
   }
 
