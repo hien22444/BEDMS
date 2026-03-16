@@ -35,6 +35,9 @@ const DBCollections = Object.freeze({
   CHAT_MESSAGE: 'ChatMessage',
   NEWS: 'News',
   SYSTEM_CONFIG: 'SystemConfig',
+  FACE_EMBEDDING: 'FaceEmbedding',
+  STUDENT_ACCESS_LOG: 'StudentAccessLog',
+  CAMERA_CONFIG: 'CameraConfig',
 });
 
 module.exports = {
