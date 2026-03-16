@@ -18,6 +18,7 @@ const aiRulesRoute = require('./aiRules.route');
 const faceRecognitionRoute = require('./faceRecognition.route');
 const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
+const dateConfigRoute = require('./dateConfig.route');
 
 const express = require('express');
 
@@ -103,6 +104,10 @@ const defaultRoutes = [
   {
     path: '/cameras',
     route: cameraRoute,
+  },
+  {
+    path: '/date-config',
+    route: dateConfigRoute,
   },
 ];
 

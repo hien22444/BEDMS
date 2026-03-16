@@ -7,6 +7,13 @@ const router = express.Router();
 // ─── Student endpoints ───
 
 router.get(
+  '/window-status',
+  authenticate,
+  authorize('student'),
+  bookingController.getBookingWindowStatus
+);
+
+router.get(
   '/next-semester',
   authenticate,
   authorize('student'),
@@ -55,6 +62,8 @@ router.get(
   bookingController.getBedsForBooking
 );
 
+router.post('/keep-bed', authenticate, authorize('student'), bookingController.keepBed);
+
 router.post('/', authenticate, authorize('student'), bookingController.submitBooking);
 
 router.get(
@@ -71,5 +80,19 @@ router.patch('/:id/cancel', authenticate, authorize('student'), bookingControlle
 // ─── Manager endpoints ───
 
 router.get('/', authenticate, authorize('manager'), bookingController.getAllBookings);
+
+router.get(
+  '/checkout/search',
+  authenticate,
+  authorize('manager'),
+  bookingController.searchStudentForCheckout
+);
+
+router.post(
+  '/checkout',
+  authenticate,
+  authorize('manager'),
+  bookingController.checkoutStudent
+);
 
 module.exports = router;
