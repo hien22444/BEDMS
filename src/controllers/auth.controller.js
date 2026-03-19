@@ -88,10 +88,21 @@ const refreshToken = catchAsync(async (req, res) => {
   res.success(data, httpStatus.OK);
 });
 
+/**
+ * Login as a student (Manager only)
+ * POST /v1/auth/login-as-student
+ */
+const loginAsStudent = catchAsync(async (req, res) => {
+  const { student_code } = req.body;
+  const data = await authService.loginAsStudent(student_code);
+  res.success(data, httpStatus.OK);
+});
+
 module.exports = {
   login,
   register,
   getProfile,
+  loginAsStudent,
   googleCallback,
   exchangeOAuthCode,
   refreshToken,
