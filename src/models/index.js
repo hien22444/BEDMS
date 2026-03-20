@@ -42,6 +42,7 @@ module.exports.VisitorCheckin = require('./visitorCheckin.model');
 // Maintenance Management
 module.exports.MaintenanceRequest = require('./maintenanceRequest.model');
 module.exports.MaintenanceFeedback = require('./maintenanceFeedback.model');
+module.exports.OtherRequest = require('./otherRequest.model');
 
 // Room Inspection
 module.exports.RoomInspection = require('./roomInspection.model');
