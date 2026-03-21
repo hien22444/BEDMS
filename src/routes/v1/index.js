@@ -19,6 +19,7 @@ const faceRecognitionRoute = require('./faceRecognition.route');
 const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
+const otherRequestRoute = require('./otherRequest.route');
 
 const express = require('express');
 
@@ -108,6 +109,10 @@ const defaultRoutes = [
   {
     path: '/date-config',
     route: dateConfigRoute,
+  },
+  {
+    path: '/other-requests',
+    route: otherRequestRoute,
   },
 ];
 
