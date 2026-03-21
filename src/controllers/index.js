@@ -17,3 +17,4 @@ module.exports.faceRecognitionController = require('./faceRecognition.controller
 module.exports.accessLogController = require('./accessLog.controller');
 module.exports.cameraController = require('./camera.controller');
 module.exports.dateConfigController = require('./dateConfig.controller');
+module.exports.otherRequestController = require('./otherRequest.controller');

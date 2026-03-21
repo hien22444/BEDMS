@@ -1129,7 +1129,34 @@ const checkoutStudent = async (studentCode, managerId) => {
   };
 };
 
-// ─── 15. getAllBookings (manager) ──────────────────────────
+// ─── 15. getRoommates (student) ───────────────────────────
+const getRoommates = async (userId, bookingId) => {
+  const student = await findStudent(userId);
+
+  const booking = await BookingRequest.findById(bookingId).lean();
+  if (!booking) throw new AppError('Booking not found', 404);
+  if (booking.student.toString() !== student._id.toString()) {
+    throw new AppError('Forbidden', 403);
+  }
+
+  const roommates = await BookingRequest.find({
+    room: booking.room,
+    semester: booking.semester,
+    status: 'approved',
+  })
+    .populate('student', 'student_code full_name phone')
+    .populate('bed', 'bed_number')
+    .lean();
+
+  return roommates.map((r) => ({
+    student_code: r.student?.student_code ?? '—',
+    full_name: r.student?.full_name ?? '—',
+    bed_number: r.bed?.bed_number ?? '—',
+    phone: r.student?.phone ?? '—',
+  }));
+};
+
+// ─── 16. getAllBookings (manager) ──────────────────────────
 const getAllBookings = async (query = {}) => {
   const { status, semester, page = 1, limit = 20 } = query;
   const filter = {};
@@ -1190,4 +1217,5 @@ module.exports = {
   searchStudentForCheckout,
   checkoutStudent,
   handlePayosWebhook,
+  getRoommates,
 };

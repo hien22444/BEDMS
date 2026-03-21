@@ -75,6 +75,8 @@ router.get(
 
 router.get('/my', authenticate, authorize('student'), bookingController.getMyBookings);
 
+router.get('/:id/roommates', authenticate, authorize('student'), bookingController.getRoommates);
+
 router.patch('/:id/cancel', authenticate, authorize('student'), bookingController.cancelBooking);
 
 // ─── Manager endpoints ───

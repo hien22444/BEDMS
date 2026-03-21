@@ -325,6 +325,7 @@ const deleteRoom = async (id) => {
   }
 
   await Bed.deleteMany({ room: id });
+  await RoomEquipment.deleteMany({ room: id });
   await room.deleteOne();
 
   return { message: 'Room deleted successfully' };
