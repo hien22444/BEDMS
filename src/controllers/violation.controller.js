@@ -35,6 +35,15 @@ const getMyViolationReports = catchAsync(async (req, res) => {
 });
 
 /**
+ * CFD: current student summary + penalty history (deductions)
+ * GET /violations/my-penalties
+ */
+const getMyPenalties = catchAsync(async (req, res) => {
+  const data = await violationService.getMyPenaltiesForStudentUser(req.user.id);
+  res.success(data, status.OK);
+});
+
+/**
  * Get violation report by ID
  * GET /violations/:id
  */
@@ -105,6 +114,7 @@ module.exports = {
   getAllViolationReports,
   getViolationReportById,
   getMyViolationReports,
+  getMyPenalties,
   reviewViolationReport,
   getStudentPenalties,
   searchStudent,
