@@ -81,6 +81,9 @@ router.patch('/:id/cancel', authenticate, authorize('student'), bookingControlle
 
 // ─── Manager endpoints ───
 
+router.post('/:id/send-email', authenticate, authorize('manager'), bookingController.sendEmailToStudent);
+router.post('/send-email-all', authenticate, authorize('manager'), bookingController.sendEmailToAllStudents);
+
 router.get('/', authenticate, authorize('manager'), bookingController.getAllBookings);
 
 router.get(

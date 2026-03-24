@@ -100,6 +100,16 @@ const getRoommates = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const sendEmailToStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.sendEmailToStudent(req.params.id, req.body);
+  res.success(data, status.OK);
+});
+
+const sendEmailToAllStudents = catchAsync(async (req, res) => {
+  const data = await bookingService.sendEmailToAllStudents(req.body);
+  res.success(data, status.OK);
+});
+
 module.exports = {
   getBookingWindowStatus,
   keepBed,
@@ -114,6 +124,8 @@ module.exports = {
   checkPaymentStatus,
   getMyBookings,
   cancelBooking,
+  sendEmailToStudent,
+  sendEmailToAllStudents,
   getAllBookings,
   searchStudentForCheckout,
   checkoutStudent,
