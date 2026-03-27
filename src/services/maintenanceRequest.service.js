@@ -5,6 +5,7 @@ const {
   User,
   Staff,
   RoomEquipment,
+  EquipmentHistory,
   Notification,
 } = require('../models');
 const AppError = require('../utils/AppError');
@@ -329,6 +330,16 @@ const reviewMaintenanceRequest = async (requestId, managerUserId, body) => {
   }
 
   await req.save();
+
+  if (['completed', 'done'].includes(nextStatus) && req.equipment) {
+    await EquipmentHistory.create({
+      equipment: req.equipment,
+      action_type: 'repaired',
+      notes: req.completion_notes || `Repaired via maintenance request ${req.request_code}`,
+      performed_by: staff?._id || null,
+      performed_at: req.completed_at || new Date(),
+    });
+  }
 
   let msg = `${req.request_code} status: ${nextStatus}.`;
   if (nextStatus === 'rejected' && req.rejection_reason) {

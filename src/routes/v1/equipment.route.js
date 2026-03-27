@@ -44,6 +44,8 @@ router
   .patch(equipmentController.updateRoomEquipment)
   .delete(equipmentController.deleteRoomEquipment);
 
+router.get('/room-equipments/:id/history', equipmentController.getRoomEquipmentHistory);
+
 // ==================== ROOM TYPE EQUIPMENT CONFIG ====================
 router
   .route('/room-type-configs')

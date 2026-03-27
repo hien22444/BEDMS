@@ -78,6 +78,11 @@ const updateRoomEquipment = catchAsync(async (req, res) => {
   res.success(data, httpStatus.OK);
 });
 
+const getRoomEquipmentHistory = catchAsync(async (req, res) => {
+  const data = await equipmentService.getRoomEquipmentHistory(req.params.id, req.query);
+  res.success(data, httpStatus.OK);
+});
+
 // ==================== ROOM TYPE EQUIPMENT CONFIG ====================
 
 const createRoomTypeConfig = catchAsync(async (req, res) => {
@@ -110,6 +115,7 @@ module.exports = {
   getRoomEquipments,
   updateRoomEquipment,
   deleteRoomEquipment,
+  getRoomEquipmentHistory,
   createTemplate,
   getTemplates,
   getTemplateById,
