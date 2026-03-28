@@ -17,6 +17,11 @@ const MaintenanceRequestSchema = new mongoose.Schema({
     required: true,
     ref: DBCollections.ROOM,
   },
+  bed: {
+    type: mongoose.Types.ObjectId,
+    ref: DBCollections.BED,
+    default: null,
+  },
   equipment: {
     type: mongoose.Types.ObjectId,
     ref: DBCollections.ROOM_EQUIPMENT,

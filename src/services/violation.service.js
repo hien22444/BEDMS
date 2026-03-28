@@ -430,6 +430,35 @@ const getStudentPenalties = async (studentCode) => {
 };
 
 /**
+ * CFD / penalties for the logged-in student (resolved from user id)
+ */
+const getMyPenaltiesForStudentUser = async (userId) => {
+  const student = await Student.findOne({ user: userId });
+  if (!student) {
+    return { student: null, penalties: [] };
+  }
+
+  const penalties = await Penalty.find({ student: student._id })
+    .populate([
+      { path: 'report', select: 'report_code violation_type description' },
+      { path: 'issued_by', select: 'full_name' },
+    ])
+    .sort({ issued_at: -1 });
+
+  return {
+    student: {
+      student_code: student.student_code,
+      full_name: student.full_name,
+      behavioral_score: student.behavioral_score,
+      violations_current_semester: student.violations_current_semester,
+      is_banned_permanently: student.is_banned_permanently,
+      ban_until_semester: student.ban_until_semester,
+    },
+    penalties,
+  };
+};
+
+/**
  * Search student by student code — full code only (exact match).
  * Partial input (e.g. "DE" or "DE1") does not return a result.
  */
@@ -518,6 +547,7 @@ module.exports = {
   getMyViolationReports,
   reviewViolationReport,
   getStudentPenalties,
+  getMyPenaltiesForStudentUser,
   searchStudentByCode,
   getViolationStatistics,
   deleteViolationReport,
