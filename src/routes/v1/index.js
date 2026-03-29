@@ -20,6 +20,7 @@ const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
 const otherRequestRoute = require('./otherRequest.route');
+const ewUsageRoute = require('./ewUsage.route');
 
 const express = require('express');
 
@@ -113,6 +114,10 @@ const defaultRoutes = [
   {
     path: '/other-requests',
     route: otherRequestRoute,
+  },
+  {
+    path: '/ew-usages',
+    route: ewUsageRoute,
   },
 ];
 

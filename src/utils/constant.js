@@ -39,6 +39,7 @@ const DBCollections = Object.freeze({
   FACE_EMBEDDING: 'FaceEmbedding',
   STUDENT_ACCESS_LOG: 'StudentAccessLog',
   CAMERA_CONFIG: 'CameraConfig',
+  EW_USAGE: 'EWUsage',
 });
 
 module.exports = {

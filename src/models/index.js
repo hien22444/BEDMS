@@ -63,3 +63,6 @@ module.exports.SystemConfig = require('./systemConfig.model');
 module.exports.FaceEmbedding = require('./faceEmbedding.model');
 module.exports.StudentAccessLog = require('./studentAccessLog.model');
 module.exports.CameraConfig = require('./cameraConfig.model');
+
+// EW Usages (Electric/Water meter readings)
+module.exports.EWUsage = require('./ewUsage.model');

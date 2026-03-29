@@ -17,3 +17,4 @@ module.exports.accessLogService = require('./accessLog.service');
 module.exports.cameraService = require('./camera.service');
 module.exports.dateConfigService = require('./dateConfig.service');
 module.exports.otherRequestService = require('./otherRequest.service');
+module.exports.ewUsageService = require('./ewUsage.service');
