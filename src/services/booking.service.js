@@ -17,7 +17,7 @@ const {
   getPayosPaymentInfo,
   cancelPayosPaymentLink,
 } = require('./payos.service');
-const { sendPaymentSuccessEmail } = require('./email.service');
+const { sendPaymentSuccessEmail, sendMail } = require('./email.service');
 
 const invoiceCodeToOrderCode = (invoiceCode) => {
   // BOOK-YYYYMMDD-0005 => 202603060005 (safe integer)
@@ -1156,12 +1156,59 @@ const getRoommates = async (userId, bookingId) => {
   }));
 };
 
+// ─── 16a. sendEmailToStudent (manager) ────────────────────
+const sendEmailToStudent = async (bookingId, { subject, body }) => {
+  const booking = await BookingRequest.findById(bookingId)
+    .populate({ path: 'student', select: 'full_name user', populate: { path: 'user', select: 'email' } })
+    .lean();
+  if (!booking) throw new AppError('Booking not found', 404);
+
+  const email = booking.student?.user?.email;
+  if (!email) throw new AppError('Student email not found', 404);
+
+  const result = await sendMail({ to: email, subject, html: body.replace(/\n/g, '<br>'), text: body });
+  if (result?.skipped) throw new AppError('Email service is not configured (missing SMTP settings)', 503);
+  return { sent: true, to: email };
+};
+
+// ─── 16b. sendEmailToAllStudents (manager) ────────────────
+const sendEmailToAllStudents = async ({ subject, body }) => {
+  const students = await User.find({ role: 'student', is_active: true }).select('email').lean();
+  const emails = students.map((u) => u.email).filter(Boolean);
+  if (!emails.length) throw new AppError('No active student emails found', 404);
+
+  const result = await sendMail({
+    to: emails.join(','),
+    subject,
+    html: body.replace(/\n/g, '<br>'),
+    text: body,
+  });
+  if (result?.skipped) throw new AppError('Email service is not configured (missing SMTP settings)', 503);
+  return { sent: true, count: emails.length };
+};
+
 // ─── 16. getAllBookings (manager) ──────────────────────────
 const getAllBookings = async (query = {}) => {
-  const { status, semester, page = 1, limit = 20 } = query;
-  const filter = {};
-  if (status) filter.status = status;
-  if (semester) filter.semester = semester;
+  const { search, page = 1, limit = 20 } = query;
+  const normalizeVi = (s) =>
+    (s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/gi, 'd')
+      .toLowerCase();
+
+  const filter = { status: 'approved' };
+  if (search) {
+    const q = normalizeVi(search);
+    const allStudents = await Student.find().select('_id full_name student_code').lean();
+    const matchedIds = allStudents
+      .filter((s) => normalizeVi(s.full_name).includes(q) || normalizeVi(s.student_code).includes(q))
+      .map((s) => s._id);
+    filter.$or = [
+      { semester: { $regex: search, $options: 'i' } },
+      { student: { $in: matchedIds } },
+    ];
+  }
 
   const [items, total] = await Promise.all([
     BookingRequest.find(filter)
@@ -1213,6 +1260,8 @@ module.exports = {
   checkPaymentStatus,
   getMyBookings,
   cancelBooking,
+  sendEmailToStudent,
+  sendEmailToAllStudents,
   getAllBookings,
   searchStudentForCheckout,
   checkoutStudent,
