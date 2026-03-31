@@ -3,11 +3,10 @@
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
-    
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "jest",
-"test:watch": "jest --watch",
+    "test:watch": "jest --watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,json,md}\"",
@@ -26,6 +25,7 @@
     "ejs": "^3.1.10",
     "express": "^4.21.1",
     "express-rate-limit": "^8.2.1",
+    "form-data": "^4.0.5",
     "helmet": "^8.1.0",
     "http-errors": "^2.0.0",
     "http-status": "^2.1.0",

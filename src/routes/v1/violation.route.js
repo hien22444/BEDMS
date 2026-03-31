@@ -38,6 +38,11 @@ router
   .route('/my-reports')
   .get(authenticate, authorize('student'), violationController.getMyViolationReports);
 
+// My CFD penalties / deduction history — student only
+router
+  .route('/my-penalties')
+  .get(authenticate, authorize('student'), violationController.getMyPenalties);
+
 // View single violation — manager and security
 // Delete violation — manager only
 router

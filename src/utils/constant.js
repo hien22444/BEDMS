@@ -28,6 +28,7 @@ const DBCollections = Object.freeze({
   VISITOR_CHECKIN: 'VisitorCheckin',
   MAINTENANCE_REQUEST: 'MaintenanceRequest',
   MAINTENANCE_FEEDBACK: 'MaintenanceFeedback',
+  OTHER_REQUEST: 'OtherRequest',
   ROOM_INSPECTION: 'RoomInspection',
   INSPECTION_EQUIPMENT_DETAIL: 'InspectionEquipmentDetail',
   NOTIFICATION: 'Notification',
@@ -35,6 +36,9 @@ const DBCollections = Object.freeze({
   CHAT_MESSAGE: 'ChatMessage',
   NEWS: 'News',
   SYSTEM_CONFIG: 'SystemConfig',
+  FACE_EMBEDDING: 'FaceEmbedding',
+  STUDENT_ACCESS_LOG: 'StudentAccessLog',
+  CAMERA_CONFIG: 'CameraConfig',
 });
 
 module.exports = {

@@ -9,7 +9,8 @@ const startServer = async () => {
   try {
     await mongo.connect();
     const httpServer = http.createServer(app);
-    initSocket(httpServer);
+    const io = initSocket(httpServer);
+    app.set('io', io);
     httpServer.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);

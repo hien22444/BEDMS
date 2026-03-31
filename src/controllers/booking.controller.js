@@ -2,6 +2,11 @@ const { status } = require('http-status');
 const { bookingService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
+const getBookingWindowStatus = catchAsync(async (req, res) => {
+  const data = await bookingService.getBookingWindowStatus(req.user.id);
+  res.success(data, status.OK);
+});
+
 const getNextSemesterInfo = catchAsync(async (req, res) => {
   const data = await bookingService.getNextSemesterInfo(req.user.id);
   res.success(data, status.OK);
@@ -70,12 +75,44 @@ const cancelBooking = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const keepBed = catchAsync(async (req, res) => {
+  const data = await bookingService.keepBed(req.user.id);
+  res.success(data, status.CREATED);
+});
+
 const getAllBookings = catchAsync(async (req, res) => {
   const data = await bookingService.getAllBookings(req.query);
   res.success(data, status.OK);
 });
 
+const searchStudentForCheckout = catchAsync(async (req, res) => {
+  const data = await bookingService.searchStudentForCheckout(req.query.student_code);
+  res.success(data, status.OK);
+});
+
+const checkoutStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.checkoutStudent(req.body.student_code, req.user.id);
+  res.success(data, status.OK);
+});
+
+const getRoommates = catchAsync(async (req, res) => {
+  const data = await bookingService.getRoommates(req.user.id, req.params.id);
+  res.success(data, status.OK);
+});
+
+const sendEmailToStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.sendEmailToStudent(req.params.id, req.body);
+  res.success(data, status.OK);
+});
+
+const sendEmailToAllStudents = catchAsync(async (req, res) => {
+  const data = await bookingService.sendEmailToAllStudents(req.body);
+  res.success(data, status.OK);
+});
+
 module.exports = {
+  getBookingWindowStatus,
+  keepBed,
   getNextSemesterInfo,
   getAvailableRoomTypes,
   getDormsForBooking,
@@ -87,5 +124,10 @@ module.exports = {
   checkPaymentStatus,
   getMyBookings,
   cancelBooking,
+  sendEmailToStudent,
+  sendEmailToAllStudents,
   getAllBookings,
+  searchStudentForCheckout,
+  checkoutStudent,
+  getRoommates,
 };
