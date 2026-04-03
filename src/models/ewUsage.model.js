@@ -66,12 +66,20 @@ const EWUsageSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    is_billed: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true },
 );
 
 EWUsageSchema.pre('save', function (next) {
-  // Tính amount nếu chưa set
+  // Set price_per_unit based on type if it is not already correct
+  if (this.isNew || this.isModified('type')) {
+    this.price_per_unit = this.type === 'water' ? 9000 : 3000;
+  }
+  // Calculate amount if it has not been set yet
   if (this.consumption > 0 && this.amount === 0) {
     this.amount = this.consumption * this.price_per_unit;
   }

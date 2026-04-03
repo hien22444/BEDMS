@@ -19,3 +19,4 @@ module.exports.dateConfigService = require('./dateConfig.service');
 module.exports.otherRequestService = require('./otherRequest.service');
 module.exports.maintenanceRequestService = require('./maintenanceRequest.service');
 module.exports.ewUsageService = require('./ewUsage.service');
+module.exports.invoiceService = require('./invoice.service');

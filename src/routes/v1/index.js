@@ -22,6 +22,7 @@ const dateConfigRoute = require('./dateConfig.route');
 const otherRequestRoute = require('./otherRequest.route');
 const maintenanceRequestRoute = require('./maintenanceRequest.route');
 const ewUsageRoute = require('./ewUsage.route');
+const invoiceRoute = require('./invoice.route');
 
 const express = require('express');
 
@@ -123,6 +124,10 @@ const defaultRoutes = [
   {
     path: '/ew-usages',
     route: ewUsageRoute,
+  },
+  {
+    path: '/invoices',
+    route: invoiceRoute,
   },
 ];
 

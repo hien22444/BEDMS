@@ -18,7 +18,7 @@ const updateEWUsage = catchAsync(async (req, res) => {
 });
 
 const resetMeter = catchAsync(async (req, res) => {
-  const data = await ewUsageService.resetMeter(req.params.id);
+  const data = await ewUsageService.resetMeter(req.body);
   res.success(data, status.OK);
 });
 

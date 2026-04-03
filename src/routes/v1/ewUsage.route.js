@@ -15,7 +15,7 @@ router.post('/', authenticate, authorize('manager'), ewUsageController.createEWU
 router.get('/export', authenticate, authorize('manager'), ewUsageController.exportEWUsages);
 router.post('/import', authenticate, authorize('manager'), upload.single('file'), ewUsageController.importEWUsages);
 router.post('/recalculate', authenticate, authorize('manager'), ewUsageController.recalculate);
+router.put('/reset', authenticate, authorize('manager'), ewUsageController.resetMeter);
 router.put('/:id', authenticate, authorize('manager'), ewUsageController.updateEWUsage);
-router.put('/:id/reset', authenticate, authorize('manager'), ewUsageController.resetMeter);
 
 module.exports = router;
