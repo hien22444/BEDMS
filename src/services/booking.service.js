@@ -60,6 +60,17 @@ const isWithinWindow = (now, startStr, endStr) => {
 };
 
 // ─── Semester Logic ───────────────────────────────────────
+
+// Returns a numeric rank for chronological comparison: higher = later semester
+// e.g. Spring-2026 → 20261, Summer-2026 → 20262, Fall-2026 → 20263
+const semesterRank = (semesterStr) => {
+  const order = { Spring: 1, Summer: 2, Fall: 3 };
+  const [name, yearStr] = String(semesterStr || '').split('-');
+  const year = parseInt(yearStr, 10);
+  if (!order[name] || isNaN(year)) return 0;
+  return year * 10 + order[name];
+};
+
 const SEMESTER_DATES = {
   Spring: (year) => ({ start_date: new Date(year, 0, 1), end_date: new Date(year, 3, 30) }),
   Summer: (year) => ({ start_date: new Date(year, 4, 1), end_date: new Date(year, 7, 31) }),
@@ -164,12 +175,31 @@ const getBookingWindowStatus = async (userId) => {
   });
 
   if (activeContract) {
-    const allowed = isWithinWindow(
+    // 1. Hold window takes priority
+    const holdAllowed = isWithinWindow(
       now,
       map[BOOKING_CONFIG_KEYS.HOLD_START],
       map[BOOKING_CONFIG_KEYS.HOLD_END]
     );
-    return { allowed, window_type: allowed ? 'hold' : null };
+    if (holdAllowed) {
+      return { allowed: true, window_type: 'hold' };
+    }
+
+    // 2. If hold window is closed but new booking window is open AND target semester
+    //    is strictly after the student's current semester → allow new booking
+    const newAllowed = isWithinWindow(
+      now,
+      map[BOOKING_CONFIG_KEYS.NEW_START],
+      map[BOOKING_CONFIG_KEYS.NEW_END]
+    );
+    if (newAllowed) {
+      const nextSem = await getTargetSemester();
+      if (semesterRank(nextSem.semester) > semesterRank(activeContract.semester)) {
+        return { allowed: true, window_type: 'new' };
+      }
+    }
+
+    return { allowed: false, window_type: null };
   }
 
   // No contract → "book mới" category
@@ -424,6 +454,17 @@ const submitBooking = async (userId, { bed_id, note }) => {
   }
 
   const nextSem = await getTargetSemester();
+
+  // If student has an active contract, target semester must be strictly after current semester
+  const activeContract = await Contract.findOne({ student: student._id, status: 'active' });
+  if (activeContract && semesterRank(nextSem.semester) <= semesterRank(activeContract.semester)) {
+    const problem = semesterRank(nextSem.semester) === semesterRank(activeContract.semester)
+      ? 'same as' : 'earlier than';
+    throw new AppError(
+      `Cannot book: the configured target semester (${nextSem.semester}) is ${problem} your current semester (${activeContract.semester}). Please contact the manager — there is a configuration error.`,
+      400
+    );
+  }
 
   // Check for existing active booking (exclude checked-out bookings)
   const existingBooking = await BookingRequest.findOne({
@@ -809,7 +850,7 @@ const getMyBookings = async (userId, query = {}) => {
  * Handle PayOS webhook (verified in controller).
  * We keep it idempotent: if already completed/expired/cancelled, do nothing.
  */
-const handlePayosWebhook = async (webhookData) => {
+const handlePayosWebhook = async (webhookData, io) => {
   const data = webhookData?.data || webhookData;
   const orderCode = data?.orderCode || data?.order_code;
   const status = String(data?.status || data?.paymentStatus || '').toLowerCase();
@@ -837,7 +878,7 @@ const handlePayosWebhook = async (webhookData) => {
 
   if (status === 'cancelled' || status === 'canceled') {
     try {
-      await cancelBooking(booking._id.toString(), student.user.toString());
+      await cancelBooking(booking._id.toString(), student.user.toString(), io);
     } catch (err) {
       console.error('[PayOS Webhook] cancelBooking failed:', err?.message || err);
     }
@@ -848,7 +889,7 @@ const handlePayosWebhook = async (webhookData) => {
 };
 
 // ─── 11. cancelBooking ────────────────────────────────────
-const cancelBooking = async (bookingId, userId) => {
+const cancelBooking = async (bookingId, userId, io) => {
   const student = await findStudent(userId);
 
   const booking = await BookingRequest.findById(bookingId);
@@ -883,6 +924,13 @@ const cancelBooking = async (bookingId, userId) => {
   booking.status = 'cancelled';
   await booking.save();
 
+  // Real-time: push to student's personal socket room
+  if (io && student?.user) {
+    io.to(`user_${student.user}`).emit('booking_cancelled', {
+      bookingId: booking._id.toString(),
+    });
+  }
+
   return booking;
 };
 
@@ -915,6 +963,17 @@ const keepBed = async (userId) => {
     })
     .populate('bed', 'bed_number');
   if (!contract) throw new AppError('No active contract found', 404);
+
+  // Validate target semester is strictly after the student's current semester
+  const currentRank = semesterRank(contract.semester);
+  const targetRank = semesterRank(nextSem.semester);
+  if (targetRank <= currentRank) {
+    const problem = targetRank === currentRank ? 'same as' : 'earlier than';
+    throw new AppError(
+      `Cannot keep bed: the configured target semester (${nextSem.semester}) is ${problem} your current semester (${contract.semester}). Please contact the manager — there is a configuration error.`,
+      400
+    );
+  }
 
   const room = contract.room;
   const bed = contract.bed;

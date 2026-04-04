@@ -71,7 +71,8 @@ const getMyBookings = catchAsync(async (req, res) => {
 });
 
 const cancelBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.cancelBooking(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await bookingService.cancelBooking(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
