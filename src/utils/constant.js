@@ -19,7 +19,6 @@ const DBCollections = Object.freeze({
   VIOLATION_REPORT: 'ViolationReport',
   PENALTY: 'Penalty',
   PRICING_CONFIG: 'PricingConfig',
-  UTILITY_READING: 'UtilityReading',
   INVOICE: 'Invoice',
   INVOICE_LINE_ITEM: 'InvoiceLineItem',
   PAYMENT: 'Payment',

@@ -1,9 +1,365 @@
 const xlsx = require('xlsx');
 const AppError = require('../utils/AppError');
-const { EWUsage, Block, Room, Bed, Dorm, Invoice, InvoiceLineItem, Contract } = require('../models');
+const { EWUsage, Block, Room, Dorm, Invoice, InvoiceLineItem, Contract } = require('../models');
 
 const PRICE_MAP = { electric: 3000, water: 9000 };
 const getPricePerUnit = (type) => PRICE_MAP[type] || 3000;
+const getMonthKey = (date) => {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const getMonthBounds = (date) => {
+  const d = new Date(date);
+  return {
+    start: new Date(d.getFullYear(), d.getMonth(), 1),
+    end: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
+  };
+};
+const buildEWLineItems = (invoiceId, monthKey, electricFee, waterFee) => {
+  const lineItems = [];
+  if (electricFee > 0) {
+    lineItems.push({
+      invoice: invoiceId,
+      item_type: 'electricity',
+      description: `Electricity fee - ${monthKey}`,
+      quantity: 1,
+      unit_price: electricFee,
+      amount: electricFee,
+    });
+  }
+  if (waterFee > 0) {
+    lineItems.push({
+      invoice: invoiceId,
+      item_type: 'water',
+      description: `Water fee - ${monthKey}`,
+      quantity: 1,
+      unit_price: waterFee,
+      amount: waterFee,
+    });
+  }
+  return lineItems;
+};
+const deriveOccupiedBedsFromShare = (totalAmount, studentShare) => {
+  if (
+    !Number.isFinite(totalAmount) ||
+    !Number.isFinite(studentShare) ||
+    totalAmount <= 0 ||
+    studentShare <= 0
+  ) {
+    return 0;
+  }
+  return Math.max(1, Math.round(totalAmount / studentShare));
+};
+const findRecordInMonth = async (blockId, type, date, excludeId = null) => {
+  const { start, end } = getMonthBounds(date);
+  const query = {
+    block: blockId,
+    type,
+    date: { $gte: start, $lte: end },
+  };
+  if (excludeId) query._id = { $ne: excludeId };
+  return EWUsage.findOne(query);
+};
+const assertMonthNotOlderThanLatest = async (blockId, type, date, excludeId = null) => {
+  const query = { block: blockId, type };
+  if (excludeId) query._id = { $ne: excludeId };
+
+  const latestRecord = await EWUsage.findOne(query).sort({ date: -1 }).lean();
+  if (!latestRecord) return;
+
+  const targetMonthKey = getMonthKey(date);
+  const latestMonthKey = getMonthKey(latestRecord.date);
+  if (targetMonthKey < latestMonthKey) {
+    throw new AppError(
+      400,
+      `Cannot create or import ${type} usage for ${targetMonthKey}. Latest existing month is ${latestMonthKey}`
+    );
+  }
+};
+const getBillingContracts = async (blockId, billingDate, { populateRoom = false } = {}) => {
+  const rooms = await Room.find({ block: blockId }, '_id').lean();
+  if (!rooms.length) return [];
+
+  const roomIds = rooms.map((room) => room._id);
+  let query = Contract.find({
+    room: { $in: roomIds },
+    start_date: { $lte: billingDate },
+    end_date: { $gte: billingDate },
+    $or: [{ terminated_at: null }, { terminated_at: { $gt: billingDate } }],
+  });
+
+  if (populateRoom) {
+    query = query.populate('room', 'room_number');
+  }
+
+  return query.lean();
+};
+const getEWInvoiceQuery = (studentId, monthKey) => ({
+  student: studentId,
+  invoice_month: monthKey,
+  invoice_code: { $regex: /^EW-/ },
+});
+const getGroupKey = (blockId, date) => `${blockId.toString()}_${getMonthKey(date)}`;
+const getGroupsFromRecords = (records) => {
+  const groups = new Map();
+  records.forEach((record) => {
+    const key = getGroupKey(record.block, record.date);
+    const current = groups.get(key);
+    const billingDate = new Date(record.date);
+    if (!current || billingDate > current.billingDate) {
+      groups.set(key, {
+        blockId: record.block,
+        monthKey: getMonthKey(record.date),
+        billingDate,
+      });
+    }
+  });
+  return Array.from(groups.values());
+};
+const getRecordsForGroup = async (blockId, monthKey) => {
+  const [year, month] = monthKey.split('-').map(Number);
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+  return EWUsage.find({
+    block: blockId,
+    date: { $gte: start, $lte: end },
+  })
+    .sort({ date: 1, createdAt: 1 })
+    .lean();
+};
+const getLatestRecordIdsByKeys = async (records) => {
+  const keys = [
+    ...new Map(
+      records.map((record) => [
+        `${record.block.toString()}_${record.type}`,
+        { block: record.block, type: record.type },
+      ])
+    ).values(),
+  ];
+  if (!keys.length) return new Set();
+
+  const candidates = await EWUsage.find({
+    $or: keys.map((key) => ({ block: key.block, type: key.type })),
+  })
+    .sort({ date: -1, createdAt: -1 })
+    .select('_id block type')
+    .lean();
+
+  const latestIds = new Set();
+  const seen = new Set();
+  candidates.forEach((candidate) => {
+    const key = `${candidate.block.toString()}_${candidate.type}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    latestIds.add(candidate._id.toString());
+  });
+
+  return latestIds;
+};
+const syncInvoiceLineItems = async (invoiceId, monthKey, electricFee, waterFee) => {
+  const lineItems = buildEWLineItems(invoiceId, monthKey, electricFee, waterFee);
+  await InvoiceLineItem.deleteMany({ invoice: invoiceId });
+  if (lineItems.length) await InvoiceLineItem.insertMany(lineItems);
+};
+const processBillingGroups = async (groups) => {
+  if (!groups.length) {
+    return {
+      invoicesCreated: 0,
+      invoicesUpdated: 0,
+      invoicesCancelled: 0,
+      totalStudents: 0,
+      message: 'No usage groups to process',
+    };
+  }
+
+  let invoicesCreated = 0;
+  let invoicesUpdated = 0;
+  let invoicesCancelled = 0;
+  const studentsSeen = new Set();
+  const dueDate = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+
+  for (const { blockId, monthKey, billingDate } of groups) {
+    const records = await getRecordsForGroup(blockId, monthKey);
+    if (!records.length) continue;
+
+    const electric = records
+      .filter((record) => record.type === 'electric')
+      .reduce((sum, record) => sum + (record.amount || 0), 0);
+    const water = records
+      .filter((record) => record.type === 'water')
+      .reduce((sum, record) => sum + (record.amount || 0), 0);
+
+    const rooms = await Room.find({ block: blockId }, '_id').lean();
+    const roomIds = rooms.map((room) => room._id);
+    const contracts = await getBillingContracts(blockId, billingDate, { populateRoom: true });
+    const contractCount = contracts.length;
+
+    if (!contractCount) {
+      const orphanInvoices = roomIds.length
+        ? await Invoice.find({
+            room: { $in: roomIds },
+            invoice_month: monthKey,
+            invoice_code: { $regex: /^EW-/ },
+            payment_status: { $ne: 'paid' },
+          })
+        : [];
+
+      for (const invoice of orphanInvoices) {
+        invoice.electricity_fee = 0;
+        invoice.water_fee = 0;
+        invoice.total_amount = 0;
+        invoice.payment_status = 'cancelled';
+        await invoice.save();
+        await syncInvoiceLineItems(invoice._id, monthKey, 0, 0);
+        invoicesCancelled++;
+      }
+
+      await EWUsage.updateMany(
+        { _id: { $in: records.map((record) => record._id) } },
+        { $set: { occupied_beds: 0, amount_per_bed: 0, is_billed: true } }
+      );
+      continue;
+    }
+
+    let groupHasFailure = false;
+
+    for (let ci = 0; ci < contracts.length; ci++) {
+      const contract = contracts[ci];
+      const studentId = contract.student;
+      const roomId = contract.room._id;
+      studentsSeen.add(studentId.toString());
+
+      const isLast = ci === contracts.length - 1;
+      const electricPerStudent = Math.floor(electric / contractCount);
+      const waterPerStudent = Math.floor(water / contractCount);
+      const electricFee = isLast
+        ? electric - electricPerStudent * (contractCount - 1)
+        : electricPerStudent;
+      const waterFee = isLast ? water - waterPerStudent * (contractCount - 1) : waterPerStudent;
+      const total = electricFee + waterFee;
+
+      try {
+        const existingInvoices = await Invoice.find(getEWInvoiceQuery(studentId, monthKey))
+          .sort({ createdAt: -1 })
+          .lean();
+
+        let canonical = existingInvoices[0] || null;
+        const extras = canonical
+          ? existingInvoices.filter(
+              (invoice) => invoice._id.toString() !== canonical._id.toString()
+            )
+          : [];
+
+        if (extras.some((invoice) => invoice.payment_status === 'paid')) {
+          throw new AppError(
+            400,
+            `Multiple paid EW invoices found for student ${studentId} in ${monthKey}`
+          );
+        }
+
+        if (canonical && canonical.payment_status === 'paid') {
+          await Promise.all(
+            extras.map((invoice) =>
+              Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' })
+            )
+          );
+          invoicesCancelled += extras.length;
+          continue;
+        }
+
+        if (extras.length) {
+          await Promise.all(
+            extras.map(async (invoice) => {
+              await Invoice.findByIdAndUpdate(invoice._id, {
+                electricity_fee: 0,
+                water_fee: 0,
+                total_amount: 0,
+                payment_status: 'cancelled',
+              });
+              await syncInvoiceLineItems(invoice._id, monthKey, 0, 0);
+            })
+          );
+          invoicesCancelled += extras.length;
+        }
+
+        if (canonical) {
+          const invoice = await Invoice.findById(canonical._id);
+          if (!invoice) throw new AppError(404, 'Invoice not found during EW recalculation');
+
+          invoice.room = roomId;
+          invoice.electricity_fee = electricFee;
+          invoice.water_fee = waterFee;
+          invoice.total_amount = total;
+          if (invoice.payment_status !== 'paid') {
+            invoice.payment_status = total > 0 ? 'unpaid' : 'cancelled';
+          }
+          await invoice.save();
+          await syncInvoiceLineItems(invoice._id, monthKey, electricFee, waterFee);
+          invoicesUpdated++;
+        } else if (total > 0) {
+          const invoiceCode = await generateEWInvoiceCode();
+          const invoice = await Invoice.create({
+            invoice_code: invoiceCode,
+            student: studentId,
+            room: roomId,
+            invoice_month: monthKey,
+            room_fee: 0,
+            electricity_fee: electricFee,
+            water_fee: waterFee,
+            service_fee: 0,
+            total_amount: total,
+            payment_status: 'unpaid',
+            due_date: dueDate,
+          });
+          await syncInvoiceLineItems(invoice._id, monthKey, electricFee, waterFee);
+          invoicesCreated++;
+        }
+      } catch (err) {
+        // Keep a server-side trace for partial billing failures without failing unrelated groups.
+        // eslint-disable-next-line no-console
+        console.error(
+          `[recalculate] Failed to process invoice for student ${studentId}, month ${monthKey}:`,
+          err.message
+        );
+        groupHasFailure = true;
+        continue;
+      }
+    }
+
+    if (groupHasFailure) continue;
+
+    await EWUsage.updateMany(
+      { _id: { $in: records.map((record) => record._id) } },
+      {
+        $set: {
+          occupied_beds: contractCount,
+          is_billed: true,
+        },
+      }
+    );
+
+    await Promise.all(
+      records.map((record) =>
+        EWUsage.updateOne(
+          { _id: record._id },
+          {
+            $set: {
+              amount_per_bed: contractCount > 0 ? Math.round(record.amount / contractCount) : 0,
+            },
+          }
+        )
+      )
+    );
+  }
+
+  return {
+    invoicesCreated,
+    invoicesUpdated,
+    invoicesCancelled,
+    totalStudents: studentsSeen.size,
+    message: `Recalculation completed: ${invoicesCreated} new invoices, ${invoicesUpdated} updated, ${invoicesCancelled} cancelled, ${studentsSeen.size} students`,
+  };
+};
 
 /**
  * Get list of EW usages with filters and pagination
@@ -38,9 +394,13 @@ const getEWUsages = async (query) => {
     .skip(skip)
     .limit(parseInt(limit, 10));
   const data = docs.map((d) => d.toJSON());
+  const latestIds = await getLatestRecordIdsByKeys(docs);
 
   return {
-    data,
+    data: data.map((item) => ({
+      ...item,
+      is_latest_editable: latestIds.has(item.id),
+    })),
     total,
     page: parseInt(page, 10),
     totalPages: Math.ceil(total / parseInt(limit, 10)),
@@ -52,19 +412,32 @@ const getEWUsages = async (query) => {
  */
 const createEWUsage = async (body) => {
   const { block: blockId, type, meter_right = 0, date, term } = body;
+  const recordDate = new Date(date);
 
   const block = await Block.findById(blockId).populate('dorm').lean();
   if (!block) throw new AppError(404, 'Block not found');
+  if (isNaN(recordDate.getTime())) throw new AppError(400, 'Invalid date');
+
+  await assertMonthNotOlderThanLatest(block._id, type, recordDate);
+  const existingInMonth = await findRecordInMonth(block._id, type, recordDate);
+  if (existingInMonth) {
+    throw new AppError(
+      400,
+      `A ${type} usage record already exists for ${getMonthKey(recordDate)} in this block`
+    );
+  }
 
   // Automatically derive meter_left from the latest record for the same block and type
   const prevRecord = await EWUsage.findOne({ block: block._id, type }).sort({ date: -1 }).lean();
   const meter_left = prevRecord
-    ? (prevRecord.meter_right != null ? prevRecord.meter_right : prevRecord.meter_left)
+    ? prevRecord.meter_right != null
+      ? prevRecord.meter_right
+      : prevRecord.meter_left
     : 0;
 
   const unit = type === 'electric' ? 'kW' : 'm³';
   const consumption = meter_right > meter_left ? meter_right - meter_left : 0;
-  const occupied_beds = await countOccupiedBeds(block._id);
+  const occupied_beds = await countOccupiedBeds(block._id, recordDate);
   const pricePerUnit = getPricePerUnit(type);
   const amount = consumption > 0 ? consumption * pricePerUnit : 0;
 
@@ -80,12 +453,13 @@ const createEWUsage = async (body) => {
     price_per_unit: pricePerUnit,
     occupied_beds,
     amount_per_bed: occupied_beds > 0 ? Math.round(amount / occupied_beds) : 0,
-    date: new Date(date),
+    date: recordDate,
     term,
     unit,
   });
 
   await record.save();
+  await processBillingGroups(getGroupsFromRecords([record]));
   return record.toJSON();
 };
 
@@ -105,6 +479,16 @@ const updateEWUsage = async (id, body) => {
   if (newerRecord) throw new AppError(400, 'Only the latest record for this block can be edited');
 
   const { meter_right, term, type } = body;
+  const nextType = type !== undefined ? type : record.type;
+
+  await assertMonthNotOlderThanLatest(record.block, nextType, record.date, record._id);
+  const existingInMonth = await findRecordInMonth(record.block, nextType, record.date, record._id);
+  if (existingInMonth) {
+    throw new AppError(
+      400,
+      `A ${nextType} usage record already exists for ${getMonthKey(record.date)} in this block`
+    );
+  }
 
   if (meter_right !== undefined) record.meter_right = meter_right;
   if (term !== undefined) record.term = term;
@@ -124,7 +508,9 @@ const updateEWUsage = async (id, body) => {
     .lean();
 
   const old_meter = prevRecord
-    ? (prevRecord.meter_right != null ? prevRecord.meter_right : prevRecord.meter_left)
+    ? prevRecord.meter_right != null
+      ? prevRecord.meter_right
+      : prevRecord.meter_left
     : 0;
   record.meter_left = old_meter;
   record.consumption = record.meter_right > old_meter ? record.meter_right - old_meter : 0;
@@ -132,13 +518,14 @@ const updateEWUsage = async (id, body) => {
   const pricePerUnit = getPricePerUnit(record.type);
   record.price_per_unit = pricePerUnit;
   record.amount = record.consumption > 0 ? record.consumption * pricePerUnit : 0;
-  const occupied_beds = await countOccupiedBeds(record.block);
+  const occupied_beds = await countOccupiedBeds(record.block, record.date);
   record.occupied_beds = occupied_beds;
   record.amount_per_bed = occupied_beds > 0 ? Math.round(record.amount / occupied_beds) : 0;
   // Reset is_billed so next recalculation picks it up
   record.is_billed = false;
 
   await record.save({ validateBeforeSave: false });
+  await processBillingGroups(getGroupsFromRecords([record]));
   return record.toJSON();
 };
 
@@ -168,17 +555,16 @@ const resetMeter = async (body) => {
   record.amount_per_bed = 0;
   record.is_billed = false;
   await record.save({ validateBeforeSave: false });
+  await processBillingGroups(getGroupsFromRecords([record]));
   return record.toJSON();
 };
 
 /**
  * Count occupied beds in a block
  */
-const countOccupiedBeds = async (blockId) => {
-  const rooms = await Room.find({ block: blockId }).lean();
-  if (rooms.length === 0) return 0;
-  const roomIds = rooms.map((r) => r._id);
-  return Bed.countDocuments({ room: { $in: roomIds }, status: 'occupied' });
+const countOccupiedBeds = async (blockId, billingDate = new Date()) => {
+  const contracts = await getBillingContracts(blockId, billingDate);
+  return contracts.length;
 };
 
 /**
@@ -203,6 +589,7 @@ const importEWUsages = async (fileBuffer) => {
   let failed = 0;
   let warnings = 0;
   const errors = [];
+  const affectedRecords = [];
 
   // Track keys seen in this file: "DORM|BLOCK|type|YYYY-MM" → detect same block+type+month
   const seenInFile = new Set();
@@ -228,8 +615,7 @@ const importEWUsages = async (fileBuffer) => {
       if (!typeCode || !['E', 'W'].includes(String(typeCode).trim().toUpperCase()))
         validationErrors.push('Type (column C) must be E (electric) or W (water)');
 
-      if (!dateRaw)
-        validationErrors.push('Date (column D) is required');
+      if (!dateRaw) validationErrors.push('Date (column D) is required');
 
       if (meterRaw === undefined || meterRaw === null || meterRaw === '')
         validationErrors.push('Meter (column E) is required');
@@ -239,8 +625,7 @@ const importEWUsages = async (fileBuffer) => {
       if (!termRaw || String(termRaw).trim() === '')
         validationErrors.push('Term (column F) is required');
 
-      if (validationErrors.length > 0)
-        throw new Error(validationErrors.join('; '));
+      if (validationErrors.length > 0) throw new Error(validationErrors.join('; '));
 
       const type = String(typeCode).trim().toUpperCase() === 'E' ? 'electric' : 'water';
       const new_meter = Number(meterRaw);
@@ -253,44 +638,56 @@ const importEWUsages = async (fileBuffer) => {
         parsedDate = new Date(d.y, d.m - 1, d.d);
       } else {
         const str = String(dateRaw).trim();
-        const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
         if (dmyMatch) {
           parsedDate = new Date(Number(dmyMatch[3]), Number(dmyMatch[2]) - 1, Number(dmyMatch[1]));
         } else {
           parsedDate = new Date(str);
         }
       }
-      if (isNaN(parsedDate.getTime()))
-        throw new Error('Date (column D) is invalid');
+      if (isNaN(parsedDate.getTime())) throw new Error('Date (column D) is invalid');
 
       if (Date.now() - parsedDate.getTime() > TWO_YEARS_MS)
-        throw new Error(`Date (column D) is too far in the past (${parsedDate.toLocaleDateString('en-US')})`);
+        throw new Error(
+          `Date (column D) is too far in the past (${parsedDate.toLocaleDateString('en-US')})`
+        );
 
       // ── 3. Detect duplicates within the same file (block + type + month) ──
-      const monthKey = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}`;
+      const monthKey = getMonthKey(parsedDate);
       const fileKey = `${String(dormCode).trim().toUpperCase()}|${String(blockCode).trim().toUpperCase()}|${type}|${monthKey}`;
       if (seenInFile.has(fileKey)) {
         duplicateInFile++;
-        errors.push({ row: i + 1, block: blockCode, error: `Duplicate in file: block ${blockCode}, type ${type === 'electric' ? 'Electric' : 'Water'}, month ${monthKey} appears multiple times` });
+        errors.push({
+          row: i + 1,
+          block: blockCode,
+          error: `Duplicate in file: block ${blockCode}, type ${type === 'electric' ? 'Electric' : 'Water'}, month ${monthKey} appears multiple times`,
+        });
         continue;
       }
       seenInFile.add(fileKey);
 
       // ── 4. Find block in DB (filter by dorm_code + block_code) ──
-      const dormDoc = await Dorm.findOne({ dorm_code: String(dormCode).trim().toUpperCase() }).lean();
+      const dormDoc = await Dorm.findOne({
+        dorm_code: String(dormCode).trim().toUpperCase(),
+      }).lean();
       if (!dormDoc) throw new Error(`Dorm not found: ${dormCode}`);
 
-      const block = await Block.findOne({ block_code: String(blockCode).trim(), dorm: dormDoc._id }).populate('dorm');
-      if (!block) throw new Error(`Block not found in the system: dorm=${dormCode}, block=${blockCode}`);
+      const block = await Block.findOne({
+        block_code: String(blockCode).trim(),
+        dorm: dormDoc._id,
+      }).populate('dorm');
+      if (!block)
+        throw new Error(`Block not found in the system: dorm=${dormCode}, block=${blockCode}`);
 
       // ── 5. Detect duplicates in the database (same block + type + month) ──
-      const monthStart = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), 1);
-      const monthEnd = new Date(parsedDate.getFullYear(), parsedDate.getMonth() + 1, 0, 23, 59, 59, 999);
-      const existingInMonth = await EWUsage.findOne({
-        block: block._id,
+      const existingInMonth = await findRecordInMonth(block._id, type, parsedDate);
+
+      await assertMonthNotOlderThanLatest(
+        block._id,
         type,
-        date: { $gte: monthStart, $lte: monthEnd },
-      });
+        parsedDate,
+        existingInMonth ? existingInMonth._id : null
+      );
 
       // If a record already exists in the same month but was reset (meter_right = 0), allow updating it
       if (existingInMonth && existingInMonth.meter_right > 0) {
@@ -306,14 +703,16 @@ const importEWUsages = async (fileBuffer) => {
       // ── 6. Calculate meter values ──
       const pricePerUnit = getPricePerUnit(type);
       const unit = type === 'electric' ? 'kW' : 'm³';
-      const occupied_beds = await countOccupiedBeds(block._id);
+      const occupied_beds = await countOccupiedBeds(block._id, parsedDate);
 
       // Find the latest record for the block + type to determine the previous meter
       const prevQuery = { block: block._id, type };
       if (existingInMonth) prevQuery._id = { $ne: existingInMonth._id };
       const prevRecord = await EWUsage.findOne(prevQuery).sort({ date: -1 }).lean();
       const old_meter = prevRecord
-        ? (prevRecord.meter_right != null ? prevRecord.meter_right : prevRecord.meter_left)
+        ? prevRecord.meter_right != null
+          ? prevRecord.meter_right
+          : prevRecord.meter_left
         : 0;
 
       // ── 7. Validate: if the new meter is lower than the old one, warn and set consumption to 0 ──
@@ -345,11 +744,12 @@ const importEWUsages = async (fileBuffer) => {
         existingInMonth.date = parsedDate;
         existingInMonth.is_billed = false;
         await existingInMonth.save({ validateBeforeSave: false });
+        affectedRecords.push(existingInMonth);
         created++;
         continue;
       }
 
-      await EWUsage.create({
+      const createdRecord = await EWUsage.create({
         block: block._id,
         dorm: block.dorm._id || block.dorm,
         block_name: block.block_name || block.block_code,
@@ -365,6 +765,7 @@ const importEWUsages = async (fileBuffer) => {
         term,
         unit,
       });
+      affectedRecords.push(createdRecord);
       created++;
     } catch (err) {
       failed++;
@@ -372,7 +773,12 @@ const importEWUsages = async (fileBuffer) => {
     }
   }
 
-  return { created, duplicateInFile, duplicateInDB, failed, warnings, errors };
+  const billing =
+    affectedRecords.length > 0
+      ? await processBillingGroups(getGroupsFromRecords(affectedRecords))
+      : null;
+
+  return { created, duplicateInFile, duplicateInDB, failed, warnings, errors, billing };
 };
 
 /**
@@ -393,8 +799,8 @@ const exportEWUsages = async (query) => {
 
   const records = await EWUsage.find(filter).sort({ block_name: 1, date: 1 }).lean();
 
-  const sheetData = records.map((r) => ({
-    ID: r.id,
+  const sheetData = records.map((r, index) => ({
+    '#': index + 1,
     'Block Name': r.block_name,
     'Usage Type': r.type === 'electric' ? 'Electric' : 'Water',
     'Created Date': r.date ? new Date(r.date).toLocaleDateString('en-US') : '',
@@ -403,6 +809,9 @@ const exportEWUsages = async (query) => {
     'Meter Right': r.meter_right,
     Consumption: r.consumption,
     Unit: r.unit,
+    'Price Per Unit': r.price_per_unit,
+    Amount: r.amount,
+    Billed: r.is_billed ? 'Yes' : 'No',
   }));
 
   const ws = xlsx.utils.json_to_sheet(sheetData);
@@ -416,49 +825,105 @@ const exportEWUsages = async (query) => {
  * Looks up student's active contract → room → block → EWUsage records
  */
 const getMyEWUsages = async (userId) => {
-  const { Contract, Student, Room } = require('../models');
+  const { Contract, Student } = require('../models');
 
   const student = await Student.findOne({ user: userId }).lean();
   if (!student) throw new AppError(404, 'Student profile not found');
 
-  // Find active contract to get current room
+  // Find active contract to get current room (includes extended contracts)
   const contract = await Contract.findOne({
     student: student._id,
-    status: 'active',
-  }).populate('room').lean();
+    status: { $in: ['active', 'extended'] },
+  })
+    .populate('room')
+    .lean();
 
   if (!contract || !contract.room) {
     return { block_name: null, data: [], message: 'No active room assignment found' };
   }
 
   const room = contract.room;
+
+  // Get block name from Block document (reliable even when no EW records exist)
+  const blockDoc = await Block.findById(room.block).lean();
+  const blockName = blockDoc?.block_name || blockDoc?.block_code || null;
+
   const records = await EWUsage.find({
     block: room.block,
-    type: 'electric',
     consumption: { $gt: 0 },
   })
     .sort({ date: -1 })
     .lean();
 
-  // Get block name from first record or query block
-  const blockName = records[0]?.block_name || null;
+  const blockRooms = await Room.find({ block: room.block }, '_id').lean();
+  const blockRoomIds = blockRooms.map((blockRoom) => blockRoom._id);
+  const recordDatesByMonth = new Map(
+    records.map((record) => [getMonthKey(record.date), record.date])
+  );
+  const occupancyEntries = await Promise.all(
+    Array.from(recordDatesByMonth.entries()).map(async ([monthKey, date]) => [
+      monthKey,
+      await countOccupiedBeds(room.block, date),
+    ])
+  );
+  const occupancyByMonth = new Map(occupancyEntries);
+  const invoiceMonths = [...recordDatesByMonth.keys()];
+  const invoices = invoiceMonths.length
+    ? await Invoice.find({
+        student: student._id,
+        invoice_code: { $regex: /^EW-/ },
+        invoice_month: { $in: invoiceMonths },
+        room: { $in: blockRoomIds },
+      })
+        .select('invoice_month electricity_fee water_fee')
+        .sort({ createdAt: -1 })
+        .lean()
+    : [];
+  const invoiceByMonth = new Map();
+  invoices.forEach((invoice) => {
+    if (!invoiceByMonth.has(invoice.invoice_month)) {
+      invoiceByMonth.set(invoice.invoice_month, invoice);
+    }
+  });
 
   return {
     block_name: blockName,
     room_number: room.room_number,
-    data: records.map((r) => ({
-      id: r._id,
-      term: r.term,
-      date: r.date,
-      meter_left: r.meter_left,
-      meter_right: r.meter_right,
-      consumption: r.consumption,
-      unit: r.unit,
-      price_per_unit: r.price_per_unit,
-      occupied_beds: r.occupied_beds,
-      total_amount: r.amount,
-      amount: r.amount_per_bed,   // amount charged to the student after equal split
-    })),
+    data: records.map((r) => {
+      const monthKey = getMonthKey(r.date);
+      const invoice = invoiceByMonth.get(monthKey);
+      const exactShare = invoice
+        ? r.type === 'electric'
+          ? invoice.electricity_fee
+          : invoice.water_fee
+        : null;
+      const monthOccupiedBeds = occupancyByMonth.get(monthKey) || 0;
+      const fallbackOccupiedBeds = r.occupied_beds > 0 ? r.occupied_beds : monthOccupiedBeds;
+      const derivedOccupiedBeds =
+        typeof exactShare === 'number' && exactShare > 0
+          ? deriveOccupiedBedsFromShare(r.amount, exactShare)
+          : 0;
+
+      return {
+        id: r._id,
+        term: r.term,
+        date: r.date,
+        type: r.type,
+        meter_left: r.meter_left,
+        meter_right: r.meter_right,
+        consumption: r.consumption,
+        unit: r.unit,
+        price_per_unit: r.price_per_unit,
+        occupied_beds: derivedOccupiedBeds || fallbackOccupiedBeds || 0,
+        total_amount: r.amount,
+        amount:
+          typeof exactShare === 'number'
+            ? exactShare
+            : fallbackOccupiedBeds > 0
+              ? Math.round(r.amount / fallbackOccupiedBeds)
+              : r.amount_per_bed || 0,
+      };
+    }),
   };
 };
 
@@ -489,137 +954,13 @@ const generateEWInvoiceCode = async () => {
  * Trigger recalculation: create/update EW invoices for all students in billed blocks
  */
 const recalculate = async () => {
-  // 1. Find all unbilled EWUsage records with actual consumption
-  const unbilledRecords = await EWUsage.find({ is_billed: false, consumption: { $gt: 0 } }).lean();
+  const unbilledRecords = await EWUsage.find({ is_billed: false }).lean();
 
   if (unbilledRecords.length === 0) {
-    return { invoicesCreated: 0, invoicesUpdated: 0, totalStudents: 0, message: 'No unbilled usage data found' };
+    return processBillingGroups([]);
   }
 
-  // 2. Group by block + month (YYYY-MM extracted from record.date)
-  const groups = new Map();
-  for (const record of unbilledRecords) {
-    const d = new Date(record.date);
-    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const key = `${record.block}_${monthKey}`;
-    if (!groups.has(key)) {
-      groups.set(key, { blockId: record.block, monthKey, electric: 0, water: 0, ids: [] });
-    }
-    const g = groups.get(key);
-    // Use the total block amount (not amount_per_bed); it will be split during billing
-    if (record.type === 'electric') g.electric += record.amount;
-    if (record.type === 'water') g.water += record.amount;
-    g.ids.push(record._id);
-  }
-
-  let invoicesCreated = 0;
-  let invoicesUpdated = 0;
-  const studentsSeen = new Set();
-  const due_date = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
-
-  // 3. For each group, find students and create/update invoices
-  for (const { blockId, monthKey, electric, water, ids } of groups.values()) {
-    const rooms = await Room.find({ block: blockId }, '_id').lean();
-    if (!rooms.length) continue;
-
-    const roomIds = rooms.map((r) => r._id);
-    const contracts = await Contract.find({
-      room: { $in: roomIds },
-      status: 'active',
-    }).populate('room', 'room_number').lean();
-
-    // Split the total block amount evenly across active contracts
-    const contractCount = contracts.length;
-    if (!contractCount) continue;
-
-    for (let ci = 0; ci < contracts.length; ci++) {
-      const contract = contracts[ci];
-      const studentId = contract.student;
-      const roomId = contract.room._id;
-      studentsSeen.add(studentId.toString());
-
-      // Assign the remainder to the last student to avoid losing money because of rounding
-      const isLast = ci === contracts.length - 1;
-      const electricPerStudent = Math.floor(electric / contractCount);
-      const waterPerStudent = Math.floor(water / contractCount);
-      const electricFee = isLast ? electric - electricPerStudent * (contractCount - 1) : electricPerStudent;
-      const waterFee = isLast ? water - waterPerStudent * (contractCount - 1) : waterPerStudent;
-      const total = electricFee + waterFee;
-
-      try {
-        // Check for an existing EW invoice for the same student + month regardless of status
-        const existing = await Invoice.findOne({
-          student: studentId,
-          invoice_month: monthKey,
-          invoice_code: { $regex: /^EW-/ },
-        });
-
-        if (existing) {
-          // Skip paid invoices; do not create duplicates or overwrite them
-          if (existing.payment_status === 'paid') continue;
-
-          // Update existing unpaid/overdue/cancelled invoice
-          existing.electricity_fee = electricFee;
-          existing.water_fee = waterFee;
-          existing.total_amount = total;
-          if (existing.payment_status === 'cancelled') existing.payment_status = 'unpaid';
-          await existing.save();
-
-          // Replace line items
-          const lineItems = [];
-          if (electricFee > 0) {
-            lineItems.push({ invoice: existing._id, item_type: 'electricity', description: `Electricity fee - ${monthKey}`, quantity: 1, unit_price: electricFee });
-          }
-          if (waterFee > 0) {
-            lineItems.push({ invoice: existing._id, item_type: 'water', description: `Water fee - ${monthKey}`, quantity: 1, unit_price: waterFee });
-          }
-          await InvoiceLineItem.deleteMany({ invoice: existing._id });
-          if (lineItems.length) await InvoiceLineItem.insertMany(lineItems);
-          invoicesUpdated++;
-        } else {
-          // Create new invoice
-          const invoice_code = await generateEWInvoiceCode();
-          const invoice = await Invoice.create({
-            invoice_code,
-            student: studentId,
-            room: roomId,
-            invoice_month: monthKey,
-            room_fee: 0,
-            electricity_fee: electricFee,
-            water_fee: waterFee,
-            service_fee: 0,
-            total_amount: total,
-            payment_status: 'unpaid',
-            due_date,
-          });
-
-          const lineItems = [];
-          if (electricFee > 0) {
-            lineItems.push({ invoice: invoice._id, item_type: 'electricity', description: `Electricity fee - ${monthKey}`, quantity: 1, unit_price: electricFee });
-          }
-          if (waterFee > 0) {
-            lineItems.push({ invoice: invoice._id, item_type: 'water', description: `Water fee - ${monthKey}`, quantity: 1, unit_price: waterFee });
-          }
-          if (lineItems.length) await InvoiceLineItem.insertMany(lineItems);
-          invoicesCreated++;
-        }
-      } catch (err) {
-        console.error(`[recalculate] Failed to process invoice for student ${studentId}, month ${monthKey}:`, err.message);
-        // Do not mark this group as billed if any student processing fails
-        continue;
-      }
-    }
-
-    // 4. Mark all EWUsage records in this group as billed
-    await EWUsage.updateMany({ _id: { $in: ids } }, { is_billed: true });
-  }
-
-  return {
-    invoicesCreated,
-    invoicesUpdated,
-    totalStudents: studentsSeen.size,
-    message: `Recalculation completed: ${invoicesCreated} new invoices, ${invoicesUpdated} updated, ${studentsSeen.size} students`,
-  };
+  return processBillingGroups(getGroupsFromRecords(unbilledRecords));
 };
 
 module.exports = {

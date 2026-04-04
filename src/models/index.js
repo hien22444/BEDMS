@@ -29,7 +29,6 @@ module.exports.Penalty = require('./penalty.model');
 
 // Payment System
 module.exports.PricingConfig = require('./pricingConfig.model');
-module.exports.UtilityReading = require('./utilityReading.model');
 module.exports.Invoice = require('./invoice.model');
 module.exports.InvoiceLineItem = require('./invoiceLineItem.model');
 module.exports.Payment = require('./payment.model');
