@@ -157,7 +157,7 @@ const getBookingWindowStatus = async (userId) => {
 
   const now = new Date();
 
-  // Student has active contract → "giữ giường" category
+  // Student has an active contract -> hold-bed category
   const activeContract = await Contract.findOne({
     student: student._id,
     status: 'active',
@@ -172,7 +172,7 @@ const getBookingWindowStatus = async (userId) => {
     return { allowed, window_type: allowed ? 'hold' : null };
   }
 
-  // No contract → "book mới" category
+  // No contract -> new-booking category
   const allowed = isWithinWindow(
     now,
     map[BOOKING_CONFIG_KEYS.NEW_START],
@@ -627,7 +627,7 @@ const checkPaymentStatus = async (bookingId, userId) => {
     return {
       status: 'pending',
       paid: false,
-      message: 'Chưa thanh toán',
+      message: 'Payment not completed',
       booking: populatedBooking,
       invoice,
     };
@@ -644,7 +644,7 @@ const checkPaymentStatus = async (bookingId, userId) => {
     } catch {
       /* idempotent – already cancelled */
     }
-    return { status: 'cancelled', paid: false, message: 'Booking đã bị hủy.' };
+    return { status: 'cancelled', paid: false, message: 'Booking was cancelled.' };
   }
 
   if (!isPayosPaid(payosInfo)) {
@@ -652,7 +652,7 @@ const checkPaymentStatus = async (bookingId, userId) => {
     return {
       status: 'pending',
       paid: false,
-      message: 'Chưa thanh toán',
+      message: 'Payment not completed',
       booking: populatedBooking,
       invoice,
       payos: {
@@ -1105,7 +1105,7 @@ const checkoutStudent = async (studentCode, managerId) => {
   // Notify student
   const user = await User.findById(student.user).select('_id').lean();
   if (user) {
-    const formattedDate = now.toLocaleString('vi-VN', {
+    const formattedDate = now.toLocaleString('en-US', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -1194,7 +1194,7 @@ const getAllBookings = async (query = {}) => {
     (s || '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/gi, 'd')
+      .replace(/[\u0111\u0110]/g, 'd')
       .toLowerCase();
 
   const filter = { status: 'approved' };

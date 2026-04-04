@@ -26,19 +26,19 @@ const RULE_SYNONYMS_VI = {
 
 const RULE_SUMMARY_VI = {
   'KTX-OPENING-HOURS':
-    'Cổng ký túc xá mở từ 05:30 đến 22:00. Sinh viên cần về trước 22:00 nếu không có phê duyệt của ban quản lý.',
+    'Dormitory gates are open from 05:30 to 22:00. Students must return before 22:00 unless they have approval from management.',
   'KTX-GUEST-POLICY':
-    'Khách phải xuất trình giấy tờ tại quầy bảo vệ. Khách không được ở lại ký túc xá sau 22:00.',
+    'Guests must present identification at the security desk. Guests are not allowed to stay in the dormitory after 22:00.',
   'KTX-COOKING':
-    'Nấu ăn trong phòng ký túc xá bị nghiêm cấm. Không được mang bếp hoặc thiết bị nấu ăn vào phòng.',
+    'Cooking inside dorm rooms is strictly prohibited. Stoves and cooking appliances are not allowed in rooms.',
   'KTX-SMOKING-ALCOHOL':
-    'Cấm hút thuốc, rượu bia, thuốc lá điện tử trong ký túc xá. Chất ma túy bị nghiêm cấm và xử lý theo pháp luật.',
-  'KTX-PETS': 'Sinh viên không được nuôi động vật hoặc thú cưng trong ký túc xá.',
-  'KTX-NOISE': 'Không được gây tiếng ồn lớn hoặc làm ảnh hưởng đến sinh viên khác.',
-  'KTX-ROOM-CHANGE': 'Không được tự ý đổi phòng/đổi giường nếu chưa có phép của ban quản lý.',
-  'KTX-ALLOWED-DEVICES': 'Sinh viên chỉ được mang các thiết bị điện nằm trong danh mục cho phép.',
+    'Smoking, alcohol, and e-cigarettes are prohibited in the dormitory. Illegal drugs are strictly forbidden and handled according to the law.',
+  'KTX-PETS': 'Students are not allowed to keep animals or pets in the dormitory.',
+  'KTX-NOISE': 'Students must not create loud noise or disturb other residents.',
+  'KTX-ROOM-CHANGE': 'Room or bed changes are not allowed without management approval.',
+  'KTX-ALLOWED-DEVICES': 'Students may only bring electrical devices that are on the approved list.',
   'KTX-FIRE-SAFETY':
-    'Cấm mang các chất dễ cháy nổ như xăng dầu, bình gas hoặc vật liệu gây nổ vào ký túc xá.',
+    'Flammable or explosive materials such as gasoline, gas cylinders, or explosive substances are prohibited in the dormitory.',
 };
 
 const normalize = (text = '') =>
@@ -54,7 +54,7 @@ const tokenize = (text = '') => normalize(text).split(' ').filter(Boolean);
 
 const detectPreferredLanguage = (text = '') => {
   const raw = text || '';
-  if (/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/u.test(raw)) {
+  if (/[\u00E0\u00E1\u1EA1\u1EA3\u00E3\u00E2\u1EA7\u1EA5\u1EAD\u1EA9\u1EAB\u0103\u1EB1\u1EAF\u1EB7\u1EB3\u1EB5\u00E8\u00E9\u1EB9\u1EBB\u1EBD\u00EA\u1EC1\u1EBF\u1EC7\u1EC3\u1EC5\u00EC\u00ED\u1ECB\u1EC9\u0129\u00F2\u00F3\u1ECD\u1ECF\u00F5\u00F4\u1ED3\u1ED1\u1ED9\u1ED5\u1ED7\u01A1\u1EDD\u1EDB\u1EE3\u1EDF\u1EE1\u00F9\u00FA\u1EE5\u1EE7\u0169\u01B0\u1EEB\u1EE9\u1EF1\u1EED\u1EEF\u1EF3\u00FD\u1EF5\u1EF7\u1EF9\u0111]/u.test(raw)) {
     return 'vi';
   }
 
@@ -192,7 +192,7 @@ const isOverviewQuestion = (question = '') => {
 
 const defaultUnknownAnswer = (isVietnamese) =>
   isVietnamese
-    ? 'Mình chưa có thông tin này trong nội quy hiện tại.'
+    ? 'I do not have this information in the current dormitory regulations.'
     : 'I do not have this information in the current dormitory regulations.';
 
 const formatPenalty = (penalty, isVietnamese) => {
@@ -204,9 +204,9 @@ const formatPenalty = (penalty, isVietnamese) => {
 
   if (isVietnamese) {
     const parts = [];
-    if (fine) parts.push(`Mức phạt: ${fine}`);
+    if (fine) parts.push(`Penalty: ${fine}`);
     if (penalty.description) parts.push(penalty.description);
-    if (penalty.repeat_penalty) parts.push(`Tái phạm: ${penalty.repeat_penalty}`);
+    if (penalty.repeat_penalty) parts.push(`Repeat violation: ${penalty.repeat_penalty}`);
     return parts.join('. ');
   }
 
@@ -224,7 +224,7 @@ const buildGroundedFallbackAnswer = (rule, isVietnamese) => {
   if (Array.isArray(rule.allowed_devices) && rule.allowed_devices.length > 0) {
     answerParts.push(
       isVietnamese
-        ? `Thiết bị được phép: ${rule.allowed_devices.join(', ')}.`
+        ? `Allowed devices: ${rule.allowed_devices.join(', ')}.`
         : `Allowed devices: ${rule.allowed_devices.join(', ')}.`
     );
   }
@@ -236,13 +236,13 @@ const buildGroundedFallbackAnswer = (rule, isVietnamese) => {
 const buildOverviewFallbackAnswer = (isVietnamese) => {
   if (isVietnamese) {
     return (
-      'Tổng quan nội quy ký túc xá: (1) Giờ mở cổng từ 05:30 đến 22:00. ' +
-      '(2) Khách phải xuất trình giấy tờ và không được ở lại sau 22:00. ' +
-      '(3) Cấm nấu ăn trong phòng, cấm thuốc lá/rượu bia/chất cấm, cấm nuôi thú cưng. ' +
-      '(4) Không gây ồn, không tự ý đổi phòng khi chưa được phép. ' +
-      '(5) Chỉ được mang thiết bị điện nằm trong danh mục cho phép. ' +
-      '(6) Cấm vật liệu dễ cháy nổ như xăng dầu, bình gas. ' +
-      'Nếu bạn muốn, mình có thể giải thích chi tiết từng mục và mức phạt liên quan.'
+      'Regulation overview: (1) Gate hours are 05:30 to 22:00. ' +
+      '(2) Guests must show ID and cannot stay after 22:00. ' +
+      '(3) Cooking in rooms is prohibited; smoking, alcohol, and illegal drugs are prohibited; pets are not allowed. ' +
+      '(4) No loud disturbances and no room changes without permission. ' +
+      '(5) Only approved electrical devices are allowed. ' +
+      '(6) Flammable or explosive materials are prohibited. ' +
+      'If you want, I can break down each section with penalties.'
     );
   }
 
@@ -285,7 +285,7 @@ const askOpenAI = async ({ question, contextRules, language }) => {
             content:
               'You are Dormitory Rules Assistant (Phase 1). ' +
               'Be conversational and helpful. ' +
-              'Language rule: respond in English if user language is "en", Vietnamese if "vi". ' +
+              'Always respond in English. ' +
               'For regulation facts, use ONLY provided rules context and do not invent. ' +
               'If user asks for regulation overview, provide a detailed structured summary covering major sections. ' +
               'If user is just greeting/smalltalk, reply naturally and guide them to dorm regulation help. ' +
@@ -374,7 +374,7 @@ const queryRules = async (question) => {
   if (!q) {
     return {
       answer: isVietnamese
-        ? 'Vui lòng nhập câu hỏi. Mình có thể hỗ trợ về nội quy ký túc xá.'
+        ? 'Please provide a question. I can help with dormitory regulations.'
         : 'Please provide a question about dormitory regulations.',
       matched_rules: [],
       source: dormRulesKb.knowledge_base,
@@ -403,7 +403,7 @@ const queryRules = async (question) => {
     const safeAnswer =
       aiAnswer.answer ||
       (isVietnamese
-        ? 'Mình là trợ lý nội quy ký túc xá. Bạn cần mình hỗ trợ nội dung nào?'
+        ? 'I am the dormitory regulations assistant. What would you like help with?'
         : 'I am the dormitory regulation assistant. What regulation can I help you with?');
 
     if (aiAnswer.intent === 'smalltalk') {
@@ -448,7 +448,7 @@ const queryRules = async (question) => {
   if (candidates.length === 0) {
     return {
       answer: isVietnamese
-        ? 'Mình là trợ lý nội quy ký túc xá, luôn sẵn sàng hỗ trợ. Bạn muốn hỏi quy định nào?'
+        ? 'I am the dormitory regulations assistant, ready to help. Which rule would you like to ask about?'
         : "I'm a dormitory regulation assistant, always ready to help. What regulation would you like to ask about?",
       matched_rules: [],
       source: dormRulesKb.knowledge_base,
