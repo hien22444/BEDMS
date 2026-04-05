@@ -313,10 +313,39 @@ const exchangeOAuthCode = (code) => {
   return entry.data;
 };
 
+/**
+ * Login as a student (Manager only)
+ * @param {string} studentCode - Student code to impersonate
+ * @returns {Object} { token, user, profile }
+ */
+const loginAsStudent = async (studentCode) => {
+  const AppError = require('../utils/AppError');
+
+  const student = await Student.findOne({ student_code: studentCode }).populate('user');
+  if (!student) throw new AppError(404, 'Student not found');
+  if (!student.user) throw new AppError(404, 'User account not found for this student');
+  if (!student.user.is_active) throw new AppError(403, 'Student account is inactive');
+
+  const token = generateToken({ id: student.user._id, role: 'student' });
+
+  return {
+    token,
+    user: {
+      id: student.user._id,
+      email: student.user.email,
+      role: 'student',
+      is_active: student.user.is_active,
+      last_login: student.user.last_login,
+    },
+    profile: student,
+  };
+};
+
 module.exports = {
   login,
   register,
   getProfile,
+  loginAsStudent,
   generateToken,
   generateRefreshToken,
   refreshAccessToken,

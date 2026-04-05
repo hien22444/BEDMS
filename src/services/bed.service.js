@@ -19,7 +19,7 @@ const populateStudent = {
   populate: { path: 'user', select: 'email' },
 };
 
-// Gắn thông tin contract đang active vào mỗi bed
+// Attach active contract information to each bed
 const attachContracts = async (beds) => {
   const bedIds = beds.map((b) => b._id);
   const contracts = await Contract.find({

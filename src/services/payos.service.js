@@ -86,21 +86,21 @@ const verifyPayosWebhook = async (body) => {
 };
 
 /**
- * Đăng ký webhook URL với PayOS (cần gọi lại mỗi khi ngrok URL thay đổi).
- * PayOS lưu URL này và sẽ POST sự kiện thanh toán/hủy về đây.
+ * Register a webhook URL with PayOS. Call this again whenever the ngrok URL changes.
+ * PayOS stores this URL and posts payment/cancellation events to it.
  */
 const confirmPayosWebhook = async () => {
   const webhookUrl = process.env.PAYOS_WEBHOOK_URL;
   if (!webhookUrl || webhookUrl.includes('<your-ngrok-id>')) {
-    console.warn('[PayOS] PAYOS_WEBHOOK_URL chưa được cấu hình — webhook sẽ không hoạt động.');
+    console.warn('[PayOS] PAYOS_WEBHOOK_URL is not configured, so the webhook will not work.');
     return;
   }
   try {
     const payOS = await getPayOS();
     const result = await payOS.webhooks.confirm(webhookUrl);
-    console.log(`[PayOS] Webhook đã đăng ký: ${webhookUrl}`, result);
+    console.log(`[PayOS] Webhook registered: ${webhookUrl}`, result);
   } catch (err) {
-    console.error('[PayOS] Lỗi đăng ký webhook:', err?.message || err);
+    console.error('[PayOS] Failed to register webhook:', err?.message || err);
   }
 };
 

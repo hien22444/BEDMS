@@ -82,4 +82,7 @@ router.get('/google/exchange', authController.exchangeOAuthCode);
 // Protected routes
 router.get('/profile', authenticate, authController.getProfile);
 
+// Manager only — impersonate a student session
+router.post('/login-as-student', authenticate, authorize('manager'), authController.loginAsStudent);
+
 module.exports = router;
