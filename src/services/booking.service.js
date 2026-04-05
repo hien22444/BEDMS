@@ -611,7 +611,7 @@ const submitBooking = async (userId, { bed_id, note }) => {
 };
 
 // ─── 9. checkPaymentStatus ────────────────────────────────
-const checkPaymentStatus = async (bookingId, userId) => {
+const checkPaymentStatus = async (bookingId, userId, io) => {
   const student = await findStudent(userId);
 
   const booking = await BookingRequest.findById(bookingId);
@@ -747,6 +747,13 @@ const checkPaymentStatus = async (bookingId, userId) => {
   booking.status = 'approved';
   await booking.save();
 
+  // Real-time: push to student's personal socket room
+  if (io && student?.user) {
+    io.to(`user_${student.user}`).emit('booking_approved', {
+      bookingId: booking._id.toString(),
+    });
+  }
+
   // Notify student + email
   const user = await User.findById(student.user).lean();
   if (user) {
@@ -873,7 +880,7 @@ const handlePayosWebhook = async (webhookData, io) => {
 
   if (status === 'paid' || status === 'success' || status === 'completed') {
     // Re-use checkPaymentStatus() which finalizes booking + sends email.
-    return checkPaymentStatus(booking._id.toString(), student.user.toString());
+    return checkPaymentStatus(booking._id.toString(), student.user.toString(), io);
   }
 
   if (status === 'cancelled' || status === 'canceled') {
