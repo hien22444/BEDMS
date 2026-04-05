@@ -65,6 +65,9 @@ const handleCallback = catchAsync(async (req, res) => {
   const io = req.app.get('io');
   if (io) {
     io.to('security_cameras').emit('face_detection_result', result);
+    if (result.unknownLog) {
+      io.to('security_cameras').emit('access_log_created', result.unknownLog);
+    }
   }
 
   res.success(result, status.OK);

@@ -52,6 +52,43 @@ const getCameraStatus = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const updateCameraSource = catchAsync(async (req, res) => {
+  const { source_type, source_url } = req.body;
+  if (!source_type || !source_url) {
+    return res.status(400).json({ message: 'source_type and source_url are required' });
+  }
+
+  const data = await cameraService.updateCameraSource(req.params.cameraId, {
+    source_type,
+    source_url,
+  });
+
+  // Emit status update so frontend knows camera was reconfigured
+  const io = req.app.get('io');
+  if (io) {
+    io.to('security_cameras').emit('camera_status_update', {
+      camera_id: req.params.cameraId,
+      status: 'offline',
+    });
+  }
+
+  res.success(data, status.OK);
+});
+
+const resetCameraSource = catchAsync(async (req, res) => {
+  const data = await cameraService.resetCameraSource(req.params.cameraId);
+
+  const io = req.app.get('io');
+  if (io) {
+    io.to('security_cameras').emit('camera_status_update', {
+      camera_id: req.params.cameraId,
+      status: 'offline',
+    });
+  }
+
+  res.success(data, status.OK);
+});
+
 module.exports = {
   getCameras,
   createCamera,
@@ -59,4 +96,6 @@ module.exports = {
   startCamera,
   stopCamera,
   getCameraStatus,
+  updateCameraSource,
+  resetCameraSource,
 };

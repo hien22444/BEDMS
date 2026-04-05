@@ -14,11 +14,11 @@ const bedRoute = require('./bed.route');
 const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
 const payosRoute = require('./payos.route');
-const aiRulesRoute = require('./aiRules.route');
 const faceRecognitionRoute = require('./faceRecognition.route');
 const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
+const agentRoute = require('./agent.route');
 
 const express = require('express');
 
@@ -90,10 +90,6 @@ const defaultRoutes = [
     route: payosRoute,
   },
   {
-    path: '/ai',
-    route: aiRulesRoute,
-  },
-  {
     path: '/face-recognition',
     route: faceRecognitionRoute,
   },
@@ -108,6 +104,10 @@ const defaultRoutes = [
   {
     path: '/date-config',
     route: dateConfigRoute,
+  },
+  {
+    path: '/agents',
+    route: agentRoute,
   },
 ];
 

@@ -3,6 +3,25 @@ const AppError = require('../utils/AppError');
 
 const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8000';
 
+const stopCameraIfActive = async (cameraId) => {
+  try {
+    const statusRes = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`);
+    if (!statusRes.ok) {
+      return false;
+    }
+
+    const statusData = await statusRes.json();
+    if (statusData.status === 'active') {
+      await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/stop`, { method: 'POST' });
+      return true;
+    }
+  } catch {
+    // FaceService may be unavailable. Source updates should still persist.
+  }
+
+  return false;
+};
+
 const getCameras = async () => {
   return CameraConfig.find().sort({ type: 1 }).lean();
 };
@@ -86,6 +105,45 @@ const getCameraStatus = async (cameraId) => {
   return result;
 };
 
+const updateCameraSource = async (cameraId, { source_type, source_url }) => {
+  const camera = await CameraConfig.findOne({ camera_id: cameraId });
+  if (!camera) {
+    throw new AppError('Camera not found', 404);
+  }
+
+  const normalizedSourceType = String(source_type || '').trim();
+  if (!['webcam', 'rtsp'].includes(normalizedSourceType)) {
+    throw new AppError('source_type must be "webcam" or "rtsp"', 400);
+  }
+
+  const normalizedSourceUrl =
+    normalizedSourceType === 'webcam' ? '0' : String(source_url || '').trim();
+  if (normalizedSourceType === 'rtsp' && !normalizedSourceUrl) {
+    throw new AppError('source_url is required for RTSP cameras', 400);
+  }
+
+  await stopCameraIfActive(cameraId);
+
+  camera.source_type = normalizedSourceType;
+  camera.source_url = normalizedSourceUrl;
+  await camera.save();
+  return camera;
+};
+
+const resetCameraSource = async (cameraId) => {
+  const camera = await CameraConfig.findOne({ camera_id: cameraId });
+  if (!camera) {
+    throw new AppError('Camera not found', 404);
+  }
+
+  await stopCameraIfActive(cameraId);
+
+  camera.source_type = 'webcam';
+  camera.source_url = '0';
+  await camera.save();
+  return camera;
+};
+
 module.exports = {
   getCameras,
   createCamera,
@@ -93,4 +151,6 @@ module.exports = {
   startCamera,
   stopCamera,
   getCameraStatus,
+  updateCameraSource,
+  resetCameraSource,
 };

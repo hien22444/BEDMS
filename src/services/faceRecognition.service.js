@@ -1,5 +1,6 @@
 const { FaceEmbedding, Student, StudentAccessLog } = require('../models');
 const AppError = require('../utils/AppError');
+const { uploadBase64Image } = require('../config/cloudinary');
 
 const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8000';
 const FACE_SERVICE_API_KEY = process.env.FACE_SERVICE_API_KEY || '';
@@ -18,6 +19,12 @@ let cacheLoadPromise = null; // Prevents concurrent cache reloads
 // ---------------------------------------------------------------------------
 const LOG_DEDUP_WINDOW_MS = 30_000; // 30 seconds
 const recentLogTimestamps = new Map(); // key: "studentId:check_in" → Date.now()
+
+// Unknown face tracking: grace period before logging strangers.
+// Gives recognition time to match across multiple frames before declaring "unknown".
+const UNKNOWN_GRACE_PERIOD_MS = 30_000; // 30s grace period
+const pendingUnknowns = new Map(); // camera_id → { firstSeen: number, frame_base64: string }
+const unknownCooldowns = new Map(); // camera_id → timestamp of last unknown log created
 
 const loadEmbeddingCache = async () => {
   // If a load is already in progress, wait for it instead of starting another
@@ -120,11 +127,11 @@ const registerFace = async (studentId, imageBuffer, registeredBy) => {
     quality_score: result.quality_score,
   };
 
-  const faceEmbedding = await FaceEmbedding.findOneAndUpdate(
-    { student: studentId },
-    faceData,
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
+  const faceEmbedding = await FaceEmbedding.findOneAndUpdate({ student: studentId }, faceData, {
+    upsert: true,
+    new: true,
+    setDefaultsOnInsert: true,
+  });
 
   // Refresh cache
   await loadEmbeddingCache();
@@ -259,10 +266,83 @@ const handleDetectionCallback = async (payload) => {
           confidence: match.confidence,
         });
         enriched.access_log_id = log._id.toString();
+
+        // Upload annotated frame to Cloudinary (non-blocking)
+        if (frame_base64) {
+          const logId = log._id;
+          uploadBase64Image(frame_base64, {
+            public_id: `${logType}_${match.studentCode}_${Date.now()}`,
+          })
+            .then((url) => {
+              StudentAccessLog.findByIdAndUpdate(logId, { face_snapshot_url: url }).catch(() => {});
+            })
+            .catch((err) => {
+              console.error('[Cloudinary] Snapshot upload failed:', err.message);
+            });
+        }
       }
     }
 
     enrichedDetections.push(enriched);
+  }
+
+  // Unknown face tracking with grace period
+  let unknownLog = null;
+  const hasAnyMatch = enrichedDetections.some((d) => d.is_match);
+  const hasUnmatched = enrichedDetections.some((d) => !d.is_match);
+
+  if (hasAnyMatch) {
+    // A face was recognized — cancel any pending unknown for this camera
+    // (the "unknown" was likely the same person before recognition kicked in)
+    pendingUnknowns.delete(camera_id);
+  }
+
+  if (hasUnmatched && !hasAnyMatch) {
+    const lastCooldown = unknownCooldowns.get(camera_id) || 0;
+    if (Date.now() - lastCooldown > LOG_DEDUP_WINDOW_MS) {
+      if (!pendingUnknowns.has(camera_id)) {
+        // First time seeing unmatched face — start grace period
+        pendingUnknowns.set(camera_id, { firstSeen: Date.now(), frame_base64 });
+      } else {
+        const pending = pendingUnknowns.get(camera_id);
+        pending.frame_base64 = frame_base64; // Keep latest frame for best quality
+
+        if (Date.now() - pending.firstSeen >= UNKNOWN_GRACE_PERIOD_MS) {
+          // Grace period elapsed, still no match — log as unknown
+          pendingUnknowns.delete(camera_id);
+          unknownCooldowns.set(camera_id, Date.now());
+
+          const log = await StudentAccessLog.create({
+            student: null,
+            type: logType,
+            method: 'face_recognition',
+            camera_id,
+            confidence: null,
+          });
+
+          // Non-blocking Cloudinary upload with the latest frame
+          if (pending.frame_base64) {
+            const logId = log._id;
+            uploadBase64Image(pending.frame_base64, {
+              public_id: `unknown_${camera_id}_${Date.now()}`,
+            })
+              .then((url) => {
+                StudentAccessLog.findByIdAndUpdate(logId, { face_snapshot_url: url }).catch(
+                  () => {}
+                );
+              })
+              .catch((err) => {
+                console.error('[Cloudinary] Unknown snapshot upload failed:', err.message);
+              });
+          }
+
+          unknownLog = await StudentAccessLog.findById(log._id).lean();
+        }
+      }
+    }
+  } else if (!hasUnmatched) {
+    // No unmatched faces in frame — clear pending (person left)
+    pendingUnknowns.delete(camera_id);
   }
 
   return {
@@ -271,6 +351,7 @@ const handleDetectionCallback = async (payload) => {
     timestamp,
     detections: enrichedDetections,
     frame_base64,
+    unknownLog,
   };
 };
 
