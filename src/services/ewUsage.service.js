@@ -4,6 +4,18 @@ const { EWUsage, Block, Room, Dorm, Invoice, InvoiceLineItem, Contract } = requi
 
 const PRICE_MAP = { electric: 3000, water: 9000 };
 const getPricePerUnit = (type) => PRICE_MAP[type] || 3000;
+const deriveTermFromDate = (date) => {
+  const d = new Date(date);
+  const month = d.getMonth() + 1;
+  const year = d.getFullYear();
+  if (month <= 4) return `Spring-${year}`;
+  if (month <= 8) return `Summer-${year}`;
+  return `Fall-${year}`;
+};
+const getNextUsageDate = (date) => {
+  const d = new Date(date);
+  return new Date(d.getFullYear(), d.getMonth() + 2, 0, 12, 0, 0, 0);
+};
 const getMonthKey = (date) => {
   const d = new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -83,6 +95,7 @@ const getBillingContracts = async (blockId, billingDate, { populateRoom = false 
   const roomIds = rooms.map((room) => room._id);
   let query = Contract.find({
     room: { $in: roomIds },
+    status: { $in: ['active', 'extended'] },
     start_date: { $lte: billingDate },
     end_date: { $gte: billingDate },
     $or: [{ terminated_at: null }, { terminated_at: { $gt: billingDate } }],
@@ -435,7 +448,7 @@ const createEWUsage = async (body) => {
       : prevRecord.meter_left
     : 0;
 
-  const unit = type === 'electric' ? 'kW' : 'm³';
+  const unit = type === 'electric' ? 'kW' : 'm3';
   const consumption = meter_right > meter_left ? meter_right - meter_left : 0;
   const occupied_beds = await countOccupiedBeds(block._id, recordDate);
   const pricePerUnit = getPricePerUnit(type);
@@ -461,6 +474,46 @@ const createEWUsage = async (body) => {
   await record.save();
   await processBillingGroups(getGroupsFromRecords([record]));
   return record.toJSON();
+};
+
+/**
+ * Quickly create the next EW usage record for dev/testing purposes.
+ * Reuses the normal create flow so billing and validations stay consistent.
+ */
+const quickCreateEWUsage = async (body) => {
+  const { block: blockId, type, meter_right, date, term, meter_increment = 10 } = body;
+
+  if (!blockId) throw new AppError(400, 'block is required');
+  if (!type || !['electric', 'water'].includes(type)) {
+    throw new AppError(400, 'type must be electric or water');
+  }
+
+  const latestRecord = await EWUsage.findOne({ block: blockId, type }).sort({ date: -1 }).lean();
+  const nextDate = date ? new Date(date) : latestRecord ? getNextUsageDate(latestRecord.date) : new Date();
+  if (isNaN(nextDate.getTime())) throw new AppError(400, 'Invalid date');
+
+  const previousMeter = latestRecord
+    ? latestRecord.meter_right != null
+      ? latestRecord.meter_right
+      : latestRecord.meter_left
+    : 0;
+
+  const nextMeterRight =
+    meter_right !== undefined && meter_right !== null
+      ? Number(meter_right)
+      : previousMeter + Math.max(Number(meter_increment) || 0, 0);
+
+  if (!Number.isFinite(nextMeterRight) || nextMeterRight < 0) {
+    throw new AppError(400, 'meter_right must be a non-negative number');
+  }
+
+  return createEWUsage({
+    block: blockId,
+    type,
+    meter_right: nextMeterRight,
+    date: nextDate.toISOString(),
+    term: term || deriveTermFromDate(nextDate),
+  });
 };
 
 /**
@@ -494,7 +547,7 @@ const updateEWUsage = async (id, body) => {
   if (term !== undefined) record.term = term;
   if (type !== undefined) {
     record.type = type;
-    record.unit = type === 'electric' ? 'kW' : 'm³';
+    record.unit = type === 'electric' ? 'kW' : 'm3';
   }
 
   // Find previous record (same block + type, earlier date)
@@ -530,7 +583,7 @@ const updateEWUsage = async (id, body) => {
 };
 
 /**
- * Reset meter — replace physical meter with a new one.
+ * Reset meter - replace physical meter with a new one.
  * Finds the LATEST record for block + type, sets new meter value.
  * Consumption = 0 because the meter was physically replaced.
  */
@@ -702,7 +755,7 @@ const importEWUsages = async (fileBuffer) => {
 
       // ── 6. Calculate meter values ──
       const pricePerUnit = getPricePerUnit(type);
-      const unit = type === 'electric' ? 'kW' : 'm³';
+      const unit = type === 'electric' ? 'kW' : 'm3';
       const occupied_beds = await countOccupiedBeds(block._id, parsedDate);
 
       // Find the latest record for the block + type to determine the previous meter
@@ -822,7 +875,7 @@ const exportEWUsages = async (query) => {
 
 /**
  * Get EW usages for the student's current block (student-facing)
- * Looks up student's active contract → room → block → EWUsage records
+ * Looks up student's active contract -> room -> block -> EWUsage records
  */
 const getMyEWUsages = async (userId) => {
   const { Contract, Student } = require('../models');
@@ -875,15 +928,21 @@ const getMyEWUsages = async (userId) => {
         invoice_month: { $in: invoiceMonths },
         room: { $in: blockRoomIds },
       })
-        .select('invoice_month electricity_fee water_fee')
+        .select('invoice_month electricity_fee water_fee payment_status')
         .sort({ createdAt: -1 })
         .lean()
     : [];
   const invoiceByMonth = new Map();
   invoices.forEach((invoice) => {
-    if (!invoiceByMonth.has(invoice.invoice_month)) {
-      invoiceByMonth.set(invoice.invoice_month, invoice);
-    }
+    if (invoice.payment_status === 'cancelled') return;
+    const current = invoiceByMonth.get(invoice.invoice_month) || {
+      electricity_fee: 0,
+      water_fee: 0,
+    };
+    invoiceByMonth.set(invoice.invoice_month, {
+      electricity_fee: current.electricity_fee + (invoice.electricity_fee || 0),
+      water_fee: current.water_fee + (invoice.water_fee || 0),
+    });
   });
 
   return {
@@ -966,6 +1025,7 @@ const recalculate = async () => {
 module.exports = {
   getEWUsages,
   createEWUsage,
+  quickCreateEWUsage,
   updateEWUsage,
   resetMeter,
   importEWUsages,

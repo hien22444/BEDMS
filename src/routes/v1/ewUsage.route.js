@@ -12,6 +12,7 @@ router.get('/my', authenticate, authorize('student'), ewUsageController.getMyEWU
 // Manager-only routes
 router.get('/', authenticate, authorize('manager'), ewUsageController.getEWUsages);
 router.post('/', authenticate, authorize('manager'), ewUsageController.createEWUsage);
+router.post('/quick-create', authenticate, authorize('manager'), ewUsageController.quickCreateEWUsage);
 router.get('/export', authenticate, authorize('manager'), ewUsageController.exportEWUsages);
 router.post('/import', authenticate, authorize('manager'), upload.single('file'), ewUsageController.importEWUsages);
 router.post('/recalculate', authenticate, authorize('manager'), ewUsageController.recalculate);

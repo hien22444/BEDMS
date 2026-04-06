@@ -7,4 +7,18 @@ const getMyInvoices = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
-module.exports = { getMyInvoices };
+const createPayosLinkForInvoice = catchAsync(async (req, res) => {
+  const data = await invoiceService.createPayosLinkForInvoice(req.params.id, req.user.id);
+  res.success(data, status.OK);
+});
+
+const getInvoicePaymentStatus = catchAsync(async (req, res) => {
+  const data = await invoiceService.getInvoicePaymentStatus(req.params.id, req.user.id);
+  res.success(data, status.OK);
+});
+
+module.exports = {
+  getMyInvoices,
+  createPayosLinkForInvoice,
+  getInvoicePaymentStatus,
+};
