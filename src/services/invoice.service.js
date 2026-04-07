@@ -12,6 +12,7 @@ const { createPayosPaymentLink, getPayosPaymentInfo } = require('./payos.service
 const { sendPaymentSuccessEmail } = require('./email.service');
 
 const EW_INVOICE_REGEX = /^EW-/;
+const isSameAmount = (left, right) => Number(left || 0) === Number(right || 0);
 
 const buildPayosPayload = (payment) => {
   if (!payment) return null;
@@ -23,6 +24,11 @@ const buildPayosPayload = (payment) => {
     status: payment.payment_status,
   };
 };
+
+const buildInvoiceResponse = (invoice) => ({
+  ...invoice.toJSON(),
+  id: invoice._id,
+});
 
 const generateInvoiceOrderCode = () => Number(`2${Date.now()}${Math.floor(Math.random() * 10)}`);
 
@@ -78,6 +84,29 @@ const formatInvoices = async (invoices) => {
 };
 
 const finalizeUtilityInvoicePayment = async (invoice, payment, payosInfo) => {
+  if (!isSameAmount(payment.amount, invoice.total_amount)) {
+    if (payment.payment_status === 'pending') {
+      payment.payment_status = 'failed';
+    }
+    payment.transaction_details = {
+      ...(payment.transaction_details || {}),
+      payosInfo,
+      amount_mismatch: {
+        invoice_total_amount: invoice.total_amount,
+        payment_amount: payment.amount,
+      },
+    };
+    await payment.save();
+
+    return {
+      status: 'amount_mismatch',
+      paid: false,
+      message: 'Payment amount is outdated. Please create a new payment link.',
+      invoice: buildInvoiceResponse(invoice),
+      payos: buildPayosPayload(payment),
+    };
+  }
+
   if (payment.payment_status !== 'completed') {
     payment.payment_status = 'completed';
     payment.paid_at = new Date();
@@ -121,10 +150,7 @@ const finalizeUtilityInvoicePayment = async (invoice, payment, payosInfo) => {
   return {
     status: 'paid',
     paid: true,
-    invoice: {
-      ...invoice.toJSON(),
-      id: invoice._id,
-    },
+    invoice: buildInvoiceResponse(invoice),
     payos: buildPayosPayload(payment),
   };
 };
@@ -157,20 +183,32 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
     throw new AppError(400, 'Invoice amount must be greater than zero');
   }
 
+  await Payment.updateMany(
+    {
+      invoice: invoice._id,
+      payment_method: 'payos',
+      payment_status: 'pending',
+      amount: { $ne: invoice.total_amount },
+    },
+    {
+      $set: {
+        payment_status: 'expired',
+      },
+    }
+  );
+
   const existingPayment = await Payment.findOne({
     invoice: invoice._id,
     payment_method: 'payos',
     payment_status: 'pending',
+    amount: invoice.total_amount,
   })
     .sort({ created_at: -1 })
     .lean();
 
   if (existingPayment?.payos_checkout_url) {
     return {
-      invoice: {
-        ...invoice.toJSON(),
-        id: invoice._id,
-      },
+      invoice: buildInvoiceResponse(invoice),
       payos: buildPayosPayload(existingPayment),
     };
   }
@@ -219,10 +257,7 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
   });
 
   return {
-    invoice: {
-      ...invoice.toJSON(),
-      id: invoice._id,
-    },
+    invoice: buildInvoiceResponse(invoice),
     payos: buildPayosPayload(payment),
   };
 };
@@ -240,27 +275,39 @@ const getInvoicePaymentStatus = async (invoiceId, userId) => {
     return {
       status: 'paid',
       paid: true,
-      invoice: {
-        ...invoice.toJSON(),
-        id: invoice._id,
-      },
+      invoice: buildInvoiceResponse(invoice),
     };
   }
 
   const payment = await Payment.findOne({
     invoice: invoice._id,
     payment_method: 'payos',
+    amount: invoice.total_amount,
   }).sort({ created_at: -1 });
+
+  if (!payment) {
+    const stalePayment = await Payment.findOne({
+      invoice: invoice._id,
+      payment_method: 'payos',
+    }).sort({ created_at: -1 });
+
+    if (stalePayment && !isSameAmount(stalePayment.amount, invoice.total_amount)) {
+      return {
+        status: 'amount_mismatch',
+        paid: false,
+        message: 'Previous payment link is outdated. Please create a new payment link.',
+        invoice: buildInvoiceResponse(invoice),
+        payos: null,
+      };
+    }
+  }
 
   if (!payment?.payos_order_code) {
     return {
       status: 'pending',
       paid: false,
       message: 'Payment link has not been created yet',
-      invoice: {
-        ...invoice.toJSON(),
-        id: invoice._id,
-      },
+      invoice: buildInvoiceResponse(invoice),
     };
   }
 
@@ -277,10 +324,7 @@ const getInvoicePaymentStatus = async (invoiceId, userId) => {
       status: 'cancelled',
       paid: false,
       message: 'Payment was cancelled',
-      invoice: {
-        ...invoice.toJSON(),
-        id: invoice._id,
-      },
+      invoice: buildInvoiceResponse(invoice),
       payos: buildPayosPayload(payment),
     };
   }
@@ -290,10 +334,7 @@ const getInvoicePaymentStatus = async (invoiceId, userId) => {
       status: 'pending',
       paid: false,
       message: 'Payment not completed',
-      invoice: {
-        ...invoice.toJSON(),
-        id: invoice._id,
-      },
+      invoice: buildInvoiceResponse(invoice),
       payos: buildPayosPayload(payment),
     };
   }
@@ -326,6 +367,20 @@ const handlePayosWebhook = async (webhookData, io) => {
 
   const invoice = await Invoice.findById(payment.invoice);
   if (!invoice) return { ok: true, ignored: true, reason: 'invoice not found' };
+
+  if (!isSameAmount(payment.amount, invoice.total_amount)) {
+    payment.payment_status = 'failed';
+    payment.transaction_details = {
+      ...(payment.transaction_details || {}),
+      webhookData,
+      amount_mismatch: {
+        invoice_total_amount: invoice.total_amount,
+        payment_amount: payment.amount,
+      },
+    };
+    await payment.save();
+    return { ok: true, handled: true, status: 'amount_mismatch' };
+  }
 
   if (status === 'cancelled' || status === 'canceled') {
     payment.payment_status = 'cancelled';
