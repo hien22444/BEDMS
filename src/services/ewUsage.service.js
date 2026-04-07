@@ -88,7 +88,7 @@ const assertMonthNotOlderThanLatest = async (blockId, type, date, excludeId = nu
     );
   }
 };
-const getBillingContracts = async (blockId, billingDate, { populateRoom = false } = {}) => {
+const getBillingContracts = async (blockId, _billingDate, { populateRoom = false } = {}) => {
   const rooms = await Room.find({ block: blockId }, '_id').lean();
   if (!rooms.length) return [];
 
@@ -96,9 +96,6 @@ const getBillingContracts = async (blockId, billingDate, { populateRoom = false 
   let query = Contract.find({
     room: { $in: roomIds },
     status: { $in: ['active', 'extended'] },
-    start_date: { $lte: billingDate },
-    end_date: { $gte: billingDate },
-    $or: [{ terminated_at: null }, { terminated_at: { $gt: billingDate } }],
   });
 
   if (populateRoom) {
@@ -112,6 +109,33 @@ const getEWInvoiceQuery = (studentId, monthKey) => ({
   invoice_month: monthKey,
   invoice_code: { $regex: /^EW-/ },
 });
+const getBillingTargetsFromExistingInvoices = async (roomIds, monthKey) => {
+  if (!roomIds.length) return [];
+
+  const invoices = await Invoice.find({
+    room: { $in: roomIds },
+    invoice_month: monthKey,
+    invoice_code: { $regex: /^EW-/ },
+  })
+    .sort({ createdAt: -1 })
+    .select('_id student room payment_status')
+    .lean();
+
+  const canonicalByStudentRoom = new Map();
+  invoices.forEach((invoice) => {
+    const key = `${invoice.student.toString()}_${invoice.room.toString()}`;
+    if (!canonicalByStudentRoom.has(key)) {
+      canonicalByStudentRoom.set(key, {
+        student: invoice.student,
+        room: { _id: invoice.room },
+        invoiceId: invoice._id,
+        payment_status: invoice.payment_status,
+      });
+    }
+  });
+
+  return Array.from(canonicalByStudentRoom.values());
+};
 const getGroupKey = (blockId, date) => `${blockId.toString()}_${getMonthKey(date)}`;
 const getGroupsFromRecords = (records) => {
   const groups = new Map();
@@ -204,7 +228,10 @@ const processBillingGroups = async (groups) => {
 
     const rooms = await Room.find({ block: blockId }, '_id').lean();
     const roomIds = rooms.map((room) => room._id);
-    const contracts = await getBillingContracts(blockId, billingDate, { populateRoom: true });
+    let contracts = await getBillingContracts(blockId, billingDate, { populateRoom: true });
+    if (!contracts.length) {
+      contracts = await getBillingTargetsFromExistingInvoices(roomIds, monthKey);
+    }
     const contractCount = contracts.length;
 
     if (!contractCount) {
