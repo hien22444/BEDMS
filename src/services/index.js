@@ -21,5 +21,6 @@ module.exports.maintenanceRequestService = require('./maintenanceRequest.service
 module.exports.roomTransferService = require('./roomTransfer.service');
 module.exports.ewUsageService = require('./ewUsage.service');
 module.exports.invoiceService = require('./invoice.service');
+module.exports.checkoutRequestService = require('./checkoutRequest.service');
 module.exports.openaiService = require('./openai.service');
 module.exports.agentService = require('./agent.service');

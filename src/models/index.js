@@ -66,3 +66,6 @@ module.exports.CameraConfig = require('./cameraConfig.model');
 
 // EW Usages (Electric/Water meter readings)
 module.exports.EWUsage = require('./ewUsage.model');
+
+// Checkout
+module.exports.CheckoutRequest = require('./checkoutRequest.model');

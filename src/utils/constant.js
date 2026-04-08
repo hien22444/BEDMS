@@ -40,6 +40,7 @@ const DBCollections = Object.freeze({
   STUDENT_ACCESS_LOG: 'StudentAccessLog',
   CAMERA_CONFIG: 'CameraConfig',
   EW_USAGE: 'EWUsage',
+  CHECKOUT_REQUEST: 'CheckoutRequest',
 });
 
 module.exports = {
