@@ -26,12 +26,50 @@ const OPEN_STATUSES = [
   'pending_refund_office',
 ];
 
-const PAYMENT_HOLD_MS = 10 * 60 * 1000;
+const MAX_TRANSFERS_PER_SEMESTER = 2;
+
+/** Time allowed for student to pay the bed-upgrade supplement (PayOS + internal deadline). */
+const UPGRADE_PAYMENT_HOLD_MS = 36 * 60 * 60 * 1000;
 const REFUND_WINDOW_MS = 36 * 60 * 60 * 1000;
 
 const isPayosPaid = (info) => {
-  const st = String(info?.status || info?.data?.status || info?.paymentStatus || '').toLowerCase();
+  if (!info || typeof info !== 'object') return false;
+  const d = info.data && typeof info.data === 'object' ? info.data : {};
+  const st = String(
+    info.status ?? d.status ?? info.paymentStatus ?? d.paymentStatus ?? ''
+  ).toLowerCase();
   return st === 'paid' || st === 'success' || st === 'completed';
+};
+
+/** PayOS closed the link without payment (user canceled, void, or link expired). */
+const isPayosCancelledLike = (info) => {
+  if (!info || typeof info !== 'object') return false;
+  const d = info.data && typeof info.data === 'object' && !Array.isArray(info.data) ? info.data : {};
+  const d2 = d.data && typeof d.data === 'object' && !Array.isArray(d.data) ? d.data : {};
+  const objects = [info, d, d2].filter((o) => o && typeof o === 'object');
+
+  const canceledAt = objects.some(
+    (o) => o.canceledAt != null || o.cancelledAt != null
+  );
+  if (canceledAt && !isPayosPaid(info)) return true;
+
+  const st = String(
+    info.status ??
+      info.paymentStatus ??
+      d.status ??
+      d.paymentStatus ??
+      d2.status ??
+      info.payment_status ??
+      ''
+  ).toLowerCase();
+  return (
+    st === 'cancelled' ||
+    st === 'canceled' ||
+    st === 'cancel' ||
+    st === 'void' ||
+    st === 'voided' ||
+    st === 'expired'
+  );
 };
 
 const isInSemester = (contract) => {
@@ -102,11 +140,11 @@ const notifyManagersBedTransferRefundOffice = async (reqDoc, refundDeadline) => 
     ? new Date(refundDeadline).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })
     : '';
   const message = [
-    `Sinh viên ${name} (${code}) đã được chuyển sang giường/phòng có giá thấp hơn.`,
-    `Mã yêu cầu: ${reqDoc.request_code}.`,
-    'Cần xử lý hoàn tiền tại văn phòng khi sinh viên lên.',
-    deadlineStr ? `Hạn sinh viên lên: ${deadlineStr}.` : '',
-    'Sau khi hoàn tiền xong, bấm "Refund processed" trên đơn đổi giường để hoàn tất.',
+    `Student ${name} (${code}) has moved to a lower-priced bed/room.`,
+    `Request code: ${reqDoc.request_code}.`,
+    'Please process the refund at the office when the student arrives.',
+    deadlineStr ? `Student deadline to visit office: ${deadlineStr}.` : '',
+    'After refund is completed, click "Refund processed" on the transfer request to finalize.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -114,7 +152,7 @@ const notifyManagersBedTransferRefundOffice = async (reqDoc, refundDeadline) => 
   await Notification.insertMany(
     managers.map((m) => ({
       user: m._id,
-      title: 'Đổi giường: chờ hoàn tiền tại văn phòng',
+      title: 'Bed transfer: waiting for office refund',
       message,
       notification_type: 'warning',
       category: 'general',
@@ -163,11 +201,11 @@ const getActiveContract = async (studentId, opts = {}) => {
   if (!contract?.bed || !contract?.room) {
     if (subject === 'target') {
       throw new AppError(
-        `Sinh viên ${studentCode || ''} chưa có giường ở ký túc xá nên chưa thể đổi chéo.`.trim(),
+        `Student ${studentCode || ''} does not currently have a dorm bed, so swap is not available yet.`.trim(),
         403
       );
     }
-    throw new AppError('Bạn chưa có giường ở ký túc xá nên không thể gửi đơn đổi giường.', 403);
+    throw new AppError('You do not currently have a dorm bed, so you cannot submit a bed transfer request.', 403);
   }
   return contract;
 };
@@ -206,14 +244,62 @@ const ensureNoOpenRequest = async (studentId) => {
     status: { $in: OPEN_STATUSES },
   }).lean();
   if (exists) {
-    throw new AppError('Bạn đang có một đơn đổi giường chưa xử lý.', 409);
+    throw new AppError('You already have an open bed transfer request pending.', 409);
   }
 };
 
-const createEmptyBedTransferRequest = async (userId, body) => {
+const countTransfersInSemester = async (studentId, contract) => {
+  if (!contract?.start_date || !contract?.end_date) return 0;
+  const start = new Date(contract.start_date);
+  const end = new Date(contract.end_date);
+  const sem = contract?.semester ? String(contract.semester).trim() : '';
+
+  const [approvedRequests, manualChanges] = await Promise.all([
+    RoomTransferRequest.countDocuments({
+      initiator_student: studentId,
+      $or: [
+        ...(sem ? [{ semester: sem }] : []),
+        {
+          semester: { $in: [null, undefined, ''] },
+          requested_at: { $gte: start, $lte: end },
+        },
+      ],
+      status: { $in: ['approved', 'pending_refund_office'] },
+    }),
+    BedTransferHistory.countDocuments({
+      student: studentId,
+      transfer_source: 'manual_assignment',
+      $or: [
+        ...(sem ? [{ semester: sem }] : []),
+        {
+          semester: { $in: [null, undefined, ''] },
+          changed_at: { $gte: start, $lte: end },
+        },
+      ],
+    }),
+  ]);
+
+  return approvedRequests + manualChanges;
+};
+
+const ensureTransferQuota = async (studentId, contract) => {
+  if (!contract?.start_date || !contract?.end_date)
+    return { used: 0, remaining: MAX_TRANSFERS_PER_SEMESTER };
+  const used = await countTransfersInSemester(studentId, contract);
+  if (used >= MAX_TRANSFERS_PER_SEMESTER) {
+    throw new AppError(
+      `You have used all ${MAX_TRANSFERS_PER_SEMESTER} bed transfer attempts for this semester. Please wait until next semester.`,
+      409
+    );
+  }
+  return { used, remaining: MAX_TRANSFERS_PER_SEMESTER - used };
+};
+
+const createEmptyBedTransferRequest = async (userId, body, io = null) => {
   const student = await getStudentByUser(userId);
   const myContract = await getActiveContract(student._id, { subject: 'self' });
   await ensureNoOpenRequest(student._id);
+  await ensureTransferQuota(student._id, myContract);
 
   const targetBedId = body?.requested_bed_id;
   const reason = String(body?.reason || '').trim();
@@ -240,26 +326,8 @@ const createEmptyBedTransferRequest = async (userId, body) => {
   ]);
 
   let priceAdjustmentType = 'none';
-  if (isInSemester(myContract)) {
-    if (targetPrice !== currentPrice) {
-      throw new AppError(
-        'During the semester you may only move to a bed with the same room price as your current bed.',
-        400
-      );
-    }
-    priceAdjustmentType = 'none';
-  } else if (isBeforeSemesterStart(myContract)) {
-    if (targetPrice > currentPrice) priceAdjustmentType = 'upgrade';
-    else if (targetPrice < currentPrice) priceAdjustmentType = 'downgrade';
-    else priceAdjustmentType = 'none';
-  } else {
-    if (targetPrice !== currentPrice) {
-      throw new AppError(
-        'Outside the pre-semester booking window, only same-price bed changes are allowed. Contact management.',
-        400
-      );
-    }
-  }
+  if (targetPrice > currentPrice) priceAdjustmentType = 'upgrade';
+  else if (targetPrice < currentPrice) priceAdjustmentType = 'downgrade';
 
   const request = await RoomTransferRequest.create({
     request_code: await generateRequestCode(),
@@ -267,6 +335,7 @@ const createEmptyBedTransferRequest = async (userId, body) => {
     initiator_student: student._id,
     current_room: myContract.room,
     current_bed: myContract.bed,
+    semester: myContract.semester,
     requested_room: targetBed.room,
     requested_bed: targetBed._id,
     reason,
@@ -275,13 +344,16 @@ const createEmptyBedTransferRequest = async (userId, body) => {
     supplement_amount: Math.max(0, targetPrice - currentPrice),
   });
 
-  return getTransferRequestById(request._id);
+  const populated = await getTransferRequestById(request._id);
+  await emitRoomTransferRealtime(io, populated, 'created');
+  return populated;
 };
 
-const createSwapTransferRequest = async (userId, body) => {
+const createSwapTransferRequest = async (userId, body, io = null) => {
   const student = await getStudentByUser(userId);
   const myContract = await getActiveContract(student._id, { subject: 'self' });
   await ensureNoOpenRequest(student._id);
+  await ensureTransferQuota(student._id, myContract);
 
   if (!isInSemester(myContract)) {
     throw new AppError(
@@ -300,7 +372,7 @@ const createSwapTransferRequest = async (userId, body) => {
   });
   if (!targetStudent) throw new AppError('Target student not found', 404);
   if (String(targetStudent._id) === String(student._id)) {
-    throw new AppError('Bạn không thể tự đổi chéo với chính mình.', 400);
+    throw new AppError('You cannot swap with yourself.', 400);
   }
 
   const targetContract = await getActiveContract(targetStudent._id, {
@@ -324,7 +396,7 @@ const createSwapTransferRequest = async (userId, body) => {
   }
 
   if (String(targetContract.bed) === String(myContract.bed)) {
-    throw new AppError('Hai sinh viên đang ở cùng một giường.', 400);
+    throw new AppError('Both students are already assigned to the same bed.', 400);
   }
 
   const existsIncoming = await RoomTransferRequest.findOne({
@@ -333,7 +405,7 @@ const createSwapTransferRequest = async (userId, body) => {
     status: 'pending_partner',
   }).lean();
   if (existsIncoming) {
-    throw new AppError('Sinh viên này đang có yêu cầu đổi chéo chờ xác nhận.', 409);
+    throw new AppError('This student already has a pending swap request waiting for partner response.', 409);
   }
 
   const request = await RoomTransferRequest.create({
@@ -343,13 +415,16 @@ const createSwapTransferRequest = async (userId, body) => {
     target_student: targetStudent._id,
     current_room: myContract.room,
     current_bed: myContract.bed,
+    semester: myContract.semester,
     requested_room: targetContract.room,
     requested_bed: targetContract.bed,
     reason,
     status: 'pending_partner',
   });
 
-  return getTransferRequestById(request._id);
+  const populated = await getTransferRequestById(request._id);
+  await emitRoomTransferRealtime(io, populated, 'created');
+  return populated;
 };
 
 const getSwapTargetPreview = async (userId, studentCode) => {
@@ -363,7 +438,7 @@ const getSwapTargetPreview = async (userId, studentCode) => {
   }).select('student_code full_name');
   if (!targetStudent) throw new AppError('Target student not found', 404);
   if (String(targetStudent._id) === String(me._id)) {
-    throw new AppError('Bạn không thể tự đổi chéo với chính mình.', 400);
+    throw new AppError('You cannot swap with yourself.', 400);
   }
 
   const targetContract = await getActiveContract(targetStudent._id, {
@@ -413,13 +488,13 @@ const populateTransfer = async (query) => {
     },
     {
       path: 'current_room',
-      select: 'room_number block',
+      select: 'room_number block price_per_semester',
       populate: { path: 'block', select: 'block_name block_code dorm', populate: { path: 'dorm', select: 'dorm_code dorm_name' } },
     },
     { path: 'current_bed', select: 'bed_number status' },
     {
       path: 'requested_room',
-      select: 'room_number block',
+      select: 'room_number block price_per_semester',
       populate: { path: 'block', select: 'block_name block_code dorm', populate: { path: 'dorm', select: 'dorm_code dorm_name' } },
     },
     { path: 'requested_bed', select: 'bed_number status' },
@@ -432,6 +507,35 @@ const getTransferRequestById = async (id) => {
   const doc = await populateTransfer(RoomTransferRequest.findById(id));
   if (!doc) throw new AppError('Transfer request not found', 404);
   return doc;
+};
+
+const emitRoomTransferRealtime = async (io, reqDocOrPopulated, event = 'updated') => {
+  if (!io || !reqDocOrPopulated) return;
+  const populated =
+    typeof reqDocOrPopulated?.populate === 'function' || !reqDocOrPopulated?.initiator_student?.user
+      ? await getTransferRequestById(reqDocOrPopulated._id || reqDocOrPopulated.id)
+      : reqDocOrPopulated;
+
+  const payload = { event, transfer: populated };
+  io.to('managers').emit('room_transfer_updated', payload);
+
+  const studentIds = [
+    populated.initiator_student?._id || populated.initiator_student?.id || populated.initiator_student,
+    populated.target_student?._id || populated.target_student?.id || populated.target_student,
+  ].filter(Boolean);
+
+  for (const sid of studentIds) {
+    const st = await Student.findById(sid).select('user').lean();
+    if (st?.user) io.to(`user_${st.user}`).emit('room_transfer_updated', payload);
+  }
+
+  if (['approved', 'cancelled'].includes(String(populated.status || '').toLowerCase())) {
+    io.to('managers').emit('room_transfer_history_updated', payload);
+    for (const sid of studentIds) {
+      const st = await Student.findById(sid).select('user').lean();
+      if (st?.user) io.to(`user_${st.user}`).emit('room_transfer_history_updated', payload);
+    }
+  }
 };
 
 const getMyTransferHistory = async (userId) => {
@@ -464,6 +568,25 @@ const getMyTransferRequests = async (userId) => {
       $or: [{ initiator_student: student._id }, { target_student: student._id }],
     }).sort({ requested_at: -1 })
   );
+};
+
+const getMyTransferQuota = async (userId) => {
+  const student = await getStudentByUser(userId);
+  let remaining = 0;
+  let used = 0;
+  let semester = null;
+  const contract = await getActiveContract(student._id, { subject: 'self' }).catch(() => null);
+  if (contract) {
+    semester = contract.semester;
+    used = await countTransfersInSemester(student._id, contract);
+    remaining = Math.max(0, MAX_TRANSFERS_PER_SEMESTER - used);
+  }
+  return {
+    semester,
+    max: MAX_TRANSFERS_PER_SEMESTER,
+    used,
+    remaining,
+  };
 };
 
 const getAvailableBedsForTransfer = async (userId) => {
@@ -506,7 +629,7 @@ const getAvailableBedsForTransfer = async (userId) => {
   }));
 };
 
-const respondSwapTransferRequest = async (userId, requestId, body) => {
+const respondSwapTransferRequest = async (userId, requestId, body, io = null) => {
   const student = await getStudentByUser(userId);
   const req = await RoomTransferRequest.findById(requestId);
   if (!req) throw new AppError('Transfer request not found', 404);
@@ -526,24 +649,42 @@ const respondSwapTransferRequest = async (userId, requestId, body) => {
     req.rejection_reason = String(body?.reason || 'Target student rejected swap').trim();
   }
   await req.save();
-  return getTransferRequestById(req._id);
+  const populated = await getTransferRequestById(req._id);
+  await emitRoomTransferRealtime(io, populated, 'updated');
+  return populated;
 };
 
-const cancelTransferRequest = async (userId, requestId) => {
+const cancelTransferRequest = async (userId, requestId, io = null) => {
   const student = await getStudentByUser(userId);
   const req = await RoomTransferRequest.findById(requestId);
   if (!req) throw new AppError('Transfer request not found', 404);
   if (String(req.initiator_student) !== String(student._id)) {
     throw new AppError('You can only cancel your own request', 403);
   }
-  if (req.status === 'pending_payment_upgrade' || req.status === 'pending_refund_office') {
+  if (req.status === 'pending_refund_office') {
     throw new AppError('This transfer cannot be cancelled from the app. Contact dormitory management.', 409);
+  }
+  if (req.status === 'pending_payment_upgrade') {
+    const inv = req.supplement_invoice ? await Invoice.findById(req.supplement_invoice).lean() : null;
+    if (inv?.payment_status === 'paid') {
+      throw new AppError('Payment already completed', 409);
+    }
+    await cancelPendingUpgradePaymentInternal(req, {
+      paymentFinalStatus: 'cancelled',
+      payosCancelReason: 'User cancelled bed upgrade payment',
+      rejectionReason: 'Student cancelled payment for bed upgrade',
+      notifyTitle: 'Bed upgrade cancelled',
+      notifyBody: `You cancelled payment for ${req.request_code}. The supplement invoice was cancelled and you remain on your previous bed.`,
+      io,
+    });
+    return { message: 'Upgrade payment cancelled' };
   }
   if (!['pending_partner', 'pending_manager'].includes(req.status)) {
     throw new AppError('Only pending requests can be cancelled', 409);
   }
   req.status = 'cancelled';
   await req.save();
+  await emitRoomTransferRealtime(io, req, 'cancelled');
   return { message: 'Transfer request cancelled' };
 };
 
@@ -600,6 +741,7 @@ const executeTargetEmptyTransfer = async (req, { allowReservedTarget = false } =
 
   await BedTransferHistory.create({
     student: contract.student,
+    semester: contract.semester,
     from_room: sourceBed.room,
     from_bed: sourceBed._id,
     to_room: targetBed.room,
@@ -663,19 +805,94 @@ const releaseUpgradeReservedBed = async (reqDoc) => {
   await syncRoomAvailability(targetBed.room);
 };
 
-const cancelSupplementPayosBestEffort = async (invoiceId) => {
+/**
+ * Close supplement PayOS + mark invoice cancelled (same outcome as booking cancel).
+ * @param {string} invoiceId
+ * @param {{ paymentFinalStatus?: string, payosCancelReason?: string }} [options]
+ */
+const cancelSupplementPayosBestEffort = async (invoiceId, options = {}) => {
+  const paymentFinalStatus = options.paymentFinalStatus || 'expired';
+  const payosCancelReason = options.payosCancelReason || 'Room transfer upgrade payment closed';
+  if (!invoiceId) return;
+
+  const inv = await Invoice.findById(invoiceId).lean();
+  if (!inv || inv.payment_status === 'paid') return;
+
   const pay = await Payment.findOne({
     invoice: invoiceId,
     payment_method: 'payos',
     payment_status: 'pending',
   }).lean();
   if (pay?.payos_order_code) {
-    await cancelPayosPaymentLink(pay.payos_order_code, 'Room transfer upgrade payment expired');
-    await Payment.updateOne({ _id: pay._id }, { $set: { payment_status: 'expired' } });
+    await cancelPayosPaymentLink(pay.payos_order_code, payosCancelReason);
+    await Payment.updateOne({ _id: pay._id }, { $set: { payment_status: paymentFinalStatus } });
   }
-  if (invoiceId) {
+  if (inv.payment_status !== 'paid') {
     await Invoice.findByIdAndUpdate(invoiceId, { $set: { payment_status: 'cancelled' } });
   }
+};
+
+const emitTransferUpgradePaymentCancelled = async (io, initiatorStudentId, payload) => {
+  if (!io || !initiatorStudentId) return;
+  const st = await Student.findById(initiatorStudentId).select('user').lean();
+  if (!st?.user) return;
+  io.to(`user_${st.user}`).emit('transfer_upgrade_payment_cancelled', payload);
+};
+
+/** Student or PayOS cancel while upgrade payment is pending. */
+const cancelPendingUpgradePaymentInternal = async (reqDoc, opts = {}) => {
+  if (!reqDoc || reqDoc.status !== 'pending_payment_upgrade') return;
+
+  const {
+    paymentFinalStatus = 'cancelled',
+    payosCancelReason = 'Room transfer upgrade payment cancelled',
+    rejectionReason = 'Student cancelled payment for bed upgrade',
+    notifyTitle = 'Bed upgrade cancelled',
+    notifyBody,
+    io = null,
+  } = opts;
+
+  await cancelSupplementPayosBestEffort(reqDoc.supplement_invoice, {
+    paymentFinalStatus,
+    payosCancelReason,
+  });
+  await releaseUpgradeReservedBed(reqDoc);
+  reqDoc.status = 'cancelled';
+  reqDoc.rejection_reason = rejectionReason;
+  await reqDoc.save();
+  if (notifyTitle && notifyBody) {
+    await notifyStudentUser(reqDoc.initiator_student, notifyTitle, notifyBody, 'warning');
+  }
+
+  await emitTransferUpgradePaymentCancelled(io, reqDoc.initiator_student, {
+    transferRequestId: reqDoc._id.toString(),
+    requestCode: reqDoc.request_code || '',
+  });
+  await emitRoomTransferRealtime(io, reqDoc, 'cancelled');
+};
+
+/**
+ * PayOS webhook: payment cancelled, invoice is a bed-upgrade supplement (no booking).
+ * @returns {Promise<boolean>} true if a transfer was rolled back
+ */
+const cancelBedUpgradeFromPayosWebhook = async (payment, io = null) => {
+  if (!payment?.invoice) return false;
+  const transferReq = await RoomTransferRequest.findOne({
+    supplement_invoice: payment.invoice,
+    status: 'pending_payment_upgrade',
+  });
+  if (!transferReq) return false;
+  if (String(transferReq.initiator_student) !== String(payment.student)) return false;
+
+  await cancelPendingUpgradePaymentInternal(transferReq, {
+    paymentFinalStatus: 'cancelled',
+    payosCancelReason: 'PayOS: payment cancelled',
+    rejectionReason: 'Bed upgrade payment was cancelled',
+    notifyTitle: 'Bed upgrade cancelled',
+    notifyBody: `The bed change request ${transferReq.request_code} was cancelled. You remain on your previous bed.`,
+    io,
+  });
+  return true;
 };
 
 const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
@@ -713,6 +930,7 @@ const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
   let invoice = null;
 
   try {
+    const supplementDueAt = new Date(Date.now() + UPGRADE_PAYMENT_HOLD_MS);
     invoice = await Invoice.create({
       invoice_code,
       student: contract.student,
@@ -724,7 +942,7 @@ const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
       service_fee: 0,
       total_amount: amount,
       payment_status: 'unpaid',
-      due_date: contract.start_date || new Date(),
+      due_date: supplementDueAt,
     });
 
     const orderCode = await allocateTransferUpgradePayosOrderCode();
@@ -734,6 +952,7 @@ const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
       .select('email full_name')
       .lean();
 
+    const payosExpiredAtUnix = Math.floor(supplementDueAt.getTime() / 1000);
     const paymentLink = await createPayosPaymentLink({
       orderCode,
       amount,
@@ -743,6 +962,7 @@ const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
       buyerEmail: buyer?.email,
       buyerName: buyer?.full_name || undefined,
       items: [{ name: `Bed upgrade ${invoice_code}`, quantity: 1, price: amount }],
+      expiredAt: payosExpiredAtUnix,
     });
     const payosPaymentLinkId = paymentLink?.paymentLinkId || paymentLink?.id || null;
     const payosCheckoutUrl = paymentLink?.checkoutUrl || paymentLink?.checkout_url || null;
@@ -769,7 +989,7 @@ const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
     };
 
     reqDoc.supplement_invoice = invoice._id;
-    reqDoc.payment_deadline = new Date(Date.now() + PAYMENT_HOLD_MS);
+    reqDoc.payment_deadline = supplementDueAt;
     reqDoc.status = 'pending_payment_upgrade';
     reqDoc.reviewed_by = staff?._id || null;
     reqDoc.reviewed_at = new Date();
@@ -778,7 +998,7 @@ const startUpgradePaymentAfterApprove = async (reqDoc, managerUserId) => {
     await notifyStudentUser(
       reqDoc.initiator_student,
       'Bed upgrade payment required',
-      `Your bed change was approved. Pay the price difference within 10 minutes using the payment link in the booking/transfer screen. Request ${reqDoc.request_code}.`,
+      `Your bed change was approved. Pay the price difference within 36 hours on the Payment page or bed transfer screen. Request ${reqDoc.request_code}. Invoice ${invoice_code}.`,
       'warning'
     );
 
@@ -813,7 +1033,7 @@ const finalizeApprovedUpgradeTransfer = async (reqDoc) => {
   );
 };
 
-const processRoomTransferTimeouts = async () => {
+const processRoomTransferTimeouts = async (io = null) => {
   const now = new Date();
 
   const expiredUpgrades = await RoomTransferRequest.find({
@@ -822,17 +1042,14 @@ const processRoomTransferTimeouts = async () => {
   });
 
   for (const r of expiredUpgrades) {
-    await cancelSupplementPayosBestEffort(r.supplement_invoice);
-    await releaseUpgradeReservedBed(r);
-    r.status = 'cancelled';
-    r.rejection_reason = 'Upgrade payment not completed within 10 minutes';
-    await r.save();
-    await notifyStudentUser(
-      r.initiator_student,
-      'Bed upgrade cancelled',
-      `The bed change request ${r.request_code} was cancelled because payment was not completed in time. You remain on your previous bed.`,
-      'warning'
-    );
+    await cancelPendingUpgradePaymentInternal(r, {
+      paymentFinalStatus: 'expired',
+      payosCancelReason: 'Room transfer upgrade payment deadline passed',
+      rejectionReason: 'Upgrade payment not completed within 36 hours',
+      notifyTitle: 'Bed upgrade cancelled',
+      notifyBody: `The bed change request ${r.request_code} was cancelled because payment was not completed in time. You remain on your previous bed.`,
+      io,
+    });
   }
 
   const expiredRefunds = await RoomTransferRequest.find({
@@ -851,11 +1068,12 @@ const processRoomTransferTimeouts = async () => {
       `Request ${r.request_code}: you did not complete the in-office refund step in time. You have been moved back to your previous bed.`,
       'warning'
     );
+    await emitRoomTransferRealtime(io, r, 'cancelled');
   }
 };
 
-const checkTransferSupplementPayment = async (requestId, userId) => {
-  await processRoomTransferTimeouts();
+const checkTransferSupplementPayment = async (requestId, userId, io = null) => {
+  await processRoomTransferTimeouts(io);
   const student = await getStudentByUser(userId);
   const reqDoc = await RoomTransferRequest.findById(requestId);
   if (!reqDoc) throw new AppError('Transfer request not found', 404);
@@ -880,12 +1098,14 @@ const checkTransferSupplementPayment = async (requestId, userId) => {
   }
 
   if (new Date() > new Date(reqDoc.payment_deadline)) {
-    await processRoomTransferTimeouts();
+    await processRoomTransferTimeouts(io);
     return { transfer: await getTransferRequestById(reqDoc._id), status: 'expired', paid: false };
   }
 
-  const payosInfo = await getPayosPaymentInfo(payment.payos_order_code);
-  if (!isPayosPaid(payosInfo)) {
+  let payosInfo;
+  try {
+    payosInfo = await getPayosPaymentInfo(payment.payos_order_code);
+  } catch {
     return {
       transfer: await getTransferRequestById(reqDoc._id),
       status: 'pending',
@@ -898,25 +1118,58 @@ const checkTransferSupplementPayment = async (requestId, userId) => {
     };
   }
 
-  payment.payment_status = 'completed';
-  payment.paid_at = new Date();
-  payment.transaction_details = payosInfo;
-  await payment.save();
-  invoice.payment_status = 'paid';
-  invoice.paid_at = new Date();
-  await invoice.save();
+  if (isPayosPaid(payosInfo)) {
+    payment.payment_status = 'completed';
+    payment.paid_at = new Date();
+    payment.transaction_details = payosInfo;
+    await payment.save();
+    invoice.payment_status = 'paid';
+    invoice.paid_at = new Date();
+    await invoice.save();
 
-  await finalizeApprovedUpgradeTransfer(reqDoc);
+    await finalizeApprovedUpgradeTransfer(reqDoc);
+    await emitRoomTransferRealtime(io, reqDoc, 'approved');
+
+    return {
+      transfer: await getTransferRequestById(reqDoc._id),
+      status: 'paid',
+      paid: true,
+    };
+  }
+
+  // User hit Cancel on PayOS / link voided — webhook may not reach dev; sync from PayOS API on poll
+  if (isPayosCancelledLike(payosInfo)) {
+    payment.transaction_details = payosInfo;
+    await payment.save();
+    await cancelPendingUpgradePaymentInternal(reqDoc, {
+      paymentFinalStatus: 'cancelled',
+      payosCancelReason: 'PayOS payment cancelled (synced from status check)',
+      rejectionReason: 'Bed upgrade payment was cancelled',
+      notifyTitle: 'Bed upgrade cancelled',
+      notifyBody: `The bed change request ${reqDoc.request_code} was cancelled. You remain on your previous bed.`,
+      io,
+    });
+    return {
+      transfer: await getTransferRequestById(reqDoc._id),
+      status: 'cancelled',
+      paid: false,
+    };
+  }
 
   return {
     transfer: await getTransferRequestById(reqDoc._id),
-    status: 'paid',
-    paid: true,
+    status: 'pending',
+    paid: false,
+    payos: {
+      orderCode: payment.payos_order_code,
+      checkoutUrl: payment.payos_checkout_url,
+      qrCode: payment.payos_qr_code,
+    },
   };
 };
 
-const confirmRefundProcessed = async (requestId, managerUserId) => {
-  await processRoomTransferTimeouts();
+const confirmRefundProcessed = async (requestId, managerUserId, io = null) => {
+  await processRoomTransferTimeouts(io);
   const reqDoc = await RoomTransferRequest.findById(requestId);
   if (!reqDoc) throw new AppError('Transfer request not found', 404);
   if (reqDoc.status !== 'pending_refund_office') {
@@ -934,7 +1187,9 @@ const confirmRefundProcessed = async (requestId, managerUserId) => {
     `Your in-office refund for bed change request ${reqDoc.request_code} has been recorded. The transfer is now fully complete.`,
     'success'
   );
-  return getTransferRequestById(reqDoc._id);
+  const populated = await getTransferRequestById(reqDoc._id);
+  await emitRoomTransferRealtime(io, populated, 'approved');
+  return populated;
 };
 
 const executeSwapTransfer = async (req) => {
@@ -967,6 +1222,7 @@ const executeSwapTransfer = async (req) => {
   await BedTransferHistory.insertMany([
     {
       student: c1.student,
+      semester: c1.semester,
       from_room: oldRoom1,
       from_bed: oldBed1,
       to_room: c1.room,
@@ -978,6 +1234,7 @@ const executeSwapTransfer = async (req) => {
     },
     {
       student: c2.student,
+      semester: c2.semester,
       from_room: oldRoom2,
       from_bed: oldBed2,
       to_room: c2.room,
@@ -990,8 +1247,8 @@ const executeSwapTransfer = async (req) => {
   ]);
 };
 
-const reviewTransferRequest = async (requestId, managerUserId, body) => {
-  await processRoomTransferTimeouts();
+const reviewTransferRequest = async (requestId, managerUserId, body, io = null) => {
+  await processRoomTransferTimeouts(io);
   const req = await RoomTransferRequest.findById(requestId);
   if (!req) throw new AppError('Transfer request not found', 404);
   if (req.status !== 'pending_manager') {
@@ -1007,7 +1264,9 @@ const reviewTransferRequest = async (requestId, managerUserId, body) => {
     req.status = 'rejected';
     req.rejection_reason = String(body?.rejection_reason || '').trim() || 'Rejected by manager';
     await req.save();
-    return getTransferRequestById(req._id);
+    const populated = await getTransferRequestById(req._id);
+    await emitRoomTransferRealtime(io, populated, 'rejected');
+    return populated;
   }
 
   if (action !== 'approve') {
@@ -1034,30 +1293,25 @@ const reviewTransferRequest = async (requestId, managerUserId, body) => {
     req.status = 'approved';
     req.rejection_reason = null;
     await req.save();
-    return getTransferRequestById(req._id);
+    const populated = await getTransferRequestById(req._id);
+    await emitRoomTransferRealtime(io, populated, 'approved');
+    return populated;
   }
 
   const contract = await getActiveContract(req.initiator_student);
   const targetPrice = await getRoomPrice(req.requested_room);
   const currentPrice = Number(contract.room_price) || 0;
 
-  if (isInSemester(contract) && targetPrice !== currentPrice) {
-    throw new AppError(
-      'During the semester this request must be for a bed with the same price as the current room. Reject and ask the student to resubmit if needed.',
-      400
-    );
-  }
-
-  const beforeSemester = isBeforeSemesterStart(contract);
   // Recompute from live prices so old/wrong price_adjustment_type cannot skip refund workflow
-  const isUpgradeMove = beforeSemester && targetPrice > currentPrice;
-  const isDowngradeMove = beforeSemester && targetPrice < currentPrice;
+  const isUpgradeMove = targetPrice > currentPrice;
+  const isDowngradeMove = targetPrice < currentPrice;
 
   if (isUpgradeMove) {
     req.price_adjustment_type = 'upgrade';
     req.supplement_amount = Math.max(0, targetPrice - currentPrice);
     const pay = await startUpgradePaymentAfterApprove(req, managerUserId);
     const populated = await getTransferRequestById(req._id);
+    await emitRoomTransferRealtime(io, populated, 'pending_payment_upgrade');
     return { transfer: populated, payos: pay.payos, supplement: pay.invoice };
   }
 
@@ -1079,14 +1333,18 @@ const reviewTransferRequest = async (requestId, managerUserId, body) => {
       'warning'
     );
     await notifyManagersBedTransferRefundOffice(req, req.refund_deadline);
-    return getTransferRequestById(req._id);
+    const populated = await getTransferRequestById(req._id);
+    await emitRoomTransferRealtime(io, populated, 'pending_refund_office');
+    return populated;
   }
 
   await executeTargetEmptyTransfer(req);
   req.status = 'approved';
   req.rejection_reason = null;
   await req.save();
-  return getTransferRequestById(req._id);
+  const populated = await getTransferRequestById(req._id);
+  await emitRoomTransferRealtime(io, populated, 'approved');
+  return populated;
 };
 
 module.exports = {
@@ -1096,6 +1354,7 @@ module.exports = {
   getMyTransferRequests,
   getMyTransferHistory,
   getAvailableBedsForTransfer,
+  getMyTransferQuota,
   getAllTransferRequests,
   respondSwapTransferRequest,
   cancelTransferRequest,
@@ -1104,4 +1363,5 @@ module.exports = {
   checkTransferSupplementPayment,
   confirmRefundProcessed,
   processRoomTransferTimeouts,
+  cancelBedUpgradeFromPayosWebhook,
 };

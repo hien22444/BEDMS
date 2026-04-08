@@ -36,7 +36,7 @@ const ChatConversationSchema = new mongoose.Schema(
   }
 );
 
-// 1 student chỉ có 1 open conversation tại một thời điểm
+// Each student can only have one open conversation at a time
 ChatConversationSchema.index({ student: 1, status: 1 });
 // Manager query conversations sorted by latest activity
 ChatConversationSchema.index({ status: 1, last_message_at: -1 });

@@ -21,7 +21,8 @@ const startServer = async () => {
 
     cron.schedule('* * * * *', async () => {
       try {
-        await roomTransferService.processRoomTransferTimeouts();
+        const io = app.get('io');
+        await roomTransferService.processRoomTransferTimeouts(io);
         await bookingService.processAutoCheckoutExpiredBookings();
       } catch (err) {
         console.error('[cron] room transfer timeouts:', err?.message || err);

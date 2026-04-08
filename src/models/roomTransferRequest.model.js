@@ -32,6 +32,11 @@ const RoomTransferRequestSchema = new mongoose.Schema({
     required: true,
     ref: DBCollections.BED,
   },
+  /** Semester this transfer belongs to (used for per-semester quota). */
+  semester: {
+    type: String,
+    default: null,
+  },
   requested_room: {
     type: mongoose.Types.ObjectId,
     required: false,

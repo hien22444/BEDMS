@@ -1,5 +1,5 @@
 const Bed = require('../models/bed.model');
-const { Room, Block, Staff, BedTransferHistory, BookingRequest, RoomTransferRequest } = require('../models');
+const { Room, Block, Staff, Student, BedTransferHistory, BookingRequest, RoomTransferRequest } = require('../models');
 const Contract = require('../models/contract.model');
 const AppError = require('../utils/AppError');
 
@@ -19,7 +19,7 @@ const populateStudent = {
   populate: { path: 'user', select: 'email' },
 };
 
-// Gắn thông tin contract đang active vào mỗi bed
+// Attach active contract information to each bed
 const attachContracts = async (beds) => {
   const bedIds = beds.map((b) => b._id);
   const contracts = await Contract.find({
@@ -139,7 +139,7 @@ const updateBedStatus = async (id, status) => {
 
 // ==================== CHANGE BED ASSIGNMENT ====================
 
-const changeBedAssignment = async (sourceBedId, targetBedId, managerUserId = null) => {
+const changeBedAssignment = async (sourceBedId, targetBedId, managerUserId = null, io = null) => {
   if (String(sourceBedId) === String(targetBedId)) {
     throw new AppError('Source and target bed must be different', 400);
   }
@@ -199,6 +199,7 @@ const changeBedAssignment = async (sourceBedId, targetBedId, managerUserId = nul
 
   await BedTransferHistory.create({
     student: contract.student,
+    semester: contract.semester,
     from_room: oldRoom,
     from_bed: oldBed,
     to_room: targetBed.room,
@@ -207,6 +208,13 @@ const changeBedAssignment = async (sourceBedId, targetBedId, managerUserId = nul
     changed_by_staff: staff?._id || null,
     note: 'Manual change assignment by manager',
   });
+
+  if (io) {
+    const st = await Student.findById(contract.student).select('user').lean();
+    const payload = { event: 'manual_assignment', studentId: String(contract.student) };
+    io.to('managers').emit('room_transfer_history_updated', payload);
+    if (st?.user) io.to(`user_${st.user}`).emit('room_transfer_history_updated', payload);
+  }
 
   return { message: 'Bed assignment changed successfully' };
 };

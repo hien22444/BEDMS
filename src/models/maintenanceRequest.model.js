@@ -27,6 +27,11 @@ const MaintenanceRequestSchema = new mongoose.Schema({
     ref: DBCollections.ROOM_EQUIPMENT,
     default: null,
   },
+  /** Student selected "Other" in affected-equipment dropdown. */
+  equipment_other_selected: {
+    type: Boolean,
+    default: false,
+  },
   issue_type: {
     type: String,
     required: true,

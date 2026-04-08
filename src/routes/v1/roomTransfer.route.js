@@ -9,6 +9,10 @@ router
   .get(authenticate, authorize('student'), roomTransferController.getMyTransferRequests);
 
 router
+  .route('/my/quota')
+  .get(authenticate, authorize('student'), roomTransferController.getMyTransferQuota);
+
+router
   .route('/my/history')
   .get(authenticate, authorize('student'), roomTransferController.getMyTransferHistory);
 

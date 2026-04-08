@@ -16,7 +16,8 @@ const handleWebhook = catchAsync(async (req, res) => {
   const webhookData = await verifyPayosWebhook(req.body);
 
   // Delegate business update to booking service (idempotent)
-  const result = await bookingService.handlePayosWebhook(webhookData);
+  const io = req.app.get('io');
+  const result = await bookingService.handlePayosWebhook(webhookData, io);
 
   res.success(result || { ok: true }, status.OK);
 });

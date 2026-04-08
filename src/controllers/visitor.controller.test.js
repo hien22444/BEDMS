@@ -5,7 +5,7 @@ const { status } = require('http-status');
 const { visitorService } = require('../services');
 const visitorController = require('./visitor.controller');
 
-describe('UC10 - Gửi yêu cầu người thăm thân', () => {
+describe('UC10 - Submit visitor request', () => {
   let mockNext;
 
   beforeEach(() => {
@@ -13,14 +13,14 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
     mockNext = jest.fn();
   });
 
-  describe('createVisitorRequest - Tạo yêu cầu người thăm thân', () => {
-    // TC01: Happy Path - Tạo yêu cầu thành công
+  describe('createVisitorRequest - Submit visitor request', () => {
+    // TC01: Happy Path - Successful request creation
     it('TC01: Should create visitor request successfully with valid data', async () => {
       // ARRANGE
       const mockReq = {
         user: { id: 'student123' },
         body: {
-          visitor_name: 'Nguyễn Văn A',
+          visitor_name: 'Visitor A',
           visitor_phone: '0987654321',
           visitor_email: 'visitor@example.com',
           relationship: 'parent', // parent, sibling, friend, etc.
@@ -39,7 +39,7 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       const mockVisitorRequest = {
         _id: 'visitor-req-1',
         student: 'student123',
-        visitor_name: 'Nguyễn Văn A',
+        visitor_name: 'Visitor A',
         visitor_phone: '0987654321',
         visit_date: new Date('2026-03-15'),
         status: 'pending',
@@ -56,7 +56,7 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       expect(mockRes.success).toHaveBeenCalledWith(mockVisitorRequest, status.CREATED);
     });
 
-    // TC02: Validation - Thiếu visitor_name
+    // TC02: Validation - Missing visitor_name
     it('TC02: Should throw error when visitor_name is missing', async () => {
       // ARRANGE
       const mockReq = {
@@ -82,13 +82,13 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       expect(visitorService.createVisitorRequest).toHaveBeenCalled();
     });
 
-    // TC03: Validation - Thiếu visit_date hoặc định dạng sai
+    // TC03: Validation - Missing visit_date or invalid format
     it('TC03: Should throw error when visit_date is invalid or in past', async () => {
       // ARRANGE
       const mockReq = {
         user: { id: 'student123' },
         body: {
-          visitor_name: 'Nguyễn Văn A',
+          visitor_name: 'Visitor A',
           visitor_phone: '0987654321',
           visit_date: '2025-01-01', // Past date
           visit_time_from: '14:00',
@@ -110,13 +110,13 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       expect(visitorService.createVisitorRequest).toHaveBeenCalled();
     });
 
-    // TC04: Business Rule - User không có trạng thái sinh viên hợp lệ
+    // TC04: Business Rule - User is not in a valid student state
     it('TC04: Should throw error when user is not valid student', async () => {
       // ARRANGE
       const mockReq = {
         user: { id: 'user123' }, // Not a valid student
         body: {
-          visitor_name: 'Nguyễn Văn A',
+          visitor_name: 'Visitor A',
           visitor_phone: '0987654321',
           visit_date: '2026-03-15',
           visit_time_from: '14:00',
@@ -138,7 +138,7 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       expect(visitorService.createVisitorRequest).toHaveBeenCalled();
     });
 
-    // TC05: Business Rule - Vượt quá giới hạn yêu cầu trong tháng
+    // TC05: Business Rule - Exceeds the monthly request limit
     it('TC05: Should throw error when monthly visitor request limit exceeded', async () => {
       // ARRANGE
       const mockReq = {
@@ -166,13 +166,13 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       expect(visitorService.createVisitorRequest).toHaveBeenCalled();
     });
 
-    // TC06: Business Rule - Không thể tạo 2 yêu cầu trùng ngày giờ
+    // TC06: Business Rule - Cannot create two requests for the same time slot
     it('TC06: Should throw error when duplicate visitor request for same date/time exists', async () => {
       // ARRANGE
       const mockReq = {
         user: { id: 'student123' },
         body: {
-          visitor_name: 'Nguyễn Văn A',
+          visitor_name: 'Visitor A',
           visitor_phone: '0987654321',
           visit_date: '2026-03-15', // Same as TC01
           visit_time_from: '14:00',
@@ -196,10 +196,10 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
   });
 
   // ============================================================
-  // Bonus: getMyVisitorRequests - Lịch sử yêu cầu của học sinh
+  // Bonus: getMyVisitorRequests - Request history for the student
   // ============================================================
-  describe('getMyVisitorRequests - Xem yêu cầu của bản thân', () => {
-    // TC07: Lấy danh sách yêu cầu thành công
+  describe('getMyVisitorRequests - View own requests', () => {
+    // TC07: Successfully retrieve request list
     it('TC07: Should return list of student visitor requests', async () => {
       // ARRANGE
       const mockReq = {
@@ -213,13 +213,13 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       const mockRequests = [
         {
           _id: 'visitor-req-1',
-          visitor_name: 'Nguyễn Văn A',
+          visitor_name: 'Visitor A',
           status: 'approved',
           visit_date: new Date('2026-03-15'),
         },
         {
           _id: 'visitor-req-2',
-          visitor_name: 'Trần Thị B',
+          visitor_name: 'Visitor B',
           status: 'pending',
           visit_date: new Date('2026-03-20'),
         },
@@ -238,10 +238,10 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
   });
 
   // ============================================================
-  // Bonus: cancelVisitorRequest - Hủy yêu cầu
+  // Bonus: cancelVisitorRequest - Cancel request
   // ============================================================
-  describe('cancelVisitorRequest - Hủy yêu cầu người thăm thân', () => {
-    // TC08: Hủy yêu cầu thành công (status: pending hoặc approved)
+  describe('cancelVisitorRequest - Cancel visitor request', () => {
+    // TC08: Cancel request successfully (status: pending or approved)
     it('TC08: Should cancel visitor request successfully', async () => {
       // ARRANGE
       const mockReq = {
@@ -255,7 +255,7 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
 
       const mockCancelledRequest = {
         _id: 'visitor-req-1',
-        visitor_name: 'Nguyễn Văn A',
+        visitor_name: 'Visitor A',
         status: 'cancelled',
         cancelled_at: new Date(),
       };
@@ -274,7 +274,7 @@ describe('UC10 - Gửi yêu cầu người thăm thân', () => {
       expect(mockCancelledRequest.status).toBe('cancelled');
     });
 
-    // TC09: Không thể hủy yêu cầu đã completed
+    // TC09: Cannot cancel a completed request
     it('TC09: Should throw error when trying to cancel completed request', async () => {
       // ARRANGE
       const mockReq = {

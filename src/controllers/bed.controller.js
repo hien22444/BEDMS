@@ -25,7 +25,8 @@ const updateBedStatus = catchAsync(async (req, res) => {
 
 const changeBedAssignment = catchAsync(async (req, res) => {
   const { source_bed, target_bed } = req.body;
-  const data = await bedService.changeBedAssignment(source_bed, target_bed, req.user.id);
+  const io = req.app.get('io');
+  const data = await bedService.changeBedAssignment(source_bed, target_bed, req.user.id, io);
   res.success(data, httpStatus.OK);
 });
 

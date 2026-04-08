@@ -123,6 +123,23 @@ const getCurrentSemester = () => {
   }
 };
 
+const ensureStudentInDorm = async (studentId, notAllowedMessage) => {
+  const activeContract = await Contract.findOne({
+    student: studentId,
+    status: 'active',
+    room: { $ne: null },
+    bed: { $ne: null },
+  })
+    .select('_id')
+    .lean();
+  if (!activeContract) {
+    throw new AppError(
+      notAllowedMessage || 'Only students currently staying in the dormitory can be reported/penalized.',
+      403
+    );
+  }
+};
+
 /**
  * Recalculate and persist a student's behavioral snapshot based on existing penalties.
  * This keeps Student.behavioral_score in sync even if penalties are edited/deleted manually in DB.
@@ -167,7 +184,7 @@ const createViolationReport = async (body) => {
       .select('_id')
       .lean();
     if (!activeContract) {
-      throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
+      throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
     }
     reporterCode = reporterStudent.student_code;
     student = null;
@@ -180,6 +197,10 @@ const createViolationReport = async (body) => {
     if (!student) {
       throw new Error(`Student with code ${body.student_code} not found`);
     }
+    await ensureStudentInDorm(
+      student._id,
+      'Managers/Security can only create violation reports for students currently staying in the dormitory.'
+    );
 
     // Manager / security reporter — try to resolve staff_code
     const staff = await Staff.findOne({ user: body.reporter_id }).select('staff_code');
@@ -384,8 +405,17 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
     if (!studentByCode) {
       throw new Error(`Student with code "${penaltyData.student_code}" not found`);
     }
+    await ensureStudentInDorm(
+      studentByCode._id,
+      'Only students currently staying in the dormitory can be penalized.'
+    );
     studentId = studentByCode._id;
   }
+
+  await ensureStudentInDorm(
+    studentId,
+    'Only students currently staying in the dormitory can be penalized.'
+  );
 
   const penalty = new Penalty({
     student: studentId,
@@ -499,6 +529,10 @@ const searchStudentByCode = async (studentCode) => {
   }).select('student_code full_name phone behavioral_score violations_current_semester');
 
   if (student) {
+    await ensureStudentInDorm(
+      student._id,
+      `Student ${student.student_code} is not currently staying in the dormitory.`
+    );
     student = await syncStudentBehavioralSnapshot(student._id);
   }
 

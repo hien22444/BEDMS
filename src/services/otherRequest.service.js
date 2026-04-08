@@ -43,7 +43,7 @@ const createOtherRequest = async (userId, body) => {
     .select('_id')
     .lean();
   if (!activeContract) {
-    throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
+    throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
   }
 
   const title = String(body?.title || '').trim();

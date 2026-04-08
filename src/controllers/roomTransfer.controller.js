@@ -3,12 +3,14 @@ const { roomTransferService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
 const createEmptyBedTransferRequest = catchAsync(async (req, res) => {
-  const data = await roomTransferService.createEmptyBedTransferRequest(req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await roomTransferService.createEmptyBedTransferRequest(req.user.id, req.body, io);
   res.success(data, status.CREATED);
 });
 
 const createSwapTransferRequest = catchAsync(async (req, res) => {
-  const data = await roomTransferService.createSwapTransferRequest(req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await roomTransferService.createSwapTransferRequest(req.user.id, req.body, io);
   res.success(data, status.CREATED);
 });
 
@@ -32,13 +34,20 @@ const getAvailableBedsForTransfer = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const getMyTransferQuota = catchAsync(async (req, res) => {
+  const data = await roomTransferService.getMyTransferQuota(req.user.id);
+  res.success(data, status.OK);
+});
+
 const respondSwapTransferRequest = catchAsync(async (req, res) => {
-  const data = await roomTransferService.respondSwapTransferRequest(req.user.id, req.params.id, req.body);
+  const io = req.app.get('io');
+  const data = await roomTransferService.respondSwapTransferRequest(req.user.id, req.params.id, req.body, io);
   res.success(data, status.OK);
 });
 
 const cancelTransferRequest = catchAsync(async (req, res) => {
-  const data = await roomTransferService.cancelTransferRequest(req.user.id, req.params.id);
+  const io = req.app.get('io');
+  const data = await roomTransferService.cancelTransferRequest(req.user.id, req.params.id, io);
   res.success(data, status.OK);
 });
 
@@ -48,17 +57,20 @@ const getAllTransferRequests = catchAsync(async (req, res) => {
 });
 
 const reviewTransferRequest = catchAsync(async (req, res) => {
-  const data = await roomTransferService.reviewTransferRequest(req.params.id, req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await roomTransferService.reviewTransferRequest(req.params.id, req.user.id, req.body, io);
   res.success(data, status.OK);
 });
 
 const checkTransferSupplementPayment = catchAsync(async (req, res) => {
-  const data = await roomTransferService.checkTransferSupplementPayment(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await roomTransferService.checkTransferSupplementPayment(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
 const confirmRefundProcessed = catchAsync(async (req, res) => {
-  const data = await roomTransferService.confirmRefundProcessed(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await roomTransferService.confirmRefundProcessed(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
@@ -69,6 +81,7 @@ module.exports = {
   getMyTransferRequests,
   getMyTransferHistory,
   getAvailableBedsForTransfer,
+  getMyTransferQuota,
   respondSwapTransferRequest,
   cancelTransferRequest,
   getAllTransferRequests,

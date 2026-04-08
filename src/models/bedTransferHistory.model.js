@@ -8,6 +8,11 @@ const BedTransferHistorySchema = new mongoose.Schema(
       required: true,
       ref: DBCollections.STUDENT,
     },
+    /** Semester snapshot when the bed transfer happened (for quota/reporting). */
+    semester: {
+      type: String,
+      default: null,
+    },
     from_room: {
       type: mongoose.Types.ObjectId,
       required: true,
