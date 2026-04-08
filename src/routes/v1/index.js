@@ -21,6 +21,7 @@ const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
 const otherRequestRoute = require('./otherRequest.route');
 const maintenanceRequestRoute = require('./maintenanceRequest.route');
+const roomTransferRoute = require('./roomTransfer.route');
 const ewUsageRoute = require('./ewUsage.route');
 const invoiceRoute = require('./invoice.route');
 
@@ -120,6 +121,10 @@ const defaultRoutes = [
   {
     path: '/maintenance-requests',
     route: maintenanceRequestRoute,
+  },
+  {
+    path: '/room-transfers',
+    route: roomTransferRoute,
   },
   {
     path: '/ew-usages',

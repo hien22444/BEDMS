@@ -58,10 +58,7 @@ const getActiveContractRoomId = async (studentId) => {
     .lean();
 
   if (!contract?.room) {
-    throw new AppError(
-      'You do not have an active room assignment. Maintenance reports require an assigned dorm room.',
-      400
-    );
+    throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
   }
   return { roomId: contract.room, bedId: contract.bed || null };
 };
@@ -88,6 +85,21 @@ const createMaintenanceRequest = async (userId, body) => {
   const student = await resolveStudent(userId);
   const { roomId, bedId } = await getActiveContractRoomId(student._id);
 
+  const openExisting = await MaintenanceRequest.findOne({
+    student: student._id,
+    status: {
+      $nin: ['completed', 'done', 'cannot_fix', 'cancelled', 'rejected'],
+    },
+  })
+    .select('request_code status')
+    .lean();
+  if (openExisting) {
+    throw new AppError(
+      `You already have an active maintenance request (${openExisting.request_code} - ${openExisting.status}). Please wait until it is processed before creating a new one.`,
+      409
+    );
+  }
+
   const issue_type = String(body?.issue_type || 'other').trim();
   const priority = String(body?.priority || 'medium').trim();
   const description = String(body?.description || '').trim();
@@ -106,30 +118,35 @@ const createMaintenanceRequest = async (userId, body) => {
   }
 
   let equipment = null;
+  let equipment_other_selected = false;
   if (body?.equipment) {
     const equipmentInput = String(body?.equipment || '').trim();
     if (!equipmentInput) {
       throw new AppError('Invalid equipment selection', 400);
     }
+    if (equipmentInput.toLowerCase() === 'other') {
+      equipment_other_selected = true;
+    } else {
 
-    // Accept either RoomEquipment _id OR equipment_code (so FE can submit code like manager UI).
-    let eq = null;
-    if (mongoose.Types.ObjectId.isValid(equipmentInput)) {
-      eq = await RoomEquipment.findById(equipmentInput).lean();
-      if (eq && String(eq.room) !== String(roomId)) eq = null;
-    }
+      // Accept either RoomEquipment _id OR equipment_code (so FE can submit code like manager UI).
+      let eq = null;
+      if (mongoose.Types.ObjectId.isValid(equipmentInput)) {
+        eq = await RoomEquipment.findById(equipmentInput).lean();
+        if (eq && String(eq.room) !== String(roomId)) eq = null;
+      }
 
-    if (!eq) {
-      eq = await RoomEquipment.findOne({
-        room: roomId,
-        equipment_code: equipmentInput,
-      }).lean();
-    }
+      if (!eq) {
+        eq = await RoomEquipment.findOne({
+          room: roomId,
+          equipment_code: equipmentInput,
+        }).lean();
+      }
 
-    if (!eq) {
-      throw new AppError('Invalid equipment selection for your room', 400);
+      if (!eq) {
+        throw new AppError('Invalid equipment selection for your room', 400);
+      }
+      equipment = eq._id;
     }
-    equipment = eq._id;
   }
 
   const request_code = await generateRequestCode();
@@ -139,6 +156,7 @@ const createMaintenanceRequest = async (userId, body) => {
     room: roomId,
     bed: bedId,
     equipment,
+    equipment_other_selected,
     issue_type,
     priority,
     description,
@@ -199,7 +217,7 @@ const getMyMaintenanceContext = async (userId) => {
     .lean();
 
   if (!contract?.room || !contract?.bed) {
-    throw new AppError('You do not have an active room assignment (room/bed).', 400);
+    throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
   }
 
   return {

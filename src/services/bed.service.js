@@ -1,5 +1,5 @@
 const Bed = require('../models/bed.model');
-const { Room, Block } = require('../models');
+const { Room, Block, Staff, Student, BedTransferHistory, BookingRequest, RoomTransferRequest } = require('../models');
 const Contract = require('../models/contract.model');
 const AppError = require('../utils/AppError');
 
@@ -139,7 +139,7 @@ const updateBedStatus = async (id, status) => {
 
 // ==================== CHANGE BED ASSIGNMENT ====================
 
-const changeBedAssignment = async (sourceBedId, targetBedId) => {
+const changeBedAssignment = async (sourceBedId, targetBedId, managerUserId = null, io = null) => {
   if (String(sourceBedId) === String(targetBedId)) {
     throw new AppError('Source and target bed must be different', 400);
   }
@@ -160,10 +160,33 @@ const changeBedAssignment = async (sourceBedId, targetBedId) => {
   });
   if (!contract) throw new AppError('No active contract found for source bed', 404);
 
+  const openTransfer = await RoomTransferRequest.findOne({
+    $or: [{ initiator_student: contract.student }, { target_student: contract.student }],
+    status: {
+      $in: [
+        'pending_partner',
+        'pending_manager',
+        'pending_payment_upgrade',
+        'pending_refund_office',
+      ],
+    },
+  }).select('request_code status');
+  if (openTransfer) {
+    throw new AppError(
+      `Student has an open bed transfer request (${openTransfer.request_code} - ${openTransfer.status}). Resolve it before manual assignment.`,
+      409
+    );
+  }
+
+  const staff = managerUserId ? await Staff.findOne({ user: managerUserId }).select('_id').lean() : null;
+  const oldRoom = contract.room;
+  const oldBed = contract.bed;
+
   // Move contract to target bed (and room if different)
   contract.bed = targetBed._id;
   contract.room = targetBed.room;
   await contract.save();
+  await syncCurrentBookingBedSnapshot(contract.student, targetBed.room, targetBed._id, contract.semester);
 
   // Update bed statuses
   sourceBed.status = 'available';
@@ -173,6 +196,25 @@ const changeBedAssignment = async (sourceBedId, targetBedId) => {
   // Sync available_beds for affected rooms
   const roomIds = [...new Set([String(sourceBed.room), String(targetBed.room)])];
   await Promise.all(roomIds.map(syncRoomAvailability));
+
+  await BedTransferHistory.create({
+    student: contract.student,
+    semester: contract.semester,
+    from_room: oldRoom,
+    from_bed: oldBed,
+    to_room: targetBed.room,
+    to_bed: targetBed._id,
+    transfer_source: 'manual_assignment',
+    changed_by_staff: staff?._id || null,
+    note: 'Manual change assignment by manager',
+  });
+
+  if (io) {
+    const st = await Student.findById(contract.student).select('user').lean();
+    const payload = { event: 'manual_assignment', studentId: String(contract.student) };
+    io.to('managers').emit('room_transfer_history_updated', payload);
+    if (st?.user) io.to(`user_${st.user}`).emit('room_transfer_history_updated', payload);
+  }
 
   return { message: 'Bed assignment changed successfully' };
 };
@@ -193,10 +235,68 @@ const syncRoomAvailability = async (roomId) => {
   await room.save();
 };
 
+const syncCurrentBookingBedSnapshot = async (studentId, roomId, bedId, semester) => {
+  const now = new Date();
+  const booking = await BookingRequest.findOne({
+    student: studentId,
+    status: 'approved',
+    checkout_date: null,
+    ...(semester ? { semester } : {}),
+    $or: [{ end_date: { $exists: false } }, { end_date: { $gt: now } }],
+  }).sort({ requested_at: -1 });
+
+  if (!booking) return;
+  booking.bed_transfer = bedId;
+  await booking.save();
+};
+
+const getBedTransferHistory = async (query = {}) => {
+  const { page = 1, limit = 20 } = query;
+  const safePage = Math.max(parseInt(page, 10) || 1, 1);
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+  const skip = (safePage - 1) * safeLimit;
+
+  const [items, total] = await Promise.all([
+    BedTransferHistory.find({})
+      .populate([
+        { path: 'student', select: 'student_code full_name' },
+        {
+          path: 'from_room',
+          select: 'room_number block',
+          populate: { path: 'block', select: 'block_name block_code dorm', populate: { path: 'dorm', select: 'dorm_code dorm_name' } },
+        },
+        { path: 'from_bed', select: 'bed_number' },
+        {
+          path: 'to_room',
+          select: 'room_number block',
+          populate: { path: 'block', select: 'block_name block_code dorm', populate: { path: 'dorm', select: 'dorm_code dorm_name' } },
+        },
+        { path: 'to_bed', select: 'bed_number' },
+        { path: 'changed_by_staff', select: 'full_name staff_code' },
+        { path: 'transfer_request', select: 'request_code transfer_type' },
+      ])
+      .sort({ changed_at: -1 })
+      .skip(skip)
+      .limit(safeLimit),
+    BedTransferHistory.countDocuments({}),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit) || 1,
+    },
+  };
+};
+
 module.exports = {
   getAllBeds,
   getBedsByRoom,
   getBedById,
   updateBedStatus,
   changeBedAssignment,
+  getBedTransferHistory,
 };

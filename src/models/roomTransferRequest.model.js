@@ -2,20 +2,52 @@ const mongoose = require('mongoose');
 const { DBCollections } = require('../utils/constant');
 
 const RoomTransferRequestSchema = new mongoose.Schema({
-  student: {
+  request_code: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  transfer_type: {
+    type: String,
+    required: true,
+    enum: ['target_empty', 'swap'],
+  },
+  initiator_student: {
     type: mongoose.Types.ObjectId,
     required: true,
     ref: DBCollections.STUDENT,
+  },
+  target_student: {
+    type: mongoose.Types.ObjectId,
+    ref: DBCollections.STUDENT,
+    default: null,
   },
   current_room: {
     type: mongoose.Types.ObjectId,
     required: true,
     ref: DBCollections.ROOM,
   },
-  requested_room: {
+  current_bed: {
     type: mongoose.Types.ObjectId,
     required: true,
+    ref: DBCollections.BED,
+  },
+  /** Semester this transfer belongs to (used for per-semester quota). */
+  semester: {
+    type: String,
+    default: null,
+  },
+  requested_room: {
+    type: mongoose.Types.ObjectId,
+    required: false,
     ref: DBCollections.ROOM,
+    default: null,
+  },
+  requested_bed: {
+    type: mongoose.Types.ObjectId,
+    required: false,
+    ref: DBCollections.BED,
+    default: null,
   },
   reason: {
     type: String,
@@ -23,8 +55,47 @@ const RoomTransferRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    default: 'pending',
-    enum: ['pending', 'approved', 'rejected', 'cancelled'],
+    default: 'pending_manager',
+    enum: [
+      'pending_partner',
+      'pending_manager',
+      'pending_payment_upgrade',
+      'pending_refund_office',
+      'approved',
+      'rejected',
+      'cancelled',
+    ],
+  },
+  /** Before semester: upgrade / downgrade / none; swap always none */
+  price_adjustment_type: {
+    type: String,
+    enum: ['none', 'upgrade', 'downgrade'],
+    default: 'none',
+  },
+  supplement_amount: {
+    type: Number,
+    default: 0,
+  },
+  payment_deadline: {
+    type: Date,
+    default: null,
+  },
+  refund_deadline: {
+    type: Date,
+    default: null,
+  },
+  supplement_invoice: {
+    type: mongoose.Types.ObjectId,
+    ref: DBCollections.INVOICE,
+    default: null,
+  },
+  refund_confirmed_at: {
+    type: Date,
+    default: null,
+  },
+  partner_response_at: {
+    type: Date,
+    default: null,
   },
   rejection_reason: {
     type: String,

@@ -20,5 +20,6 @@ router.patch('/:id/status', bedController.updateBedStatus);
 
 // PATCH change assignment (move student from one bed to another)
 router.patch('/assignment/change', bedController.changeBedAssignment);
+router.get('/assignment/history', bedController.getBedTransferHistory);
 
 module.exports = router;

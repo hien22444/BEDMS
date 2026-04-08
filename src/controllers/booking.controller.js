@@ -97,6 +97,16 @@ const checkoutStudent = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const listCfdAtRiskStudents = catchAsync(async (req, res) => {
+  const data = await bookingService.listCfdAtRiskStudents();
+  res.success(data, status.OK);
+});
+
+const cfdDormExpelStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.cfdDormExpelStudent(req.body.student_code);
+  res.success(data, status.OK);
+});
+
 const getRoommates = catchAsync(async (req, res) => {
   const data = await bookingService.getRoommates(req.user.id, req.params.id);
   res.success(data, status.OK);
@@ -131,5 +141,7 @@ module.exports = {
   getAllBookings,
   searchStudentForCheckout,
   checkoutStudent,
+  listCfdAtRiskStudents,
+  cfdDormExpelStudent,
   getRoommates,
 };
