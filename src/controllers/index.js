@@ -21,3 +21,4 @@ module.exports.otherRequestController = require('./otherRequest.controller');
 module.exports.maintenanceRequestController = require('./maintenanceRequest.controller');
 module.exports.ewUsageController = require('./ewUsage.controller');
 module.exports.invoiceController = require('./invoice.controller');
+module.exports.checkoutRequestController = require('./checkoutRequest.controller');

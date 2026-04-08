@@ -21,6 +21,7 @@ const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
 const otherRequestRoute = require('./otherRequest.route');
 const maintenanceRequestRoute = require('./maintenanceRequest.route');
+const checkoutRequestRoute = require('./checkoutRequest.route');
 const ewUsageRoute = require('./ewUsage.route');
 const invoiceRoute = require('./invoice.route');
 
@@ -128,6 +129,10 @@ const defaultRoutes = [
   {
     path: '/invoices',
     route: invoiceRoute,
+  },
+  {
+    path: '/checkout-requests',
+    route: checkoutRequestRoute,
   },
 ];
 
