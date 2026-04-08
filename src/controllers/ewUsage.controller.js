@@ -12,6 +12,11 @@ const createEWUsage = catchAsync(async (req, res) => {
   res.success(data, status.CREATED);
 });
 
+const quickCreateEWUsage = catchAsync(async (req, res) => {
+  const data = await ewUsageService.quickCreateEWUsage(req.body);
+  res.success(data, status.CREATED);
+});
+
 const updateEWUsage = catchAsync(async (req, res) => {
   const data = await ewUsageService.updateEWUsage(req.params.id, req.body);
   res.success(data, status.OK);
@@ -54,6 +59,7 @@ module.exports = {
   getMyEWUsages,
   getEWUsages,
   createEWUsage,
+  quickCreateEWUsage,
   updateEWUsage,
   resetMeter,
   importEWUsages,
