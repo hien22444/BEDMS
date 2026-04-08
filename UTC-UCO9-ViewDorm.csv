@@ -1,0 +1,36 @@
+Function Code,UCO9-View Dorm
+Function Name,View Dorm Detail
+Created By,TungPT17
+Executed By,
+Lines of code,,
+Lack of test cases,,
+Test requirement,"Validate get dorm detail via GET /v1/dorms/:id"
+Passed,,
+Failed,,
+Untested,,
+N/A/B,,
+Total Test Cases,10
+
+Condition/Precondition,UTC09-01,UTC09-02,UTC09-03,UTC09-04,UTC09-05,UTC09-06,UTC09-07,UTC09-08,UTC09-09,UTC09-10
+Can't connect with server,O,,,,,,,,,
+Connect with server,,O,O,O,O,O,O,O,O,O
+User is logged in as admin/manager,,O,O,O,O,O,O,O,O,O
+,
+Input: dorm id,,, , , , , , ,,
+id valid & dorm exists (active = true),,O,,,,,,,,,
+id valid & dorm exists (active = false),,,O,,,,,,,,
+id not found (valid ObjectId, no dorm),,,,,O,,,,,,
+id invalid format (contains space),,,,,,O,,,,,
+id invalid format (number like ""123""),,,,,,,O,,,,
+id invalid format (string ""not-an-objectid""),,,,,,,,O,,,
+id was deleted before (valid ObjectId),,,,,,,,,O,,
+id valid (verify response fields present),,,,,,,,,,O,
+id valid (verify dorm_code uppercase),,,,,,,,,,,O
+
+Result,,,"","","","","","","",""
+Type (N: Normal, A: Abnormal, B: Boundary),A,N,N,A,A,A,A,N,N,N
+Expected HTTP Status,500,200,200,400,400,400,400,200,200,200
+Return TRUE/FALSE (business),"",TRUE,TRUE,"","","","",TRUE,TRUE,TRUE
+Exception / Error message,"Server Internal Error (500)","","","Dorm not found","Dorm not found","Server Internal Error (500)","Server Internal Error (500)","","",""
+Log message,"Server Internal Error (500)","Dorm detail loaded successfully","Dorm detail loaded successfully","""Dorm not found""","""Dorm not found""","Server Internal Error (500)","Server Internal Error (500)","Dorm detail loaded successfully","Dorm detail loaded successfully","Dorm detail loaded successfully"
+

@@ -1,0 +1,37 @@
+Function Code,UCO8-Update Dorm
+Function Name,Update Dorm
+Created By,TungPT17
+Executed By,
+Lines of code,,
+Lack of test cases,,
+Test requirement,"Validate update dorm via PATCH /v1/dorms/:id (fields: dorm_code, total_floors, description, is_active)"
+Passed,,
+Failed,,
+Untested,,
+N/A/B,,
+Total Test Cases,10
+
+Condition/Precondition,UTC08-01,UTC08-02,UTC08-03,UTC08-04,UTC08-05,UTC08-06,UTC08-07,UTC08-08,UTC08-09,UTC08-10
+Can't connect with server,O,,,,,,,,,
+Connect with server,,O,O,O,O,O,O,O,O,O
+User is logged in as admin/manager,,O,O,O,O,O,O,O,O,O
+,
+Input: total_floors and dorm_code,,, , , , , , ,,
+total_floors = 1 (valid),,O,,,,,,,,,
+total_floors = 0 (invalid),,,O,,,,,,,,
+total_floors = 2 (< highest block floor = 3),,,,O,,,,,,,
+total_floors = 3 (>= highest block floor),,,,,O,,,,,,
+dorm_code not provided (only total_floors) ,,,,,,O,,,,,
+dorm_code = "" (empty string),,,,,,,O,,,,
+dorm_code = "ABC" (length 3),,,,,,,,O,,,
+dorm_code = "B" but B already exists in another dorm ,,,,,,,,,O,,
+dorm_code = "1A" (not letter),,,,,,,,,,O,
+id = valid ObjectId but dorm not found ,,,,,,,,,,O
+
+Result,,,"","","","","","","",""
+Type (N: Normal, A: Abnormal, B: Boundary),A,N,B,B,N,N,A,A,A,A
+Expected HTTP Status,500,200,400,400,200,200,400,400,400,400
+Return TRUE/FALSE (business),"",TRUE,"","",TRUE,TRUE,"","","",""
+Exception / Error message,"Server Internal Error (500)","Dorm updated successfully","total_floors must be at least 1","Cannot set total_floors to 2. The highest block is on floor 3. total_floors must be >= 3.","Dorm updated successfully","Dorm updated successfully","dorm_code must be 1 letter (A-Z)","dorm_code must be 1 letter (A-Z)","Dorm code already exists","Dorm not found"
+Log message,"Server Internal Error (500)","Dorm updated successfully","""The number of floors must be >=1""","""The number of floors must be >= highest block floor""","Dorm updated successfully","Dorm updated successfully","""It can only contain one uppercase letter""","""It can only contain one uppercase letter""","""Dorm already exists""","""Dorm not found"""
+

@@ -18,6 +18,12 @@ const BookingRequestSchema = new mongoose.Schema(
       ref: DBCollections.BED,
       default: null,
     },
+    // Keep original booked bed immutable; store post-transfer bed here.
+    bed_transfer: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.BED,
+      default: null,
+    },
     invoice: {
       type: mongoose.Types.ObjectId,
       ref: DBCollections.INVOICE,
@@ -77,6 +83,11 @@ BookingRequestSchema.set('toJSON', {
     delete ret._id;
     delete ret.__v;
   },
+});
+
+// Convenience field for consumers: use transferred bed if present.
+BookingRequestSchema.virtual('effective_bed').get(function getEffectiveBed() {
+  return this.bed_transfer || this.bed || null;
 });
 
 const BookingRequest = mongoose.model(DBCollections.BOOKING_REQUEST, BookingRequestSchema);

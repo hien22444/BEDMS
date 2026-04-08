@@ -25,7 +25,12 @@ const updateBedStatus = catchAsync(async (req, res) => {
 
 const changeBedAssignment = catchAsync(async (req, res) => {
   const { source_bed, target_bed } = req.body;
-  const data = await bedService.changeBedAssignment(source_bed, target_bed);
+  const data = await bedService.changeBedAssignment(source_bed, target_bed, req.user.id);
+  res.success(data, httpStatus.OK);
+});
+
+const getBedTransferHistory = catchAsync(async (req, res) => {
+  const data = await bedService.getBedTransferHistory(req.query);
   res.success(data, httpStatus.OK);
 });
 
@@ -35,4 +40,5 @@ module.exports = {
   getBedById,
   updateBedStatus,
   changeBedAssignment,
+  getBedTransferHistory,
 };

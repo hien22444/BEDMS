@@ -19,3 +19,4 @@ module.exports.cameraController = require('./camera.controller');
 module.exports.dateConfigController = require('./dateConfig.controller');
 module.exports.otherRequestController = require('./otherRequest.controller');
 module.exports.maintenanceRequestController = require('./maintenanceRequest.controller');
+module.exports.roomTransferController = require('./roomTransfer.controller');

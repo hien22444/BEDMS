@@ -1,4 +1,5 @@
-const { ViolationReport, Penalty, Student, Staff } = require('../models');
+const { ViolationReport, Penalty, Student, Staff, Contract } = require('../models');
+const AppError = require('../utils/AppError');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -123,6 +124,28 @@ const getCurrentSemester = () => {
 };
 
 /**
+ * Recalculate and persist a student's behavioral snapshot based on existing penalties.
+ * This keeps Student.behavioral_score in sync even if penalties are edited/deleted manually in DB.
+ */
+const syncStudentBehavioralSnapshot = async (studentId) => {
+  const student = await Student.findById(studentId);
+  if (!student) return null;
+
+  const penalties = await Penalty.find({ student: student._id }).select('points_deducted');
+  const totalDeducted = penalties.reduce((sum, p) => sum + (Number(p.points_deducted) || 0), 0);
+  const violationsCount = penalties.length;
+  const recalculatedScore = Math.max(0, 10 - totalDeducted);
+
+  student.behavioral_score = recalculatedScore;
+  student.violations_current_semester = violationsCount;
+  student.ban_until_semester =
+    recalculatedScore < 4 || violationsCount >= 3 ? getNextSemester() : null;
+
+  await student.save();
+  return student;
+};
+
+/**
  * Create a new violation report
  */
 const createViolationReport = async (body) => {
@@ -134,6 +157,17 @@ const createViolationReport = async (body) => {
     const reporterStudent = await Student.findOne({ user: body.reporter_id });
     if (!reporterStudent) {
       throw new Error('Student profile not found for current user');
+    }
+    const activeContract = await Contract.findOne({
+      student: reporterStudent._id,
+      status: 'active',
+      room: { $ne: null },
+      bed: { $ne: null },
+    })
+      .select('_id')
+      .lean();
+    if (!activeContract) {
+      throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
     }
     reporterCode = reporterStudent.student_code;
     student = null;
@@ -365,20 +399,8 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
 
   await penalty.save();
 
-  // Update student behavioral score
-  const student = await Student.findById(studentId);
-  if (student) {
-    const newScore = Math.max(0, student.behavioral_score - penaltyData.points_deducted);
-    student.behavioral_score = newScore;
-    student.violations_current_semester += 1;
-
-    // Check for ban conditions (e.g., score below 4 or 3+ violations)
-    if (newScore < 4 || student.violations_current_semester >= 3) {
-      student.ban_until_semester = getNextSemester();
-    }
-
-    await student.save();
-  }
+  // Keep snapshot fields in Student synchronized with real penalty records.
+  await syncStudentBehavioralSnapshot(studentId);
 
   return penalty;
 };
@@ -404,10 +426,12 @@ const getNextSemester = () => {
  * Get all penalties for a student
  */
 const getStudentPenalties = async (studentCode) => {
-  const student = await Student.findOne({ student_code: studentCode });
+  let student = await Student.findOne({ student_code: studentCode });
   if (!student) {
     throw new Error(`Student with code ${studentCode} not found`);
   }
+
+  student = await syncStudentBehavioralSnapshot(student._id);
 
   const penalties = await Penalty.find({ student: student._id })
     .populate([
@@ -424,6 +448,7 @@ const getStudentPenalties = async (studentCode) => {
       violations_current_semester: student.violations_current_semester,
       is_banned_permanently: student.is_banned_permanently,
       ban_until_semester: student.ban_until_semester,
+      dorm_booking_suspended: !!student.dorm_booking_suspended,
     },
     penalties,
   };
@@ -433,10 +458,12 @@ const getStudentPenalties = async (studentCode) => {
  * CFD / penalties for the logged-in student (resolved from user id)
  */
 const getMyPenaltiesForStudentUser = async (userId) => {
-  const student = await Student.findOne({ user: userId });
+  let student = await Student.findOne({ user: userId });
   if (!student) {
     return { student: null, penalties: [] };
   }
+
+  student = await syncStudentBehavioralSnapshot(student._id);
 
   const penalties = await Penalty.find({ student: student._id })
     .populate([
@@ -453,6 +480,7 @@ const getMyPenaltiesForStudentUser = async (userId) => {
       violations_current_semester: student.violations_current_semester,
       is_banned_permanently: student.is_banned_permanently,
       ban_until_semester: student.ban_until_semester,
+      dorm_booking_suspended: !!student.dorm_booking_suspended,
     },
     penalties,
   };
@@ -466,9 +494,13 @@ const searchStudentByCode = async (studentCode) => {
   const code = (studentCode || '').trim();
   if (!code) return null;
 
-  const student = await Student.findOne({
+  let student = await Student.findOne({
     student_code: { $regex: new RegExp(`^${escapeRegex(code)}$`, 'i') },
   }).select('student_code full_name phone behavioral_score violations_current_semester');
+
+  if (student) {
+    student = await syncStudentBehavioralSnapshot(student._id);
+  }
 
   return student;
 };

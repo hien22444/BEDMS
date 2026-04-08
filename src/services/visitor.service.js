@@ -4,8 +4,10 @@ const {
   VisitorCheckin,
   User,
   Student,
+  Contract,
   Notification,
 } = require('../models');
+const AppError = require('../utils/AppError');
 
 // Vietnamese phone: 10 digits starting with 0 (covers mobile 03/05/07/08/09 and landlines 02x)
 const PHONE_REGEX = /^0\d{9}$/;
@@ -77,6 +79,17 @@ const createVisitorRequest = async (userId, body) => {
   const student = await Student.findOne({ user: userId });
   if (!student) {
     throw new Error('Only registered students can create visitor requests.');
+  }
+  const activeContract = await Contract.findOne({
+    student: student._id,
+    status: 'active',
+    room: { $ne: null },
+    bed: { $ne: null },
+  })
+    .select('_id')
+    .lean();
+  if (!activeContract) {
+    throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
   }
 
   // H2: Enforce ban status before allowing any further processing

@@ -1,0 +1,39 @@
+Function Code,UCO10-Delete Dorm
+Function Name,Delete Dorm
+Created By,TungPT17
+Executed By,
+Lines of code,,
+Lack of test cases,,
+Test requirement,"Validate delete dorm via DELETE /v1/dorms/:id (with FE confirm dialog)"
+Passed,,
+Failed,,
+Untested,,
+N/A/B,,
+Total Test Cases,10
+
+Condition/Precondition,UTC10-01,UTC10-02,UTC10-03,UTC10-04,UTC10-05,UTC10-06,UTC10-07,UTC10-08,UTC10-09,UTC10-10
+Can't connect with server,O,,,,,,,,,
+Connect with server,,O,O,O,O,O,O,O,O,O
+User is logged in as admin/manager,,O,O,O,O,O,O,O,O,O
+,
+Confirm (on FE modal),,, , , , , , ,,
+Confirm = FALSE (Cancel),,O,,,,,,,,,
+Confirm = TRUE (Proceed),,,O,O,O,O,O,O,O,O
+,
+Current dorm state,,, , , , , , ,,
+blockCount = 0 (no blocks),,,O,,,,,,,,
+blockCount = 1,,,,O,,,,,,,
+blockCount >= 2 (e.g., 2 blocks),,,,,O,,,,,,
+id not found (valid ObjectId, no dorm),,,,,,O,,,,,
+id invalid format (e.g., ""123""),,,,,,,O,,,,
+delete then call GET again (same id),,,,,,,,O,,,
+delete already deleted dorm (second time),,,,,,,,,O,,
+dorm is_active = false & blockCount = 0 (can delete),,,,,,,,,,O
+
+Result,,,"","","","","","","",""
+Type (N: Normal, A: Abnormal, B: Boundary),A,N,N,B,B,B,A,A,N,A
+Expected HTTP Status,500,200,200,400,400,400,400,400,200,400
+Return TRUE/FALSE (business),"",FALSE,TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,FALSE
+Exception / Error message,"Server Internal Error (500)","","","Cannot delete dorm","Cannot delete dorm","Cannot delete dorm","Dorm not found","Server Internal Error (500)","","Dorm not found"
+Log message,"Server Internal Error (500)","Delete cancelled by user","Dorm deleted successfully","""Cannot delete dorm """"{dorm_name}"""": it still has 1 block(s). Please delete all blocks first.""","""Cannot delete dorm """"{dorm_name}"""" : it still has {blockCount} block(s). Please delete all blocks first.""","""Cannot delete dorm""","""Dorm not found""","Server Internal Error (500)","Dorm deleted successfully","""Dorm not found"""
+

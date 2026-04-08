@@ -58,10 +58,7 @@ const getActiveContractRoomId = async (studentId) => {
     .lean();
 
   if (!contract?.room) {
-    throw new AppError(
-      'You do not have an active room assignment. Maintenance reports require an assigned dorm room.',
-      400
-    );
+    throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
   }
   return { roomId: contract.room, bedId: contract.bed || null };
 };
@@ -199,7 +196,7 @@ const getMyMaintenanceContext = async (userId) => {
     .lean();
 
   if (!contract?.room || !contract?.bed) {
-    throw new AppError('You do not have an active room assignment (room/bed).', 400);
+    throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
   }
 
   return {

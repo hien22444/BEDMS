@@ -1,4 +1,4 @@
-const { OtherRequest, Notification, User, Student } = require('../models');
+const { OtherRequest, Notification, User, Student, Contract } = require('../models');
 const AppError = require('../utils/AppError');
 
 const generateRequestCode = async (maxRetries = 3) => {
@@ -29,6 +29,23 @@ const generateRequestCode = async (maxRetries = 3) => {
 };
 
 const createOtherRequest = async (userId, body) => {
+  const student = await Student.findOne({ user: userId }).select('_id').lean();
+  if (!student) {
+    throw new AppError('Only registered students can create other requests.', 403);
+  }
+
+  const activeContract = await Contract.findOne({
+    student: student._id,
+    status: 'active',
+    room: { $ne: null },
+    bed: { $ne: null },
+  })
+    .select('_id')
+    .lean();
+  if (!activeContract) {
+    throw new AppError('Bạn không phải là sinh viên ở ký túc xá, không được gửi request.', 403);
+  }
+
   const title = String(body?.title || '').trim();
   const description = String(body?.description || '').trim();
 
