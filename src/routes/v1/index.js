@@ -14,7 +14,6 @@ const bedRoute = require('./bed.route');
 const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
 const payosRoute = require('./payos.route');
-const aiRulesRoute = require('./aiRules.route');
 const faceRecognitionRoute = require('./faceRecognition.route');
 const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
@@ -24,6 +23,7 @@ const maintenanceRequestRoute = require('./maintenanceRequest.route');
 const roomTransferRoute = require('./roomTransfer.route');
 const ewUsageRoute = require('./ewUsage.route');
 const invoiceRoute = require('./invoice.route');
+const agentRoute = require('./agent.route');
 
 const express = require('express');
 
@@ -95,10 +95,6 @@ const defaultRoutes = [
     route: payosRoute,
   },
   {
-    path: '/ai',
-    route: aiRulesRoute,
-  },
-  {
     path: '/face-recognition',
     route: faceRecognitionRoute,
   },
@@ -133,6 +129,10 @@ const defaultRoutes = [
   {
     path: '/invoices',
     route: invoiceRoute,
+  },
+  {
+    path: '/agents',
+    route: agentRoute,
   },
 ];
 
