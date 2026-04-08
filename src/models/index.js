@@ -20,6 +20,7 @@ module.exports.RoomTypeEquipmentConfig = require('./roomTypeEquipmentConfig.mode
 module.exports.BookingRequest = require('./bookingRequest.model');
 module.exports.Contract = require('./contract.model');
 module.exports.RoomTransferRequest = require('./roomTransferRequest.model');
+module.exports.BedTransferHistory = require('./bedTransferHistory.model');
 module.exports.ContractExtension = require('./contractExtension.model');
 
 // Behavioral Scoring

@@ -68,6 +68,11 @@ const StudentSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /** Manager CFD expulsion: student may log in but cannot create new bookings / keep bed */
+    dorm_booking_suspended: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

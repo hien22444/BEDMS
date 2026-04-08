@@ -14,6 +14,7 @@ const DBCollections = Object.freeze({
   BOOKING_REQUEST: 'BookingRequest',
   CONTRACT: 'Contract',
   ROOM_TRANSFER_REQUEST: 'RoomTransferRequest',
+  BED_TRANSFER_HISTORY: 'BedTransferHistory',
   CONTRACT_EXTENSION: 'ContractExtension',
   BEHAVIORAL_SCORE_HISTORY: 'BehavioralScoreHistory',
   VIOLATION_REPORT: 'ViolationReport',

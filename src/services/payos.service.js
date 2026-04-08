@@ -39,6 +39,7 @@ const createPayosPaymentLink = async ({
   buyerEmail,
   buyerName,
   items,
+  expiredAt,
 }) => {
   const payOS = await getPayOS();
 
@@ -52,6 +53,7 @@ const createPayosPaymentLink = async ({
     ...(buyerEmail ? { buyerEmail } : {}),
     ...(buyerName ? { buyerName } : {}),
     ...(Array.isArray(items) ? { items } : {}),
+    ...(typeof expiredAt === 'number' && expiredAt > 0 ? { expiredAt } : {}),
   };
 
   // SDK naming: paymentRequests.create / get / cancel
