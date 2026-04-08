@@ -231,6 +231,7 @@ const handleDetectionCallback = async (payload) => {
   const logType = camera_type === 'checkout' ? 'check_out' : 'check_in';
 
   const enrichedDetections = [];
+  const matchedLogIds = [];
 
   for (const det of detections) {
     if (!det || !Array.isArray(det.embedding) || det.embedding.length !== 512) {
@@ -266,6 +267,7 @@ const handleDetectionCallback = async (payload) => {
           confidence: match.confidence,
         });
         enriched.access_log_id = log._id.toString();
+        matchedLogIds.push(log._id);
 
         // Upload annotated frame to Cloudinary (non-blocking)
         if (frame_base64) {
@@ -285,6 +287,14 @@ const handleDetectionCallback = async (payload) => {
 
     enrichedDetections.push(enriched);
   }
+
+  // Populate matched logs for socket emission
+  const matchedLogs =
+    matchedLogIds.length > 0
+      ? await StudentAccessLog.find({ _id: { $in: matchedLogIds } })
+          .populate('student', 'student_code full_name avatar_url')
+          .lean()
+      : [];
 
   // Unknown face tracking with grace period
   let unknownLog = null;
@@ -351,6 +361,7 @@ const handleDetectionCallback = async (payload) => {
     timestamp,
     detections: enrichedDetections,
     frame_base64,
+    matchedLogs,
     unknownLog,
   };
 };

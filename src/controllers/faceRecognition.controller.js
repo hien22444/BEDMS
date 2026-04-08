@@ -16,11 +16,7 @@ const registerFace = catchAsync(async (req, res) => {
       message: 'studentId is required',
     });
   }
-  const data = await faceRecognitionService.registerFace(
-    studentId,
-    req.file.buffer,
-    req.user.id
-  );
+  const data = await faceRecognitionService.registerFace(studentId, req.file.buffer, req.user.id);
   res.success(data, status.CREATED);
 });
 
@@ -65,6 +61,12 @@ const handleCallback = catchAsync(async (req, res) => {
   const io = req.app.get('io');
   if (io) {
     io.to('security_cameras').emit('face_detection_result', result);
+    // Emit each new access log (matched + unknown) for real-time activity & notifications
+    if (result.matchedLogs) {
+      for (const log of result.matchedLogs) {
+        io.to('security_cameras').emit('access_log_created', log);
+      }
+    }
     if (result.unknownLog) {
       io.to('security_cameras').emit('access_log_created', result.unknownLog);
     }
