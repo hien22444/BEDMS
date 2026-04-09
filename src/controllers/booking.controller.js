@@ -61,7 +61,8 @@ const submitBooking = catchAsync(async (req, res) => {
 });
 
 const checkPaymentStatus = catchAsync(async (req, res) => {
-  const data = await bookingService.checkPaymentStatus(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await bookingService.checkPaymentStatus(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
@@ -71,7 +72,8 @@ const getMyBookings = catchAsync(async (req, res) => {
 });
 
 const cancelBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.cancelBooking(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await bookingService.cancelBooking(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
@@ -92,6 +94,16 @@ const searchStudentForCheckout = catchAsync(async (req, res) => {
 
 const checkoutStudent = catchAsync(async (req, res) => {
   const data = await bookingService.checkoutStudent(req.body.student_code, req.user.id);
+  res.success(data, status.OK);
+});
+
+const listCfdAtRiskStudents = catchAsync(async (req, res) => {
+  const data = await bookingService.listCfdAtRiskStudents();
+  res.success(data, status.OK);
+});
+
+const cfdDormExpelStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.cfdDormExpelStudent(req.body.student_code);
   res.success(data, status.OK);
 });
 
@@ -129,5 +141,7 @@ module.exports = {
   getAllBookings,
   searchStudentForCheckout,
   checkoutStudent,
+  listCfdAtRiskStudents,
+  cfdDormExpelStudent,
   getRoommates,
 };

@@ -14,12 +14,12 @@ const DBCollections = Object.freeze({
   BOOKING_REQUEST: 'BookingRequest',
   CONTRACT: 'Contract',
   ROOM_TRANSFER_REQUEST: 'RoomTransferRequest',
+  BED_TRANSFER_HISTORY: 'BedTransferHistory',
   CONTRACT_EXTENSION: 'ContractExtension',
   BEHAVIORAL_SCORE_HISTORY: 'BehavioralScoreHistory',
   VIOLATION_REPORT: 'ViolationReport',
   PENALTY: 'Penalty',
   PRICING_CONFIG: 'PricingConfig',
-  UTILITY_READING: 'UtilityReading',
   INVOICE: 'Invoice',
   INVOICE_LINE_ITEM: 'InvoiceLineItem',
   PAYMENT: 'Payment',
@@ -39,6 +39,8 @@ const DBCollections = Object.freeze({
   FACE_EMBEDDING: 'FaceEmbedding',
   STUDENT_ACCESS_LOG: 'StudentAccessLog',
   CAMERA_CONFIG: 'CameraConfig',
+  EW_USAGE: 'EWUsage',
+  CHECKOUT_REQUEST: 'CheckoutRequest',
 });
 
 module.exports = {

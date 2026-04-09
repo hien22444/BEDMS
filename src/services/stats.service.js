@@ -1,6 +1,92 @@
 const { Dorm, Block, Room } = require('../models');
 const Bed = require('../models/bed.model');
 
+// ==================== BED USAGE STATS ====================
+
+const getBedUsageStats = async () => {
+  const beds = await Bed.find({})
+    .populate({
+      path: 'room',
+      select: 'room_type student_type price_per_semester block',
+      populate: {
+        path: 'block',
+        select: 'dorm',
+        populate: { path: 'dorm', select: 'dorm_name dorm_code' },
+      },
+    })
+    .lean();
+
+  const dormMap = {};
+  const roomTypeMap = {};
+  const grand = { totalBeds: 0, usedBeds: 0, freeBeds: 0, maintenanceBeds: 0 };
+
+  const countBed = (bucket, status) => {
+    bucket.totalBeds++;
+    if (status === 'occupied' || status === 'reserved') bucket.usedBeds++;
+    else if (status === 'available') bucket.freeBeds++;
+    else if (status === 'maintenance') bucket.maintenanceBeds++;
+  };
+
+  beds.forEach((bed) => {
+    const room = bed.room;
+    if (!room || !room.block || !room.block.dorm) return;
+
+    const dorm = room.block.dorm;
+    const dormCode = dorm.dorm_code;
+    const studentLabel = room.student_type === 'international' ? 'International' : 'Domestic';
+    const rtLabel = `${studentLabel} - ${room.room_type} - ${(room.price_per_semester || 0).toLocaleString('vi-VN')}`;
+
+    if (!dormMap[dormCode]) {
+      dormMap[dormCode] = {
+        dormName: dorm.dorm_name,
+        dormCode,
+        roomTypes: {},
+        dormTotal: { totalBeds: 0, usedBeds: 0, freeBeds: 0, maintenanceBeds: 0 },
+      };
+    }
+    if (!dormMap[dormCode].roomTypes[rtLabel]) {
+      dormMap[dormCode].roomTypes[rtLabel] = {
+        roomType: rtLabel,
+        totalBeds: 0,
+        usedBeds: 0,
+        freeBeds: 0,
+        maintenanceBeds: 0,
+      };
+    }
+    if (!roomTypeMap[rtLabel]) {
+      roomTypeMap[rtLabel] = {
+        roomType: rtLabel,
+        totalBeds: 0,
+        usedBeds: 0,
+        freeBeds: 0,
+        maintenanceBeds: 0,
+      };
+    }
+
+    countBed(dormMap[dormCode].roomTypes[rtLabel], bed.status);
+    countBed(dormMap[dormCode].dormTotal, bed.status);
+    countBed(roomTypeMap[rtLabel], bed.status);
+    countBed(grand, bed.status);
+  });
+
+  const byDormAndRoomType = Object.values(dormMap)
+    .sort((a, b) => a.dormCode.localeCompare(b.dormCode))
+    .map((d) => ({
+      dormName: d.dormName,
+      dormCode: d.dormCode,
+      roomTypes: Object.values(d.roomTypes),
+      dormTotal: d.dormTotal,
+    }));
+
+  return {
+    grandTotal: grand,
+    byDormAndRoomType,
+    byRoomType: Object.values(roomTypeMap).sort((a, b) =>
+      a.roomType.localeCompare(b.roomType)
+    ),
+  };
+};
+
 const getDashboardStats = async () => {
   const [
     totalDorms,
@@ -55,4 +141,4 @@ const getDashboardStats = async () => {
   };
 };
 
-module.exports = { getDashboardStats };
+module.exports = { getDashboardStats, getBedUsageStats };

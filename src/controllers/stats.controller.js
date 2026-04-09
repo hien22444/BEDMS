@@ -1,4 +1,4 @@
-const { getDashboardStats } = require('../services/stats.service');
+const { getDashboardStats, getBedUsageStats } = require('../services/stats.service');
 
 const getDashboard = async (req, res, next) => {
   try {
@@ -9,4 +9,13 @@ const getDashboard = async (req, res, next) => {
   }
 };
 
-module.exports = { getDashboard };
+const getBedUsage = async (req, res, next) => {
+  try {
+    const data = await getBedUsageStats();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { getDashboard, getBedUsage };

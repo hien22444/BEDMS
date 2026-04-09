@@ -20,6 +20,22 @@ router.post(
   cameraController.createCamera
 );
 
+// Update camera source type/url (admin only)
+router.patch(
+  '/:cameraId/source',
+  authenticate,
+  authorize('admin'),
+  cameraController.updateCameraSource
+);
+
+// Reset camera source to webcam defaults (admin only)
+router.delete(
+  '/:cameraId/source',
+  authenticate,
+  authorize('admin'),
+  cameraController.resetCameraSource
+);
+
 // Update a camera config (admin only)
 router.patch(
   '/:cameraId',

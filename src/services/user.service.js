@@ -2,7 +2,6 @@ const XLSX = require('xlsx');
 const { User, Student, Staff, VisitorRequest, ViolationReport } = require('../models');
 
 const VALID_IMPORT_ROLES = ['student', 'manager', 'security'];
-const DEFAULT_PASSWORD = process.env.DEFAULT_USER_PASSWORD || 'Student@123';
 
 /**
  * Escape special regex characters to prevent NoSQL injection
@@ -483,10 +482,9 @@ const importFromExcel = async (fileBuffer) => {
         batchStaffCodes,
       });
 
-      // Create User
+      // All roles use Google OAuth — no password needed
       user = await User.create({
         email: parsed.email,
-        password_hash: DEFAULT_PASSWORD,
         fullname: parsed.fullName,
         role: parsed.role,
         is_active: true,

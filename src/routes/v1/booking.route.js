@@ -87,6 +87,20 @@ router.post('/send-email-all', authenticate, authorize('manager'), bookingContro
 router.get('/', authenticate, authorize('manager'), bookingController.getAllBookings);
 
 router.get(
+  '/cfd-at-risk',
+  authenticate,
+  authorize('manager'),
+  bookingController.listCfdAtRiskStudents
+);
+
+router.post(
+  '/cfd-expel',
+  authenticate,
+  authorize('manager'),
+  bookingController.cfdDormExpelStudent
+);
+
+router.get(
   '/checkout/search',
   authenticate,
   authorize('manager'),

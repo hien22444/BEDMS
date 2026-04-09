@@ -56,7 +56,7 @@ const seedCameras = async () => {
     console.log('  - cam-checkin-01: Main Gate Check-In (webcam 0)');
     console.log('  - cam-checkout-01: Main Gate Check-Out (webcam 0)');
     console.log('\nBoth cameras share the built-in webcam for prototyping.');
-    console.log('Change source_type to "rtsp" and update source_url when DVR is on the network.');
+    console.log('Set RTSP_CAM_URL in BEDMS .env to expose the RTSP preset in the UI.');
 
     process.exit(0);
   } catch (error) {

@@ -1,5 +1,5 @@
 const { status } = require('http-status');
-const { bookingService } = require('../services');
+const { invoiceService } = require('../services');
 const { verifyPayosWebhook } = require('../services/payos.service');
 const catchAsync = require('../utils/catchAsync');
 
@@ -15,8 +15,10 @@ const handleWebhook = catchAsync(async (req, res) => {
 
   const webhookData = await verifyPayosWebhook(req.body);
 
-  // Delegate business update to booking service (idempotent)
-  const result = await bookingService.handlePayosWebhook(webhookData);
+  // Delegate business update to invoice service, which routes booking-linked
+  // payments back to booking service and handles standalone invoice payments.
+  const io = req.app.get('io');
+  const result = await invoiceService.handlePayosWebhook(webhookData, io);
 
   res.success(result || { ok: true }, status.OK);
 });

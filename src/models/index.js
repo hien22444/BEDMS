@@ -20,6 +20,7 @@ module.exports.RoomTypeEquipmentConfig = require('./roomTypeEquipmentConfig.mode
 module.exports.BookingRequest = require('./bookingRequest.model');
 module.exports.Contract = require('./contract.model');
 module.exports.RoomTransferRequest = require('./roomTransferRequest.model');
+module.exports.BedTransferHistory = require('./bedTransferHistory.model');
 module.exports.ContractExtension = require('./contractExtension.model');
 
 // Behavioral Scoring
@@ -29,7 +30,6 @@ module.exports.Penalty = require('./penalty.model');
 
 // Payment System
 module.exports.PricingConfig = require('./pricingConfig.model');
-module.exports.UtilityReading = require('./utilityReading.model');
 module.exports.Invoice = require('./invoice.model');
 module.exports.InvoiceLineItem = require('./invoiceLineItem.model');
 module.exports.Payment = require('./payment.model');
@@ -63,3 +63,9 @@ module.exports.SystemConfig = require('./systemConfig.model');
 module.exports.FaceEmbedding = require('./faceEmbedding.model');
 module.exports.StudentAccessLog = require('./studentAccessLog.model');
 module.exports.CameraConfig = require('./cameraConfig.model');
+
+// EW Usages (Electric/Water meter readings)
+module.exports.EWUsage = require('./ewUsage.model');
+
+// Checkout
+module.exports.CheckoutRequest = require('./checkoutRequest.model');
