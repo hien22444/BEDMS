@@ -1,5 +1,6 @@
-const { agentService } = require('../services');
+const { agentService, dormRulesService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/AppError');
 
 const answer = catchAsync(async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -36,6 +37,22 @@ const answer = catchAsync(async (req, res) => {
   });
 });
 
+const getDormRules = catchAsync(async (req, res) => {
+  const kb = await dormRulesService.getDormRulesKnowledgeBase();
+  res.success(kb);
+});
+
+const updateDormRules = catchAsync(async (req, res) => {
+  const { rules, knowledge_base, system_instructions } = req.body;
+  if (!Array.isArray(rules)) {
+    throw new AppError('rules must be an array', 400);
+  }
+  await dormRulesService.updateDormRulesKB(req.user.id, { rules, knowledge_base, system_instructions });
+  res.success({ message: 'Dorm rules updated successfully' });
+});
+
 module.exports = {
   answer,
+  getDormRules,
+  updateDormRules,
 };
