@@ -1,4 +1,4 @@
-const { Dorm, Block, Room } = require('../models');
+const { Dorm, Block, Room, Invoice, MaintenanceRequest, OtherRequest } = require('../models');
 const Bed = require('../models/bed.model');
 
 // ==================== BED USAGE STATS ====================
@@ -97,6 +97,9 @@ const getDashboardStats = async () => {
     availableBeds,
     maintenanceBeds,
     rooms,
+    pendingMaintenance,
+    pendingOther,
+    unpaidInvoiceAgg,
   ] = await Promise.all([
     Dorm.countDocuments(),
     Block.countDocuments(),
@@ -108,6 +111,12 @@ const getDashboardStats = async () => {
     Room.find({}, { total_beds: 1, available_beds: 1, block: 1 })
       .populate({ path: 'block', select: 'block_name' })
       .lean(),
+    MaintenanceRequest.countDocuments({ status: 'pending' }),
+    OtherRequest.countDocuments({ status: 'pending' }),
+    Invoice.aggregate([
+      { $match: { payment_status: { $in: ['unpaid', 'overdue'] } } },
+      { $group: { _id: null, count: { $sum: 1 }, totalAmount: { $sum: '$total_amount' } } },
+    ]),
   ]);
 
   // Build bed usage per block from rooms data
@@ -134,9 +143,9 @@ const getDashboardStats = async () => {
     occupiedBeds,
     availableBeds,
     maintenanceBeds,
-    pendingRequests: 0,
-    unpaidInvoices: 0,
-    unpaidAmount: 0,
+    pendingRequests: pendingMaintenance + pendingOther,
+    unpaidInvoices: (unpaidInvoiceAgg[0] || {}).count || 0,
+    unpaidAmount: (unpaidInvoiceAgg[0] || {}).totalAmount || 0,
     bedUsageByBlock,
   };
 };
