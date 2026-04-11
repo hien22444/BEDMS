@@ -315,16 +315,14 @@ const getInvoicePaymentStatus = async (invoiceId, userId) => {
 
   if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
     if (payment.payment_status === 'pending') {
-      payment.payment_status = 'cancelled';
-      payment.transaction_details = payosInfo;
-      await payment.save();
+      await payment.deleteOne();
     }
     return {
       status: 'cancelled',
       paid: false,
       message: 'Payment was cancelled',
       invoice: buildInvoiceResponse(invoice),
-      payos: buildPayosPayload(payment),
+      payos: null,
     };
   }
 
@@ -382,9 +380,7 @@ const handlePayosWebhook = async (webhookData, io) => {
   }
 
   if (status === 'cancelled' || status === 'canceled') {
-    payment.payment_status = 'cancelled';
-    payment.transaction_details = webhookData;
-    await payment.save();
+    await payment.deleteOne();
     return { ok: true, handled: true, status: 'cancelled' };
   }
 
@@ -581,9 +577,9 @@ const cancelInvoice = async (invoiceId) => {
   const invoice = await Invoice.findById(invoiceId);
   if (!invoice) throw new AppError(404, 'Invoice not found');
   if (invoice.payment_status === 'paid') throw new AppError(400, 'Cannot cancel a paid invoice');
-  invoice.payment_status = 'cancelled';
-  await invoice.save();
-  return { ...invoice.toJSON(), id: invoice._id };
+  await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+  await invoice.deleteOne();
+  return { deleted: true };
 };
 
 const deleteInvoice = async (invoiceId) => {
