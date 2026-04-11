@@ -186,10 +186,16 @@ const getBookingWindowStatus = async (userId) => {
 
   const now = new Date();
 
-  // Student has an active contract -> hold-bed category
+  // Lazy activation: upcoming contracts whose start_date has passed become active
+  await Contract.updateMany(
+    { student: student._id, status: 'upcoming', start_date: { $lte: now } },
+    { $set: { status: 'active' } }
+  );
+
+  // Student has an active/upcoming contract -> hold-bed category
   const activeContract = await Contract.findOne({
     student: student._id,
-    status: { $in: ['active', 'extended'] },
+    status: { $in: ['active', 'extended', 'upcoming'] },
   });
 
   if (activeContract) {
@@ -746,10 +752,14 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   await bed.save();
 
   // Create contract if not exists
+  // Hold-bed bookings have a future start_date → create as 'upcoming' to avoid
+  // having two 'active' contracts simultaneously (current + future semester).
+  const contractStatus = booking.start_date > new Date() ? 'upcoming' : 'active';
+
   let contract = await Contract.findOne({
     student: student._id,
     semester: booking.semester,
-    status: 'active',
+    status: { $in: ['active', 'upcoming'] },
   });
   if (!contract) {
     contract = await Contract.create({
@@ -760,7 +770,7 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
       start_date: booking.start_date,
       end_date: booking.end_date,
       room_price: room.price_per_semester,
-      status: 'active',
+      status: contractStatus,
     });
   }
 

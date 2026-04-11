@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { BookingRequest, Bed, Room, Invoice, InvoiceLineItem, Payment } = require('../models');
+const { BookingRequest, Bed, Room, Invoice, InvoiceLineItem, Payment, Contract } = require('../models');
 const { cancelPayosPaymentLink } = require('../services/payos.service');
 
 /**
@@ -71,4 +71,32 @@ const scheduleBookingExpiry = () => {
   console.log('[BookingExpiryScheduler] Job scheduled every minute');
 };
 
-module.exports = { scheduleBookingExpiry };
+/**
+ * Auto-activate upcoming contracts whose start_date has passed.
+ * Runs daily at 00:05 as a safety net alongside the lazy activation
+ * that happens in getBookingWindowStatus.
+ */
+const scheduleContractActivation = () => {
+  cron.schedule(
+    '5 0 * * *',
+    async () => {
+      try {
+        const now = new Date();
+        const result = await Contract.updateMany(
+          { status: 'upcoming', start_date: { $lte: now } },
+          { $set: { status: 'active' } }
+        );
+        if (result.modifiedCount > 0) {
+          console.log(`[ContractActivation] Activated ${result.modifiedCount} upcoming contract(s)`);
+        }
+      } catch (err) {
+        console.error('[ContractActivation] Error:', err.message);
+      }
+    },
+    { timezone: 'Asia/Ho_Chi_Minh' }
+  );
+
+  console.log('[ContractActivation] Job scheduled daily at 00:05');
+};
+
+module.exports = { scheduleBookingExpiry, scheduleContractActivation };

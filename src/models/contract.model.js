@@ -37,7 +37,7 @@ const ContractSchema = new mongoose.Schema(
     status: {
       type: String,
       default: 'active',
-      enum: ['active', 'expired', 'terminated', 'extended'],
+      enum: ['active', 'expired', 'terminated', 'extended', 'upcoming'],
     },
     contract_url: {
       type: String,
