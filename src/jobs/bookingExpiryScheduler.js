@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { BookingRequest, Bed, Room, Invoice, Payment } = require('../models');
+const { BookingRequest, Bed, Room, Invoice, InvoiceLineItem, Payment } = require('../models');
 const { cancelPayosPaymentLink } = require('../services/payos.service');
 
 /**
@@ -57,7 +57,8 @@ const scheduleBookingExpiry = () => {
             });
           }
           if (booking.invoice) {
-            await Invoice.findByIdAndUpdate(booking.invoice, { payment_status: 'cancelled' });
+            await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
+            await Invoice.deleteOne({ _id: booking.invoice });
           }
         }
       } catch (err) {

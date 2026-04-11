@@ -245,12 +245,8 @@ const processBillingGroups = async (groups) => {
         : [];
 
       for (const invoice of orphanInvoices) {
-        invoice.electricity_fee = 0;
-        invoice.water_fee = 0;
-        invoice.total_amount = 0;
-        invoice.payment_status = 'cancelled';
-        await invoice.save();
-        await syncInvoiceLineItems(invoice._id, monthKey, 0, 0);
+        await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+        await invoice.deleteOne();
         invoicesCancelled++;
       }
 
@@ -299,9 +295,10 @@ const processBillingGroups = async (groups) => {
 
         if (canonical && canonical.payment_status === 'paid') {
           await Promise.all(
-            extras.map((invoice) =>
-              Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' })
-            )
+            extras.map(async (invoice) => {
+              await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+              await Invoice.deleteOne({ _id: invoice._id });
+            })
           );
           invoicesCancelled += extras.length;
           continue;
@@ -310,13 +307,8 @@ const processBillingGroups = async (groups) => {
         if (extras.length) {
           await Promise.all(
             extras.map(async (invoice) => {
-              await Invoice.findByIdAndUpdate(invoice._id, {
-                electricity_fee: 0,
-                water_fee: 0,
-                total_amount: 0,
-                payment_status: 'cancelled',
-              });
-              await syncInvoiceLineItems(invoice._id, monthKey, 0, 0);
+              await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+              await Invoice.deleteOne({ _id: invoice._id });
             })
           );
           invoicesCancelled += extras.length;
@@ -326,16 +318,19 @@ const processBillingGroups = async (groups) => {
           const invoice = await Invoice.findById(canonical._id);
           if (!invoice) throw new AppError(404, 'Invoice not found during EW recalculation');
 
-          invoice.room = roomId;
-          invoice.electricity_fee = electricFee;
-          invoice.water_fee = waterFee;
-          invoice.total_amount = total;
-          if (invoice.payment_status !== 'paid') {
-            invoice.payment_status = total > 0 ? 'unpaid' : 'cancelled';
+          if (total === 0 && invoice.payment_status !== 'paid') {
+            await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+            await invoice.deleteOne();
+            invoicesCancelled++;
+          } else {
+            invoice.room = roomId;
+            invoice.electricity_fee = electricFee;
+            invoice.water_fee = waterFee;
+            invoice.total_amount = total;
+            await invoice.save();
+            await syncInvoiceLineItems(invoice._id, monthKey, electricFee, waterFee);
+            invoicesUpdated++;
           }
-          await invoice.save();
-          await syncInvoiceLineItems(invoice._id, monthKey, electricFee, waterFee);
-          invoicesUpdated++;
         } else if (total > 0) {
           const invoiceCode = await generateEWInvoiceCode();
           const invoice = await Invoice.create({

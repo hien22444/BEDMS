@@ -6,6 +6,7 @@ const {
   Student,
   User,
   Invoice,
+  InvoiceLineItem,
   Payment,
   Contract,
   Notification,
@@ -620,8 +621,9 @@ const submitBooking = async (userId, { bed_id, note }) => {
       $inc: { available_beds: 1 },
       $set: { status: 'available' },
     });
-    await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
-    await BookingRequest.findByIdAndUpdate(booking._id, { status: 'cancelled' });
+    await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+    await Invoice.deleteOne({ _id: invoice._id });
+    await BookingRequest.deleteOne({ _id: booking._id });
 
     const msg = err?.message || 'Failed to create PayOS payment link';
     throw new AppError(msg, 500);
@@ -667,7 +669,8 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
       $inc: { available_beds: 1 },
       $set: { status: 'available' },
     });
-    await Invoice.findByIdAndUpdate(booking.invoice, { payment_status: 'cancelled' });
+    await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
+    await Invoice.deleteOne({ _id: booking.invoice });
     booking.status = 'expired';
     await booking.save();
     throw new AppError('Booking expired. Bed has been released. Please book again.', 410);
@@ -699,7 +702,7 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   const payosStatus = String(payosInfo?.status || payosInfo?.data?.status || '').toLowerCase();
   if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
     try {
-      await cancelBooking(bookingId, userId);
+      await cancelBooking(bookingId, userId, io);
     } catch {
       /* idempotent – already cancelled */
     }
@@ -984,7 +987,7 @@ const cancelBooking = async (bookingId, userId, io) => {
   }).lean();
   if (payment?.payos_order_code) {
     await cancelPayosPaymentLink(payment.payos_order_code, 'User cancelled booking');
-    await Payment.updateOne({ _id: payment._id }, { $set: { payment_status: 'cancelled' } });
+    await Payment.deleteOne({ _id: payment._id });
   }
 
   // Rollback bed and restore room available_beds
@@ -993,11 +996,10 @@ const cancelBooking = async (bookingId, userId, io) => {
     $inc: { available_beds: 1 },
     $set: { status: 'available' },
   });
-  // Cancel invoice
-  await Invoice.findByIdAndUpdate(booking.invoice, { payment_status: 'cancelled' });
-  // Cancel booking
-  booking.status = 'cancelled';
-  await booking.save();
+  // Delete invoice + booking (no need to persist cancelled state)
+  await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
+  await Invoice.deleteOne({ _id: booking.invoice });
+  await booking.deleteOne();
 
   // Real-time: push to student's personal socket room
   if (io && student?.user) {
@@ -1021,11 +1023,12 @@ const keepBed = async (userId) => {
   }
   const nextSem = await getTargetSemester();
 
-  // Check no existing booking for next semester
+  // Check no existing active (non-checked-out) booking for next semester
   const existingBooking = await BookingRequest.findOne({
     student: student._id,
     semester: nextSem.semester,
     status: { $in: ['awaiting_payment', 'approved'] },
+    checkout_date: null,
   });
   if (existingBooking) {
     throw new AppError('You already have an active booking for the next semester', 409);
@@ -1096,14 +1099,18 @@ const keepBed = async (userId) => {
     })
     .populate('bed', 'bed_number');
 
-  try {
-    const returnUrl = process.env.PAYOS_RETURN_URL;
-    const cancelUrl = process.env.PAYOS_CANCEL_URL;
-    if (!returnUrl || !cancelUrl) {
-      return { booking: populatedBooking, invoice, payos: null, payment: null };
-    }
+  const returnUrl = process.env.PAYOS_RETURN_URL;
+  const cancelUrl = process.env.PAYOS_CANCEL_URL;
+  if (!returnUrl || !cancelUrl) {
+    return { booking: populatedBooking, invoice, payos: null, payment: null };
+  }
 
-    const orderCode = invoiceCodeToOrderCode(invoice.invoice_code);
+  // Use Date.now() so each keepBed attempt gets a unique orderCode —
+  // avoids PayOS "already exists" (code 231) when a previous attempt left a stale link.
+  const orderCode = Number(Date.now());
+
+  try {
+
     const buyer = await User.findById(student.user).select('email full_name').lean();
 
     const paymentLink = await createPayosPaymentLink({
@@ -1148,8 +1155,11 @@ const keepBed = async (userId) => {
       },
     };
   } catch (err) {
-    await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
-    await BookingRequest.findByIdAndUpdate(booking._id, { status: 'cancelled' });
+    // Cancel PayOS link if it was created in this attempt
+    await cancelPayosPaymentLink(orderCode, 'keepBed failed - cleanup').catch(() => {});
+    await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+    await Invoice.deleteOne({ _id: invoice._id });
+    await BookingRequest.deleteOne({ _id: booking._id });
     throw new AppError(err?.message || 'Failed to create payment link', 500);
   }
 };
