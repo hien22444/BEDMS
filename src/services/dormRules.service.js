@@ -418,7 +418,23 @@ const queryRules = async (question) => {
   };
 };
 
+const updateDormRulesKB = async (adminId, kbData) => {
+  await SystemConfig.findOneAndUpdate(
+    { config_key: CONFIG_KEY },
+    {
+      config_key: CONFIG_KEY,
+      config_value: JSON.stringify(kbData),
+      description: 'Dormitory rules knowledge base for the assistant',
+      value_type: 'json',
+      updated_by: adminId,
+      updated_at: new Date(),
+    },
+    { upsert: true, new: true }
+  );
+};
+
 module.exports = {
   queryRules,
   getDormRulesKnowledgeBase,
+  updateDormRulesKB,
 };

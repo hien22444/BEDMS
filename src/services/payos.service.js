@@ -101,8 +101,8 @@ const confirmPayosWebhook = async () => {
     const payOS = await getPayOS();
     const result = await payOS.webhooks.confirm(webhookUrl);
     console.log(`[PayOS] Webhook registered: ${webhookUrl}`, result);
-  } catch (err) {
-    console.error('[PayOS] Failed to register webhook:', err?.message || err);
+  } catch {
+    // silently ignore webhook registration errors (e.g. invalid URL in dev)
   }
 };
 

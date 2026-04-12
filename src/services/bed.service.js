@@ -19,22 +19,26 @@ const populateStudent = {
   populate: { path: 'user', select: 'email' },
 };
 
-// Attach active contract information to each bed
+// Attach active and upcoming contract information to each bed
 const attachContracts = async (beds) => {
   const bedIds = beds.map((b) => b._id);
   const contracts = await Contract.find({
     bed: { $in: bedIds },
-    status: { $in: ['active', 'extended'] },
+    status: { $in: ['active', 'extended', 'upcoming'] },
   }).populate(populateStudent);
 
-  const contractByBed = {};
+  const activeByBed = {};
+  const upcomingByBed = {};
   contracts.forEach((c) => {
-    contractByBed[String(c.bed)] = c;
+    const key = String(c.bed);
+    if (c.status === 'upcoming') upcomingByBed[key] = c;
+    else activeByBed[key] = c;
   });
 
   return beds.map((bed) => ({
     ...bed.toJSON(),
-    contract: contractByBed[String(bed._id)] || null,
+    active_contract: activeByBed[String(bed._id)] || null,
+    upcoming_contract: upcomingByBed[String(bed._id)] || null,
   }));
 };
 
@@ -93,12 +97,16 @@ const getBedById = async (id) => {
   const bed = await Bed.findById(id).populate(populateRoom);
   if (!bed) throw new AppError('Bed not found', 404);
 
-  const contract = await Contract.findOne({
-    bed: id,
-    status: { $in: ['active', 'extended'] },
-  }).populate(populateStudent);
+  const [activeContract, upcomingContract] = await Promise.all([
+    Contract.findOne({ bed: id, status: { $in: ['active', 'extended'] } }).populate(populateStudent),
+    Contract.findOne({ bed: id, status: 'upcoming' }).populate(populateStudent),
+  ]);
 
-  return { ...bed.toJSON(), contract: contract || null };
+  return {
+    ...bed.toJSON(),
+    active_contract: activeContract || null,
+    upcoming_contract: upcomingContract || null,
+  };
 };
 
 // ==================== UPDATE BED STATUS ====================

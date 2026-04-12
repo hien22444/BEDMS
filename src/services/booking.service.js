@@ -6,12 +6,14 @@ const {
   Student,
   User,
   Invoice,
+  InvoiceLineItem,
   Payment,
   Contract,
   Notification,
   SystemConfig,
 } = require('../models');
 const AppError = require('../utils/AppError');
+const bedSoftLock = require('../utils/bedSoftLock');
 const {
   createPayosPaymentLink,
   getPayosPaymentInfo,
@@ -185,10 +187,30 @@ const getBookingWindowStatus = async (userId) => {
 
   const now = new Date();
 
-  // Student has an active contract -> hold-bed category
+  // Lazy activation: upcoming contracts whose start_date has passed become active,
+  // and sync the bed status from 'reserved' → 'occupied'
+  const activatedContracts = await Contract.find(
+    { student: student._id, status: 'upcoming', start_date: { $lte: now } },
+    { bed: 1 }
+  ).lean();
+  if (activatedContracts.length > 0) {
+    const bedIds = activatedContracts.map((c) => c.bed);
+    await Promise.all([
+      Contract.updateMany(
+        { student: student._id, status: 'upcoming', start_date: { $lte: now } },
+        { $set: { status: 'active' } }
+      ),
+      Bed.updateMany(
+        { _id: { $in: bedIds }, status: 'reserved' },
+        { $set: { status: 'occupied' } }
+      ),
+    ]);
+  }
+
+  // Student has an active/upcoming contract -> hold-bed category
   const activeContract = await Contract.findOne({
     student: student._id,
-    status: { $in: ['active', 'extended'] },
+    status: { $in: ['active', 'extended', 'upcoming'] },
   });
 
   if (activeContract) {
@@ -442,8 +464,27 @@ const getBedsForBooking = async (userId, roomId) => {
   return beds.map((b) => ({ id: b._id, bed_number: b.bed_number, status: b.status }));
 };
 
+// ─── Soft lock ─────────────────────────────────────────────
+
+const softLockBed = async (userId, bedId, io) => {
+  const bed = await Bed.findById(bedId).select('status').lean();
+  if (!bed) throw new AppError('Bed not found', 404);
+  if (bed.status !== 'available') throw new AppError('Bed is not available', 409);
+  if (bedSoftLock.isLockedByOther(bedId, userId)) {
+    throw new AppError('Bed is currently being selected by another student', 409);
+  }
+  bedSoftLock.lockBed(bedId, userId, io);
+  return { bedId: String(bedId), locked_until: new Date(Date.now() + 5 * 60 * 1000) };
+};
+
+const softUnlockBed = (userId, bedId, io) => {
+  bedSoftLock.unlockBed(bedId, io);
+};
+
+const getSoftLockedBeds = () => ({ locked_bed_ids: bedSoftLock.getAllLockedBedIds() });
+
 // ─── 8. submitBooking ─────────────────────────────────────
-const submitBooking = async (userId, { bed_id, note }) => {
+const submitBooking = async (userId, { bed_id, note }, io = null) => {
   const student = await findStudent(userId);
   assertStudentMayUseBooking(student);
 
@@ -495,9 +536,11 @@ const submitBooking = async (userId, { bed_id, note }) => {
     throw new AppError('You already have an active booking for this semester', 409);
   }
 
-  // Reserve bed
+  // Reserve bed + release soft lock
   bed.status = 'reserved';
   await bed.save();
+  bedSoftLock.unlockBed(String(bed._id), io);
+  if (io) io.emit('bed_reserved', { bedId: String(bed._id) });
 
   // Sync room available_beds immediately (before payment)
   room.available_beds = Math.max(0, room.available_beds - 1);
@@ -548,25 +591,55 @@ const submitBooking = async (userId, { bed_id, note }) => {
     })
     .populate('bed', 'bed_number');
 
-  // Create PayOS payment link + persist Payment record (best-effort).
-  // In dev or if PayOS is misconfigured, we return booking + invoice without failing the whole flow.
+  // PayOS link is created separately via POST /bookings/:id/payos-link
+  // to avoid duplicate orderCode issues on retry.
+  return { booking: populatedBooking, invoice, payos: null, payment: null };
+};
+
+// ─── 9a. createPayosLinkForBooking ───────────────────────
+const createPayosLinkForBooking = async (bookingId, userId) => {
+  const student = await findStudent(userId);
+
+  const booking = await BookingRequest.findById(bookingId).populate('invoice');
+  if (!booking) throw new AppError('Booking not found', 404);
+  if (booking.student.toString() !== student._id.toString()) {
+    throw new AppError('Forbidden', 403);
+  }
+  if (booking.status !== 'awaiting_payment') {
+    throw new AppError('Booking is not awaiting payment', 400);
+  }
+  if (new Date() > booking.expires_at) {
+    throw new AppError('Booking has expired. Please book again.', 410);
+  }
+
+  const invoice = booking.invoice;
+  if (!invoice) throw new AppError('Invoice not found', 404);
+
+  // Return existing link if already created
+  const existingPayment = await Payment.findOne({
+    invoice: invoice._id,
+    payment_method: 'payos',
+    payos_checkout_url: { $ne: null },
+  }).lean();
+  if (existingPayment?.payos_checkout_url) {
+    return {
+      orderCode: existingPayment.payos_order_code,
+      paymentLinkId: existingPayment.payos_payment_link_id,
+      checkoutUrl: existingPayment.payos_checkout_url,
+      qrCode: existingPayment.payos_qr_code,
+    };
+  }
+
+  const returnUrl = process.env.PAYOS_RETURN_URL;
+  const cancelUrl = process.env.PAYOS_CANCEL_URL;
+  if (!returnUrl || !cancelUrl) throw new AppError('Payment gateway not configured', 503);
+
+  // Use Date.now() as orderCode — same pattern as keepBed — to avoid
+  // PayOS "already exists" (code 231) when a previous attempt left a stale link.
+  const orderCode = Number(Date.now());
+  const buyer = await User.findById(student.user).select('email full_name').lean();
+
   try {
-    const returnUrl = process.env.PAYOS_RETURN_URL;
-    const cancelUrl = process.env.PAYOS_CANCEL_URL;
-
-    // If PayOS URLs are not configured, skip online payment setup.
-    if (!returnUrl || !cancelUrl) {
-      return {
-        booking: populatedBooking,
-        invoice,
-        payos: null,
-        payment: null,
-      };
-    }
-
-    const orderCode = invoiceCodeToOrderCode(invoice.invoice_code);
-    const buyer = await User.findById(student.user).select('email full_name').lean();
-
     const paymentLink = await createPayosPaymentLink({
       orderCode,
       amount: invoice.total_amount,
@@ -576,11 +649,7 @@ const submitBooking = async (userId, { bed_id, note }) => {
       buyerEmail: buyer?.email,
       buyerName: buyer?.full_name || student.full_name,
       items: [
-        {
-          name: `Dorm booking ${invoice.invoice_code}`,
-          quantity: 1,
-          price: invoice.total_amount,
-        },
+        { name: `Dorm booking ${invoice.invoice_code}`, quantity: 1, price: invoice.total_amount },
       ],
     });
 
@@ -588,43 +657,27 @@ const submitBooking = async (userId, { bed_id, note }) => {
     const payosCheckoutUrl = paymentLink?.checkoutUrl || paymentLink?.checkout_url || null;
     const payosQrCode = paymentLink?.qrCode || paymentLink?.qr_code || null;
 
-    const payment = await Payment.create({
-      transaction_code: `PAYOS-${orderCode}`,
-      payos_order_code: orderCode,
-      payos_payment_link_id: payosPaymentLinkId,
-      payos_checkout_url: payosCheckoutUrl,
-      payos_qr_code: payosQrCode,
-      invoice: invoice._id,
-      student: student._id,
-      amount: invoice.total_amount,
-      payment_method: 'payos',
-      payment_status: 'pending',
-      transaction_details: paymentLink || null,
-    });
-
-    return {
-      booking: populatedBooking,
-      invoice,
-      payos: {
-        orderCode,
-        paymentLinkId: payosPaymentLinkId,
-        checkoutUrl: payosCheckoutUrl,
-        qrCode: payosQrCode,
+    await Payment.findOneAndUpdate(
+      { invoice: invoice._id, payment_method: 'payos' },
+      {
+        $set: {
+          transaction_code: `PAYOS-${orderCode}`,
+          payos_order_code: orderCode,
+          payos_payment_link_id: payosPaymentLinkId,
+          payos_checkout_url: payosCheckoutUrl,
+          payos_qr_code: payosQrCode,
+          payment_status: 'pending',
+          transaction_details: paymentLink || null,
+        },
+        $setOnInsert: { student: student._id, amount: invoice.total_amount, payment_method: 'payos' },
       },
-      payment,
-    };
-  } catch (err) {
-    // If PayOS fails (network, credentials, etc.), do not keep bed reserved forever.
-    await Bed.findByIdAndUpdate(bed._id, { status: 'available' });
-    await Room.findByIdAndUpdate(room._id, {
-      $inc: { available_beds: 1 },
-      $set: { status: 'available' },
-    });
-    await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
-    await BookingRequest.findByIdAndUpdate(booking._id, { status: 'cancelled' });
+      { upsert: true, new: true }
+    );
 
-    const msg = err?.message || 'Failed to create PayOS payment link';
-    throw new AppError(msg, 500);
+    return { orderCode, paymentLinkId: payosPaymentLinkId, checkoutUrl: payosCheckoutUrl, qrCode: payosQrCode };
+  } catch (err) {
+    await cancelPayosPaymentLink(orderCode, 'createPayosLink failed - cleanup').catch(() => {});
+    throw new AppError(err?.message || 'Failed to create payment link', 500);
   }
 };
 
@@ -667,7 +720,8 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
       $inc: { available_beds: 1 },
       $set: { status: 'available' },
     });
-    await Invoice.findByIdAndUpdate(booking.invoice, { payment_status: 'cancelled' });
+    await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
+    await Invoice.deleteOne({ _id: booking.invoice });
     booking.status = 'expired';
     await booking.save();
     throw new AppError('Booking expired. Bed has been released. Please book again.', 410);
@@ -699,7 +753,7 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   const payosStatus = String(payosInfo?.status || payosInfo?.data?.status || '').toLowerCase();
   if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
     try {
-      await cancelBooking(bookingId, userId);
+      await cancelBooking(bookingId, userId, io);
     } catch {
       /* idempotent – already cancelled */
     }
@@ -738,15 +792,27 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   invoice.paid_at = new Date();
   await invoice.save();
 
-  // Update bed
-  bed.status = 'occupied';
-  await bed.save();
+  // Update bed status:
+  // - 'occupied' bed = hold bed (student still living there) → don't change
+  // - 'reserved' bed = new booking payment window → set occupied (current) or keep reserved (future)
+  if (bed.status === 'reserved') {
+    if (booking.start_date <= new Date()) {
+      bed.status = 'occupied';
+      await bed.save();
+    }
+    // future semester new booking: stays 'reserved' until semester starts
+  }
+  // bed 'occupied' (hold bed): student is still living there, no change needed
 
   // Create contract if not exists
+  // Hold-bed bookings have a future start_date → create as 'upcoming' to avoid
+  // having two 'active' contracts simultaneously (current + future semester).
+  const contractStatus = booking.start_date > new Date() ? 'upcoming' : 'active';
+
   let contract = await Contract.findOne({
     student: student._id,
     semester: booking.semester,
-    status: 'active',
+    status: { $in: ['active', 'upcoming'] },
   });
   if (!contract) {
     contract = await Contract.create({
@@ -757,7 +823,7 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
       start_date: booking.start_date,
       end_date: booking.end_date,
       room_price: room.price_per_semester,
-      status: 'active',
+      status: contractStatus,
     });
   }
 
@@ -984,7 +1050,7 @@ const cancelBooking = async (bookingId, userId, io) => {
   }).lean();
   if (payment?.payos_order_code) {
     await cancelPayosPaymentLink(payment.payos_order_code, 'User cancelled booking');
-    await Payment.updateOne({ _id: payment._id }, { $set: { payment_status: 'cancelled' } });
+    await Payment.deleteOne({ _id: payment._id });
   }
 
   // Rollback bed and restore room available_beds
@@ -993,11 +1059,10 @@ const cancelBooking = async (bookingId, userId, io) => {
     $inc: { available_beds: 1 },
     $set: { status: 'available' },
   });
-  // Cancel invoice
-  await Invoice.findByIdAndUpdate(booking.invoice, { payment_status: 'cancelled' });
-  // Cancel booking
-  booking.status = 'cancelled';
-  await booking.save();
+  // Delete invoice + booking (no need to persist cancelled state)
+  await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
+  await Invoice.deleteOne({ _id: booking.invoice });
+  await booking.deleteOne();
 
   // Real-time: push to student's personal socket room
   if (io && student?.user) {
@@ -1021,11 +1086,12 @@ const keepBed = async (userId) => {
   }
   const nextSem = await getTargetSemester();
 
-  // Check no existing booking for next semester
+  // Check no existing active (non-checked-out) booking for next semester
   const existingBooking = await BookingRequest.findOne({
     student: student._id,
     semester: nextSem.semester,
     status: { $in: ['awaiting_payment', 'approved'] },
+    checkout_date: null,
   });
   if (existingBooking) {
     throw new AppError('You already have an active booking for the next semester', 409);
@@ -1096,14 +1162,18 @@ const keepBed = async (userId) => {
     })
     .populate('bed', 'bed_number');
 
-  try {
-    const returnUrl = process.env.PAYOS_RETURN_URL;
-    const cancelUrl = process.env.PAYOS_CANCEL_URL;
-    if (!returnUrl || !cancelUrl) {
-      return { booking: populatedBooking, invoice, payos: null, payment: null };
-    }
+  const returnUrl = process.env.PAYOS_RETURN_URL;
+  const cancelUrl = process.env.PAYOS_CANCEL_URL;
+  if (!returnUrl || !cancelUrl) {
+    return { booking: populatedBooking, invoice, payos: null, payment: null };
+  }
 
-    const orderCode = invoiceCodeToOrderCode(invoice.invoice_code);
+  // Use Date.now() so each keepBed attempt gets a unique orderCode —
+  // avoids PayOS "already exists" (code 231) when a previous attempt left a stale link.
+  const orderCode = Number(Date.now());
+
+  try {
+
     const buyer = await User.findById(student.user).select('email full_name').lean();
 
     const paymentLink = await createPayosPaymentLink({
@@ -1148,8 +1218,11 @@ const keepBed = async (userId) => {
       },
     };
   } catch (err) {
-    await Invoice.findByIdAndUpdate(invoice._id, { payment_status: 'cancelled' });
-    await BookingRequest.findByIdAndUpdate(booking._id, { status: 'cancelled' });
+    // Cancel PayOS link if it was created in this attempt
+    await cancelPayosPaymentLink(orderCode, 'keepBed failed - cleanup').catch(() => {});
+    await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+    await Invoice.deleteOne({ _id: invoice._id });
+    await BookingRequest.deleteOne({ _id: booking._id });
     throw new AppError(err?.message || 'Failed to create payment link', 500);
   }
 };
@@ -1165,21 +1238,40 @@ const searchStudentForCheckout = async (studentCode) => {
     .lean();
   if (!student) throw new AppError('Student not found', 404);
 
-  const contract = await Contract.findOne({
-    student: student._id,
-    status: { $in: ['active', 'extended'] },
-  })
-    .populate({
-      path: 'room',
-      select: 'room_number room_type floor price_per_semester',
-      populate: {
-        path: 'block',
-        select: 'block_name block_code',
-        populate: { path: 'dorm', select: 'dorm_name dorm_code' },
-      },
-    })
-    .populate('bed', 'bed_number')
-    .lean();
+  const contractPopulate = {
+    path: 'room',
+    select: 'room_number room_type floor price_per_semester',
+    populate: {
+      path: 'block',
+      select: 'block_name block_code',
+      populate: { path: 'dorm', select: 'dorm_name dorm_code' },
+    },
+  };
+
+  const [contract, upcomingContract] = await Promise.all([
+    Contract.findOne({ student: student._id, status: { $in: ['active', 'extended'] } })
+      .populate(contractPopulate)
+      .populate('bed', 'bed_number')
+      .lean(),
+    Contract.findOne({ student: student._id, status: 'upcoming' })
+      .populate(contractPopulate)
+      .populate('bed', 'bed_number')
+      .lean(),
+  ]);
+
+  const formatContract = (c) =>
+    c
+      ? {
+          id: c._id,
+          semester: c.semester,
+          start_date: c.start_date,
+          end_date: c.end_date,
+          room_price: c.room_price,
+          status: c.status,
+          room: c.room,
+          bed: c.bed,
+        }
+      : null;
 
   return {
     student: {
@@ -1190,18 +1282,8 @@ const searchStudentForCheckout = async (studentCode) => {
       student_type: student.student_type,
       email: student.user?.email,
     },
-    active_contract: contract
-      ? {
-          id: contract._id,
-          semester: contract.semester,
-          start_date: contract.start_date,
-          end_date: contract.end_date,
-          room_price: contract.room_price,
-          status: contract.status,
-          room: contract.room,
-          bed: contract.bed,
-        }
-      : null,
+    active_contract: formatContract(contract),
+    upcoming_contract: formatContract(upcomingContract),
   };
 };
 
@@ -1467,7 +1549,7 @@ const sendEmailToAllStudents = async ({ subject, body }) => {
 
 // ─── 16. getAllBookings (manager) ──────────────────────────
 const getAllBookings = async (query = {}) => {
-  const { search, page = 1, limit = 20 } = query;
+  const { search, status, page = 1, limit = 20 } = query;
   const normalizeVi = (s) =>
     (s || '')
       .normalize('NFD')
@@ -1475,7 +1557,10 @@ const getAllBookings = async (query = {}) => {
       .replace(/[\u0111\u0110]/g, 'd')
       .toLowerCase();
 
-  const filter = { status: 'approved' };
+  const { semester } = query;
+  const VALID_STATUSES = ['approved', 'awaiting_payment', 'cancelled', 'expired'];
+  const filter = { status: VALID_STATUSES.includes(status) ? status : 'approved' };
+  if (semester) filter.semester = semester;
   if (search) {
     const q = normalizeVi(search);
     const allStudents = await Student.find().select('_id full_name student_code').lean();
@@ -1492,7 +1577,7 @@ const getAllBookings = async (query = {}) => {
     BookingRequest.find(filter)
       .populate({
         path: 'student',
-        select: 'full_name student_code student_type gender user',
+        select: 'full_name student_code student_type gender phone user',
         populate: { path: 'user', select: 'email' },
       })
       .populate({
@@ -1588,17 +1673,62 @@ const getAllBookings = async (query = {}) => {
 
 const processAutoCheckoutExpiredBookings = async () => {
   const now = new Date();
-  const result = await BookingRequest.updateMany(
-    {
-      status: 'approved',
-      checkout_date: null,
-      end_date: { $lte: now },
-    },
-    { $set: { checkout_date: now } }
-  );
+
+  // Find expired bookings to get their bed/room refs before updating
+  const expiredBookings = await BookingRequest.find(
+    { status: 'approved', checkout_date: null, end_date: { $lte: now } },
+    { bed: 1, room: 1, student: 1, semester: 1 }
+  ).lean();
+
+  if (expiredBookings.length === 0) {
+    return { matched: 0, modified: 0 };
+  }
+
+  const bedIds = expiredBookings.map((b) => b.bed).filter(Boolean);
+  const studentSemesterPairs = expiredBookings.map((b) => ({
+    student: b.student,
+    semester: b.semester,
+  }));
+
+  // Build contract filter: match by student+semester for precision
+  const contractFilter = {
+    $or: studentSemesterPairs.map((p) => ({
+      student: p.student,
+      semester: p.semester,
+      status: { $in: ['active', 'extended'] },
+    })),
+  };
+
+  // For each expired bed: if it has an upcoming contract → set 'reserved', else → 'available'
+  const upcomingContracts = await Contract.find(
+    { bed: { $in: bedIds }, status: 'upcoming' },
+    { bed: 1 }
+  ).lean();
+  const bedsWithUpcoming = new Set(upcomingContracts.map((c) => String(c.bed)));
+
+  await Promise.all([
+    // Mark bookings as auto-checked-out
+    BookingRequest.updateMany(
+      { status: 'approved', checkout_date: null, end_date: { $lte: now } },
+      { $set: { checkout_date: now } }
+    ),
+    // Expire the corresponding contracts
+    Contract.updateMany(contractFilter, { $set: { status: 'expired', terminated_at: now } }),
+    // Set bed status: 'reserved' if upcoming contract exists, 'available' otherwise
+    ...bedIds.map((bedId) =>
+      Bed.findByIdAndUpdate(bedId, {
+        $set: { status: bedsWithUpcoming.has(String(bedId)) ? 'reserved' : 'available' },
+      })
+    ),
+    // Restore available_beds count on rooms (only for beds going to 'available')
+    ...expiredBookings
+      .filter((b) => b.room && !bedsWithUpcoming.has(String(b.bed)))
+      .map((b) => Room.findByIdAndUpdate(b.room, { $inc: { available_beds: 1 } })),
+  ]);
+
   return {
-    matched: Number(result?.matchedCount || 0),
-    modified: Number(result?.modifiedCount || 0),
+    matched: expiredBookings.length,
+    modified: expiredBookings.length,
   };
 };
 
@@ -1615,6 +1745,7 @@ module.exports = {
   submitBooking,
   checkPaymentStatus,
   getMyBookings,
+  createPayosLinkForBooking,
   cancelBooking,
   sendEmailToStudent,
   sendEmailToAllStudents,
@@ -1626,4 +1757,7 @@ module.exports = {
   handlePayosWebhook,
   getRoommates,
   processAutoCheckoutExpiredBookings,
+  softLockBed,
+  softUnlockBed,
+  getSoftLockedBeds,
 };

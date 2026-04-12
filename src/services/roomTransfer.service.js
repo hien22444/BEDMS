@@ -8,6 +8,7 @@ const {
   BedTransferHistory,
   BookingRequest,
   Invoice,
+  InvoiceLineItem,
   Payment,
   User,
   Notification,
@@ -825,10 +826,15 @@ const cancelSupplementPayosBestEffort = async (invoiceId, options = {}) => {
   }).lean();
   if (pay?.payos_order_code) {
     await cancelPayosPaymentLink(pay.payos_order_code, payosCancelReason);
-    await Payment.updateOne({ _id: pay._id }, { $set: { payment_status: paymentFinalStatus } });
+    if (paymentFinalStatus === 'cancelled') {
+      await Payment.deleteOne({ _id: pay._id });
+    } else {
+      await Payment.updateOne({ _id: pay._id }, { $set: { payment_status: paymentFinalStatus } });
+    }
   }
   if (inv.payment_status !== 'paid') {
-    await Invoice.findByIdAndUpdate(invoiceId, { $set: { payment_status: 'cancelled' } });
+    await InvoiceLineItem.deleteMany({ invoice: invoiceId });
+    await Invoice.deleteOne({ _id: invoiceId });
   }
 };
 

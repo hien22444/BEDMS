@@ -1,10 +1,12 @@
 const AppError = require('../utils/AppError');
 const {
   BookingRequest,
+  Contract,
   Invoice,
   InvoiceLineItem,
   Notification,
   Payment,
+  Room,
   Student,
   User,
 } = require('../models');
@@ -174,9 +176,6 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
   });
 
   if (!invoice) throw new AppError(404, 'Invoice not found');
-  if (!EW_INVOICE_REGEX.test(invoice.invoice_code)) {
-    throw new AppError(400, 'Only EW invoices can be paid from the utilities page');
-  }
   if (invoice.payment_status === 'paid') throw new AppError(400, 'Invoice is already paid');
   if (invoice.payment_status === 'cancelled') throw new AppError(400, 'Invoice is cancelled');
   if (invoice.total_amount <= 0) {
@@ -231,7 +230,7 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
     buyerName: user?.full_name || student.full_name,
     items: [
       {
-        name: `Utility invoice ${invoice.invoice_code}`,
+        name: `Invoice ${invoice.invoice_code}`,
         quantity: 1,
         price: invoice.total_amount,
       },
@@ -243,7 +242,7 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
   const payosQrCode = paymentLink?.qrCode || paymentLink?.qr_code || null;
 
   const payment = await Payment.create({
-    transaction_code: `EW-PAYOS-${orderCode}`,
+    transaction_code: `INV-PAYOS-${orderCode}`,
     payos_order_code: orderCode,
     payos_payment_link_id: payosPaymentLinkId,
     payos_checkout_url: payosCheckoutUrl,
@@ -316,16 +315,14 @@ const getInvoicePaymentStatus = async (invoiceId, userId) => {
 
   if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
     if (payment.payment_status === 'pending') {
-      payment.payment_status = 'cancelled';
-      payment.transaction_details = payosInfo;
-      await payment.save();
+      await payment.deleteOne();
     }
     return {
       status: 'cancelled',
       paid: false,
       message: 'Payment was cancelled',
       invoice: buildInvoiceResponse(invoice),
-      payos: buildPayosPayload(payment),
+      payos: null,
     };
   }
 
@@ -383,9 +380,7 @@ const handlePayosWebhook = async (webhookData, io) => {
   }
 
   if (status === 'cancelled' || status === 'canceled') {
-    payment.payment_status = 'cancelled';
-    payment.transaction_details = webhookData;
-    await payment.save();
+    await payment.deleteOne();
     return { ok: true, handled: true, status: 'cancelled' };
   }
 
@@ -396,9 +391,217 @@ const handlePayosWebhook = async (webhookData, io) => {
   return { ok: true, ignored: true, status };
 };
 
+// ─── Manager APIs ─────────────────────────────────────────────────────────────
+
+const generateInvoiceCode = (prefix = 'INV') =>
+  `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+const buildLineItems = (invoiceId, body) => {
+  const items = [];
+  if (body.room_fee > 0)
+    items.push({ invoice: invoiceId, item_type: 'room_fee', description: 'Room fee', quantity: 1, unit_price: body.room_fee, amount: body.room_fee });
+  if (body.electricity_fee > 0)
+    items.push({ invoice: invoiceId, item_type: 'electricity', description: 'Electricity fee', quantity: 1, unit_price: body.electricity_fee, amount: body.electricity_fee });
+  if (body.water_fee > 0)
+    items.push({ invoice: invoiceId, item_type: 'water', description: 'Water fee', quantity: 1, unit_price: body.water_fee, amount: body.water_fee });
+  if (body.service_fee > 0)
+    items.push({ invoice: invoiceId, item_type: 'service', description: 'Service fee', quantity: 1, unit_price: body.service_fee, amount: body.service_fee });
+  if (body.other_fees > 0)
+    items.push({ invoice: invoiceId, item_type: 'other', description: body.other_fees_description || 'Other fees', quantity: 1, unit_price: body.other_fees, amount: body.other_fees });
+  return items;
+};
+
+const getInvoices = async (query = {}) => {
+  const { page = 1, limit = 10, payment_status, invoice_month, student_code, room_id, block_id } = query;
+  const filter = {};
+
+  // Manager list never shows cancelled invoices
+  if (payment_status) {
+    filter.payment_status = payment_status;
+  } else {
+    filter.payment_status = { $ne: 'cancelled' };
+  }
+  if (invoice_month) filter.invoice_month = { $regex: invoice_month, $options: 'i' };
+
+  if (student_code) {
+    const student = await Student.findOne({ student_code: student_code.trim() }).lean();
+    if (!student) return { data: [], total: 0, page: Number(page), totalPages: 0 };
+    filter.student = student._id;
+  }
+
+  if (room_id) {
+    filter.room = room_id;
+  } else if (block_id) {
+    const rooms = await Room.find({ block: block_id }, '_id').lean();
+    filter.room = { $in: rooms.map((r) => r._id) };
+  }
+
+  const total = await Invoice.countDocuments(filter);
+  const invoices = await Invoice.find(filter)
+    .populate('student', 'full_name student_code')
+    .populate({ path: 'room', select: 'room_number block', populate: { path: 'block', select: 'block_name block_code' } })
+    .sort({ createdAt: -1 })
+    .skip((Number(page) - 1) * Number(limit))
+    .limit(Number(limit))
+    .lean();
+
+  const invoiceIds = invoices.map((inv) => inv._id);
+  const lineItems = invoiceIds.length ? await InvoiceLineItem.find({ invoice: { $in: invoiceIds } }).lean() : [];
+
+  return {
+    data: invoices.map((inv) => ({
+      ...inv,
+      id: inv._id,
+      line_items: lineItems.filter((li) => li.invoice.toString() === inv._id.toString()),
+    })),
+    total,
+    page: Number(page),
+    totalPages: Math.ceil(total / Number(limit)),
+  };
+};
+
+const getInvoiceDetail = async (invoiceId) => {
+  const invoice = await Invoice.findById(invoiceId)
+    .populate('student', 'full_name student_code phone')
+    .populate({ path: 'room', select: 'room_number block', populate: { path: 'block', select: 'block_name block_code' } })
+    .lean();
+  if (!invoice) throw new AppError(404, 'Invoice not found');
+
+  const lineItems = await InvoiceLineItem.find({ invoice: invoice._id }).lean();
+  return { ...invoice, id: invoice._id, line_items: lineItems };
+};
+
+const createSingleInvoice = async ({ student, roomId, body, staffId }) => {
+  const total =
+    Number(body.room_fee || 0) +
+    Number(body.electricity_fee || 0) +
+    Number(body.water_fee || 0) +
+    Number(body.service_fee || 0) +
+    Number(body.other_fees || 0);
+
+  const invoice = await Invoice.create({
+    invoice_code: generateInvoiceCode(),
+    student: student._id,
+    room: roomId,
+    invoice_month: body.invoice_month,
+    room_fee: Number(body.room_fee || 0),
+    electricity_fee: Number(body.electricity_fee || 0),
+    water_fee: Number(body.water_fee || 0),
+    service_fee: Number(body.service_fee || 0),
+    other_fees: Number(body.other_fees || 0),
+    total_amount: total,
+    payment_status: 'unpaid',
+    due_date: new Date(body.due_date),
+    created_by: staffId || null,
+  });
+
+  const lineItemDocs = buildLineItems(invoice._id, body);
+  if (lineItemDocs.length) await InvoiceLineItem.insertMany(lineItemDocs);
+
+  // Notify student
+  if (student.user) {
+    await Notification.create({
+      user: student.user,
+      title: 'New Invoice',
+      message: `A new invoice ${invoice.invoice_code} for ${body.invoice_month} has been created. Amount: ${total.toLocaleString('vi-VN')} VND.`,
+      notification_type: 'info',
+      category: 'payment',
+      related_id: invoice._id.toString(),
+    }).catch(() => {});
+  }
+
+  return { ...invoice.toJSON(), id: invoice._id };
+};
+
+const createInvoiceForStudent = async (body, staffId) => {
+  const { student_code } = body;
+  if (!student_code) throw new AppError(400, 'student_code is required');
+
+  const student = await Student.findOne({ student_code: student_code.trim() }).lean();
+  if (!student) throw new AppError(404, `Student ${student_code} not found`);
+
+  const contract = await Contract.findOne({ student: student._id, status: 'active' }).lean();
+  if (!contract) throw new AppError(400, `Student ${student_code} has no active contract`);
+
+  return createSingleInvoice({ student, roomId: contract.room, body, staffId });
+};
+
+const createInvoicesForRoom = async (roomId, body, staffId) => {
+  const room = await Room.findById(roomId).lean();
+  if (!room) throw new AppError(404, 'Room not found');
+
+  const contracts = await Contract.find({ room: roomId, status: 'active' }).lean();
+  if (!contracts.length) throw new AppError(400, 'No active students found in this room');
+
+  const studentIds = contracts.map((c) => c.student);
+  const students = await Student.find({ _id: { $in: studentIds } }).lean();
+  const studentMap = new Map(students.map((s) => [s._id.toString(), s]));
+
+  const created = [];
+  for (const contract of contracts) {
+    const student = studentMap.get(contract.student.toString());
+    if (student) {
+      const inv = await createSingleInvoice({ student, roomId, body, staffId });
+      created.push(inv);
+    }
+  }
+  return { created: created.length, invoices: created };
+};
+
+const createInvoicesForBlock = async (blockId, body, staffId) => {
+  const rooms = await Room.find({ block: blockId }, '_id').lean();
+  if (!rooms.length) throw new AppError(404, 'No rooms found in this block');
+
+  const roomIds = rooms.map((r) => r._id);
+  const contracts = await Contract.find({ room: { $in: roomIds }, status: 'active' }).lean();
+  if (!contracts.length) throw new AppError(400, 'No active students found in this block');
+
+  const studentIds = contracts.map((c) => c.student);
+  const students = await Student.find({ _id: { $in: studentIds } }).lean();
+  const studentMap = new Map(students.map((s) => [s._id.toString(), s]));
+  const contractRoomMap = new Map(contracts.map((c) => [c.student.toString(), c.room]));
+
+  const created = [];
+  for (const contract of contracts) {
+    const student = studentMap.get(contract.student.toString());
+    if (student) {
+      const roomId = contractRoomMap.get(contract.student.toString());
+      const inv = await createSingleInvoice({ student, roomId, body, staffId });
+      created.push(inv);
+    }
+  }
+  return { created: created.length, invoices: created };
+};
+
+const cancelInvoice = async (invoiceId) => {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) throw new AppError(404, 'Invoice not found');
+  if (invoice.payment_status === 'paid') throw new AppError(400, 'Cannot cancel a paid invoice');
+  await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+  await invoice.deleteOne();
+  return { deleted: true };
+};
+
+const deleteInvoice = async (invoiceId) => {
+  const invoice = await Invoice.findById(invoiceId);
+  if (!invoice) throw new AppError(404, 'Invoice not found');
+  if (invoice.payment_status === 'paid') throw new AppError(400, 'Cannot delete a paid invoice');
+  await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+  await Invoice.deleteOne({ _id: invoice._id });
+  return { deleted: true };
+};
+
 module.exports = {
   getMyInvoices,
   createPayosLinkForInvoice,
   getInvoicePaymentStatus,
   handlePayosWebhook,
+  // Manager
+  getInvoices,
+  getInvoiceDetail,
+  createInvoiceForStudent,
+  createInvoicesForRoom,
+  createInvoicesForBlock,
+  cancelInvoice,
+  deleteInvoice,
 };
