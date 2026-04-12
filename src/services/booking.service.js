@@ -186,11 +186,25 @@ const getBookingWindowStatus = async (userId) => {
 
   const now = new Date();
 
-  // Lazy activation: upcoming contracts whose start_date has passed become active
-  await Contract.updateMany(
+  // Lazy activation: upcoming contracts whose start_date has passed become active,
+  // and sync the bed status from 'reserved' → 'occupied'
+  const activatedContracts = await Contract.find(
     { student: student._id, status: 'upcoming', start_date: { $lte: now } },
-    { $set: { status: 'active' } }
-  );
+    { bed: 1 }
+  ).lean();
+  if (activatedContracts.length > 0) {
+    const bedIds = activatedContracts.map((c) => c.bed);
+    await Promise.all([
+      Contract.updateMany(
+        { student: student._id, status: 'upcoming', start_date: { $lte: now } },
+        { $set: { status: 'active' } }
+      ),
+      Bed.updateMany(
+        { _id: { $in: bedIds }, status: 'reserved' },
+        { $set: { status: 'occupied' } }
+      ),
+    ]);
+  }
 
   // Student has an active/upcoming contract -> hold-bed category
   const activeContract = await Contract.findOne({
@@ -747,8 +761,8 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   invoice.paid_at = new Date();
   await invoice.save();
 
-  // Update bed
-  bed.status = 'occupied';
+  // Update bed: 'reserved' if booking is for a future semester, 'occupied' if current
+  bed.status = booking.start_date > new Date() ? 'reserved' : 'occupied';
   await bed.save();
 
   // Create contract if not exists
@@ -1185,21 +1199,40 @@ const searchStudentForCheckout = async (studentCode) => {
     .lean();
   if (!student) throw new AppError('Student not found', 404);
 
-  const contract = await Contract.findOne({
-    student: student._id,
-    status: { $in: ['active', 'extended'] },
-  })
-    .populate({
-      path: 'room',
-      select: 'room_number room_type floor price_per_semester',
-      populate: {
-        path: 'block',
-        select: 'block_name block_code',
-        populate: { path: 'dorm', select: 'dorm_name dorm_code' },
-      },
-    })
-    .populate('bed', 'bed_number')
-    .lean();
+  const contractPopulate = {
+    path: 'room',
+    select: 'room_number room_type floor price_per_semester',
+    populate: {
+      path: 'block',
+      select: 'block_name block_code',
+      populate: { path: 'dorm', select: 'dorm_name dorm_code' },
+    },
+  };
+
+  const [contract, upcomingContract] = await Promise.all([
+    Contract.findOne({ student: student._id, status: { $in: ['active', 'extended'] } })
+      .populate(contractPopulate)
+      .populate('bed', 'bed_number')
+      .lean(),
+    Contract.findOne({ student: student._id, status: 'upcoming' })
+      .populate(contractPopulate)
+      .populate('bed', 'bed_number')
+      .lean(),
+  ]);
+
+  const formatContract = (c) =>
+    c
+      ? {
+          id: c._id,
+          semester: c.semester,
+          start_date: c.start_date,
+          end_date: c.end_date,
+          room_price: c.room_price,
+          status: c.status,
+          room: c.room,
+          bed: c.bed,
+        }
+      : null;
 
   return {
     student: {
@@ -1210,18 +1243,8 @@ const searchStudentForCheckout = async (studentCode) => {
       student_type: student.student_type,
       email: student.user?.email,
     },
-    active_contract: contract
-      ? {
-          id: contract._id,
-          semester: contract.semester,
-          start_date: contract.start_date,
-          end_date: contract.end_date,
-          room_price: contract.room_price,
-          status: contract.status,
-          room: contract.room,
-          bed: contract.bed,
-        }
-      : null,
+    active_contract: formatContract(contract),
+    upcoming_contract: formatContract(upcomingContract),
   };
 };
 
@@ -1608,17 +1631,53 @@ const getAllBookings = async (query = {}) => {
 
 const processAutoCheckoutExpiredBookings = async () => {
   const now = new Date();
-  const result = await BookingRequest.updateMany(
-    {
-      status: 'approved',
-      checkout_date: null,
-      end_date: { $lte: now },
-    },
-    { $set: { checkout_date: now } }
-  );
+
+  // Find expired bookings to get their bed/room refs before updating
+  const expiredBookings = await BookingRequest.find(
+    { status: 'approved', checkout_date: null, end_date: { $lte: now } },
+    { bed: 1, room: 1, student: 1, semester: 1 }
+  ).lean();
+
+  if (expiredBookings.length === 0) {
+    return { matched: 0, modified: 0 };
+  }
+
+  const bedIds = expiredBookings.map((b) => b.bed).filter(Boolean);
+  const studentSemesterPairs = expiredBookings.map((b) => ({
+    student: b.student,
+    semester: b.semester,
+  }));
+
+  // Build contract filter: match by student+semester for precision
+  const contractFilter = {
+    $or: studentSemesterPairs.map((p) => ({
+      student: p.student,
+      semester: p.semester,
+      status: { $in: ['active', 'extended'] },
+    })),
+  };
+
+  await Promise.all([
+    // Mark bookings as auto-checked-out
+    BookingRequest.updateMany(
+      { status: 'approved', checkout_date: null, end_date: { $lte: now } },
+      { $set: { checkout_date: now } }
+    ),
+    // Expire the corresponding contracts
+    Contract.updateMany(contractFilter, { $set: { status: 'expired', terminated_at: now } }),
+    // Free the beds
+    Bed.updateMany({ _id: { $in: bedIds }, status: 'occupied' }, { $set: { status: 'available' } }),
+    // Restore available_beds count on rooms
+    ...expiredBookings
+      .filter((b) => b.room)
+      .map((b) =>
+        Room.findByIdAndUpdate(b.room, { $inc: { available_beds: 1 } })
+      ),
+  ]);
+
   return {
-    matched: Number(result?.matchedCount || 0),
-    modified: Number(result?.modifiedCount || 0),
+    matched: expiredBookings.length,
+    modified: expiredBookings.length,
   };
 };
 

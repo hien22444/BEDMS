@@ -82,12 +82,25 @@ const scheduleContractActivation = () => {
     async () => {
       try {
         const now = new Date();
-        const result = await Contract.updateMany(
+        // Find upcoming contracts to activate and sync their beds
+        const toActivate = await Contract.find(
           { status: 'upcoming', start_date: { $lte: now } },
-          { $set: { status: 'active' } }
-        );
-        if (result.modifiedCount > 0) {
-          console.log(`[ContractActivation] Activated ${result.modifiedCount} upcoming contract(s)`);
+          { bed: 1 }
+        ).lean();
+
+        if (toActivate.length > 0) {
+          const bedIds = toActivate.map((c) => c.bed);
+          const [contractResult] = await Promise.all([
+            Contract.updateMany(
+              { status: 'upcoming', start_date: { $lte: now } },
+              { $set: { status: 'active' } }
+            ),
+            Bed.updateMany(
+              { _id: { $in: bedIds }, status: 'reserved' },
+              { $set: { status: 'occupied' } }
+            ),
+          ]);
+          console.log(`[ContractActivation] Activated ${contractResult.modifiedCount} contract(s), beds set to occupied`);
         }
       } catch (err) {
         console.error('[ContractActivation] Error:', err.message);

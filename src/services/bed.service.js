@@ -24,7 +24,7 @@ const attachContracts = async (beds) => {
   const bedIds = beds.map((b) => b._id);
   const contracts = await Contract.find({
     bed: { $in: bedIds },
-    status: { $in: ['active', 'extended'] },
+    status: { $in: ['active', 'extended', 'upcoming'] },
   }).populate(populateStudent);
 
   const contractByBed = {};
