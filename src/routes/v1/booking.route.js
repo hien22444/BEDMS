@@ -64,6 +64,11 @@ router.get(
 
 router.post('/keep-bed', authenticate, authorize('student'), bookingController.keepBed);
 
+// Soft lock routes (must be before /:id)
+router.get('/beds/soft-locks', authenticate, authorize('student'), bookingController.getSoftLockedBeds);
+router.post('/beds/soft-lock', authenticate, authorize('student'), bookingController.softLockBed);
+router.delete('/beds/soft-lock/:bedId', authenticate, authorize('student'), bookingController.softUnlockBed);
+
 router.post('/', authenticate, authorize('student'), bookingController.submitBooking);
 
 router.get(
@@ -71,6 +76,13 @@ router.get(
   authenticate,
   authorize('student'),
   bookingController.checkPaymentStatus
+);
+
+router.post(
+  '/:id/payos-link',
+  authenticate,
+  authorize('student'),
+  bookingController.createPayosLinkForBooking
 );
 
 router.get('/my', authenticate, authorize('student'), bookingController.getMyBookings);

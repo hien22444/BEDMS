@@ -56,8 +56,26 @@ const getBedsForBooking = catchAsync(async (req, res) => {
 });
 
 const submitBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.submitBooking(req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await bookingService.submitBooking(req.user.id, req.body, io);
   res.success(data, status.CREATED);
+});
+
+const softLockBed = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
+  const data = await bookingService.softLockBed(req.user.id, req.body.bed_id, io);
+  res.success(data, status.OK);
+});
+
+const softUnlockBed = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
+  bookingService.softUnlockBed(req.user.id, req.params.bedId, io);
+  res.success({ message: 'Unlocked' }, status.OK);
+});
+
+const getSoftLockedBeds = catchAsync(async (req, res) => {
+  const data = bookingService.getSoftLockedBeds();
+  res.success(data, status.OK);
 });
 
 const checkPaymentStatus = catchAsync(async (req, res) => {
@@ -80,6 +98,11 @@ const cancelBooking = catchAsync(async (req, res) => {
 const keepBed = catchAsync(async (req, res) => {
   const data = await bookingService.keepBed(req.user.id);
   res.success(data, status.CREATED);
+});
+
+const createPayosLinkForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.createPayosLinkForBooking(req.params.id, req.user.id);
+  res.success(data, status.OK);
 });
 
 const getAllBookings = catchAsync(async (req, res) => {
@@ -134,6 +157,7 @@ module.exports = {
   getBedsForBooking,
   submitBooking,
   checkPaymentStatus,
+  createPayosLinkForBooking,
   getMyBookings,
   cancelBooking,
   sendEmailToStudent,
@@ -144,4 +168,7 @@ module.exports = {
   listCfdAtRiskStudents,
   cfdDormExpelStudent,
   getRoommates,
+  softLockBed,
+  softUnlockBed,
+  getSoftLockedBeds,
 };
