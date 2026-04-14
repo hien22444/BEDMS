@@ -221,7 +221,34 @@ const getBookingWindowStatus = async (userId) => {
       map[BOOKING_CONFIG_KEYS.HOLD_END]
     );
     if (holdAllowed) {
-      return { allowed: true, window_type: 'hold' };
+      const nextSem = await getTargetSemester();
+      const bedId = activeContract.bed;
+      const studentId = student._id;
+
+      const bedTakenByBooking = await BookingRequest.findOne({
+        bed: bedId,
+        semester: nextSem.semester,
+        status: { $in: ['awaiting_payment', 'approved'] },
+        student: { $ne: studentId },
+        checkout_date: null,
+      }).lean();
+
+      const bedTakenByContract = !bedTakenByBooking && await Contract.findOne({
+        bed: bedId,
+        status: 'upcoming',
+        student: { $ne: studentId },
+      }).lean();
+
+      const bed_taken = !!(bedTakenByBooking || bedTakenByContract);
+      return {
+        allowed: true,
+        window_type: 'hold',
+        bed_id: String(bedId),
+        bed_taken,
+        bed_taken_reason: bed_taken
+          ? 'Your bed has been booked by another student for the next semester. Please contact management.'
+          : null,
+      };
     }
 
     // 2. If hold window is closed but new booking window is open AND target semester
@@ -354,14 +381,13 @@ const getFloorsForBooking = async (userId, dormId, roomType) => {
     block: { $in: blockIds },
     student_type: roomStudentType,
     room_type: roomType,
-    status: 'available',
-    available_beds: { $gt: 0 },
-  }).select('floor available_beds');
+    status: { $in: ['available', 'full'] },
+  }).select('floor available_beds total_beds status');
 
   const floorMap = {};
   for (const room of rooms) {
     if (!floorMap[room.floor]) floorMap[room.floor] = 0;
-    floorMap[room.floor] += room.available_beds;
+    floorMap[room.floor] += room.status === 'full' ? room.total_beds : room.available_beds;
   }
 
   return Object.entries(floorMap)
@@ -387,9 +413,8 @@ const getBlocksForBooking = async (userId, dormId, floor, roomType) => {
     block: { $in: blockIds },
     student_type: roomStudentType,
     room_type: roomType,
-    status: 'available',
-    available_beds: { $gt: 0 },
-  }).select('block available_beds');
+    status: { $in: ['available', 'full'] },
+  }).select('block available_beds total_beds status');
 
   const blockMap = {};
   for (const b of blocks) {
@@ -402,7 +427,8 @@ const getBlocksForBooking = async (userId, dormId, floor, roomType) => {
   }
   for (const room of rooms) {
     const bid = room.block.toString();
-    if (blockMap[bid]) blockMap[bid].available_slots += room.available_beds;
+    if (blockMap[bid])
+      blockMap[bid].available_slots += room.status === 'full' ? room.total_beds : room.available_beds;
   }
 
   return Object.values(blockMap).filter((b) => b.available_slots > 0);
@@ -423,8 +449,7 @@ const getRoomsForBooking = async (userId, blockId, roomType) => {
     block: blockId,
     student_type: roomStudentType,
     room_type: roomType,
-    status: 'available',
-    available_beds: { $gt: 0 },
+    status: { $in: ['available', 'full'] },
   }).lean();
 
   return rooms.map((r) => ({
@@ -456,12 +481,41 @@ const getBedsForBooking = async (userId, roomId) => {
     throw new AppError('Room block does not match your gender', 403);
   }
 
-  const beds = await Bed.find({ room: roomId, status: 'available' })
+  const beds = await Bed.find({ room: roomId, status: { $in: ['available', 'occupied'] } })
     .select('bed_number status')
     .sort({ bed_number: 1 })
     .lean();
 
-  return beds.map((b) => ({ id: b._id, bed_number: b.bed_number, status: b.status }));
+  // Filter out beds already booked/contracted for next semester (available or occupied)
+  const allBedIds = beds.map((b) => b._id);
+  let takenBedIdSet = new Set();
+  if (allBedIds.length > 0) {
+    const nextSem = await getTargetSemester();
+    const [takenByBooking, takenByContract] = await Promise.all([
+      BookingRequest.find({
+        bed: { $in: allBedIds },
+        semester: nextSem.semester,
+        status: { $in: ['awaiting_payment', 'approved'] },
+        checkout_date: null,
+      })
+        .select('bed')
+        .lean(),
+      Contract.find({
+        bed: { $in: allBedIds },
+        semester: nextSem.semester,
+        status: 'upcoming',
+      })
+        .select('bed')
+        .lean(),
+    ]);
+    for (const r of [...takenByBooking, ...takenByContract]) {
+      takenBedIdSet.add(String(r.bed));
+    }
+  }
+
+  return beds
+    .filter((b) => !takenBedIdSet.has(String(b._id)))
+    .map((b) => ({ id: b._id, bed_number: b.bed_number, status: b.status }));
 };
 
 // ─── Soft lock ─────────────────────────────────────────────
@@ -469,7 +523,8 @@ const getBedsForBooking = async (userId, roomId) => {
 const softLockBed = async (userId, bedId, io) => {
   const bed = await Bed.findById(bedId).select('status').lean();
   if (!bed) throw new AppError('Bed not found', 404);
-  if (bed.status !== 'available') throw new AppError('Bed is not available', 409);
+  if (!['available', 'occupied'].includes(bed.status))
+    throw new AppError('Bed is not available for booking', 409);
   if (bedSoftLock.isLockedByOther(bedId, userId)) {
     throw new AppError('Bed is currently being selected by another student', 409);
   }
@@ -497,7 +552,8 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
 
   const bed = await Bed.findById(bed_id);
   if (!bed) throw new AppError('Bed not found', 404);
-  if (bed.status !== 'available') throw new AppError('Bed is no longer available', 409);
+  if (!['available', 'occupied'].includes(bed.status))
+    throw new AppError('Bed is no longer available for booking', 409);
 
   const room = await Room.findById(bed.room).populate({
     path: 'block',
@@ -536,16 +592,48 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
     throw new AppError('You already have an active booking for this semester', 409);
   }
 
-  // Reserve bed + release soft lock
-  bed.status = 'reserved';
-  await bed.save();
+  // Check if this specific bed is already booked/contracted for next semester
+  const bedAlreadyBooked = await BookingRequest.findOne({
+    bed: bed._id,
+    semester: nextSem.semester,
+    status: { $in: ['awaiting_payment', 'approved'] },
+    checkout_date: null,
+  }).lean();
+  if (bedAlreadyBooked) {
+    throw new AppError('This bed has already been booked for next semester', 409);
+  }
+  const bedAlreadyContracted = await Contract.findOne({
+    bed: bed._id,
+    semester: nextSem.semester,
+    status: 'upcoming',
+  }).lean();
+  if (bedAlreadyContracted) {
+    throw new AppError('This bed already has a contract for next semester', 409);
+  }
+
+  // Release soft lock; notify other students' UIs to hide this bed.
+  // Bed status and room.available_beds are updated only after payment is confirmed.
   bedSoftLock.unlockBed(String(bed._id), io);
   if (io) io.emit('bed_reserved', { bedId: String(bed._id) });
 
-  // Sync room available_beds immediately (before payment)
-  room.available_beds = Math.max(0, room.available_beds - 1);
-  if (room.available_beds <= 0) room.status = 'full';
-  await room.save();
+  // If booking an occupied bed, notify the current occupant that their bed has been taken —
+  // their Hold Bed button should update to "Cannot Hold Bed".
+  if (io && bed.status === 'occupied') {
+    const occupantContract = await Contract.findOne({
+      bed: bed._id,
+      status: { $in: ['active', 'extended'] },
+    })
+      .select('student')
+      .lean();
+    if (occupantContract) {
+      const occupantStudent = await Student.findById(occupantContract.student)
+        .select('user')
+        .lean();
+      if (occupantStudent?.user) {
+        io.to(`user_${occupantStudent.user}`).emit('booking_window_status_changed');
+      }
+    }
+  }
 
   // Generate invoice
   const invoice_code = await generateInvoiceCode();
@@ -714,12 +802,17 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
       await Payment.updateOne({ _id: pay._id }, { $set: { payment_status: 'expired' } });
     }
 
-    // Rollback bed and restore room available_beds
-    await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
-    await Room.findByIdAndUpdate(booking.room, {
-      $inc: { available_beds: 1 },
-      $set: { status: 'available' },
-    });
+    // Rollback bed only if already 'reserved' (payment was confirmed before expiry).
+    // If still 'available' (awaiting_payment, not yet reserved) or 'occupied' (hold-bed),
+    // no status change or available_beds adjustment is needed.
+    const currentBedOnExpiry = await Bed.findById(booking.bed).select('status').lean();
+    if (currentBedOnExpiry?.status === 'reserved') {
+      await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
+      await Room.findByIdAndUpdate(booking.room, {
+        $inc: { available_beds: 1 },
+        $set: { status: 'available' },
+      });
+    }
     await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
     await Invoice.deleteOne({ _id: booking.invoice });
     booking.status = 'expired';
@@ -792,17 +885,25 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   invoice.paid_at = new Date();
   await invoice.save();
 
-  // Update bed status:
-  // - 'occupied' bed = hold bed (student still living there) → don't change
-  // - 'reserved' bed = new booking payment window → set occupied (current) or keep reserved (future)
-  if (bed.status === 'reserved') {
+  // Update bed status on payment:
+  // - 'available' bed (new booking, paid now): set to 'reserved' (future) or 'occupied' (current semester)
+  //   and decrement room.available_beds
+  // - 'reserved' bed (already reserved before this path): same transition
+  // - 'occupied' bed (hold bed or new booking of occupied bed): no change
+  if (bed.status === 'available') {
+    bed.status = booking.start_date <= new Date() ? 'occupied' : 'reserved';
+    await bed.save();
+    room.available_beds = Math.max(0, room.available_beds - 1);
+    if (room.available_beds <= 0) room.status = 'full';
+    await room.save();
+  } else if (bed.status === 'reserved') {
     if (booking.start_date <= new Date()) {
       bed.status = 'occupied';
       await bed.save();
     }
-    // future semester new booking: stays 'reserved' until semester starts
+    // future semester: stays 'reserved' until semester starts
   }
-  // bed 'occupied' (hold bed): student is still living there, no change needed
+  // 'occupied' bed: student still living there, no change needed
 
   // Create contract if not exists
   // Hold-bed bookings have a future start_date → create as 'upcoming' to avoid
@@ -1053,12 +1154,17 @@ const cancelBooking = async (bookingId, userId, io) => {
     await Payment.deleteOne({ _id: payment._id });
   }
 
-  // Rollback bed and restore room available_beds
-  await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
-  await Room.findByIdAndUpdate(booking.room, {
-    $inc: { available_beds: 1 },
-    $set: { status: 'available' },
-  });
+  // Rollback bed only if it was already set to 'reserved' (payment confirmed then cancelled is
+  // not possible here, but guard anyway). If bed is still 'available' (awaiting_payment, not yet
+  // reserved) or 'occupied' (hold-bed), no status change or available_beds adjustment is needed.
+  const currentBed = await Bed.findById(booking.bed).select('status').lean();
+  if (currentBed?.status === 'reserved') {
+    await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
+    await Room.findByIdAndUpdate(booking.room, {
+      $inc: { available_beds: 1 },
+      $set: { status: 'available' },
+    });
+  }
   // Delete invoice + booking (no need to persist cancelled state)
   await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
   await Invoice.deleteOne({ _id: booking.invoice });
@@ -1075,7 +1181,7 @@ const cancelBooking = async (bookingId, userId, io) => {
 };
 
 // ─── 12. keepBed ──────────────────────────────────────────
-const keepBed = async (userId) => {
+const keepBed = async (userId, io = null) => {
   const student = await findStudent(userId);
   assertStudentMayUseBooking(student);
 
@@ -1120,6 +1226,33 @@ const keepBed = async (userId) => {
   const room = contract.room;
   const bed = contract.bed;
 
+  // Check if another student has already booked this bed for next semester
+  const bedTakenByBooking = await BookingRequest.findOne({
+    bed: bed._id,
+    semester: nextSem.semester,
+    status: { $in: ['awaiting_payment', 'approved'] },
+    student: { $ne: student._id },
+    checkout_date: null,
+  }).lean();
+  if (bedTakenByBooking) {
+    throw new AppError(
+      'Your current bed has already been booked by another student for the next semester. Please contact management.',
+      409
+    );
+  }
+
+  const bedTakenByContract = await Contract.findOne({
+    bed: bed._id,
+    status: 'upcoming',
+    student: { $ne: student._id },
+  }).lean();
+  if (bedTakenByContract) {
+    throw new AppError(
+      'Your current bed has already been assigned to another student for the next semester. Please contact management.',
+      409
+    );
+  }
+
   // Generate invoice
   const invoice_code = await generateInvoiceCode();
   const invoice = await Invoice.create({
@@ -1148,6 +1281,9 @@ const keepBed = async (userId) => {
     expires_at,
     status: 'awaiting_payment',
   });
+
+  // Notify other students' booking UIs to hide this bed immediately
+  if (io) io.emit('bed_reserved', { bedId: String(bed._id) });
 
   const populatedBooking = await BookingRequest.findById(booking._id)
     .populate({
@@ -1308,10 +1444,17 @@ const checkoutStudent = async (studentCode, managerId) => {
     $set: { status: 'terminated', terminated_at: now },
   });
 
-  await Bed.findByIdAndUpdate(contract.bed, { $set: { status: 'available' } });
+  // If another student has an upcoming contract for this bed, keep it 'reserved'
+  const upcomingForBed = await Contract.findOne({
+    bed: contract.bed,
+    status: 'upcoming',
+  }).lean();
+  await Bed.findByIdAndUpdate(contract.bed, {
+    $set: { status: upcomingForBed ? 'reserved' : 'available' },
+  });
 
   await Room.findByIdAndUpdate(contract.room, {
-    $inc: { available_beds: 1 },
+    $inc: { available_beds: upcomingForBed ? 0 : 1 },
     $set: { status: 'available' },
   });
 

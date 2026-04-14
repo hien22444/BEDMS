@@ -46,15 +46,20 @@ const scheduleBookingExpiry = () => {
             await Payment.updateOne({ _id: payment._id }, { $set: { payment_status: 'expired' } });
           }
 
-          // Rollback bed and restore room available_beds
+          // Rollback bed only if already 'reserved' (payment confirmed before expiry).
+          // If still 'available' (awaiting_payment, not yet reserved) or 'occupied' (hold-bed),
+          // no status change or available_beds adjustment is needed.
           if (booking.bed) {
-            await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
-          }
-          if (booking.room) {
-            await Room.findByIdAndUpdate(booking.room, {
-              $inc: { available_beds: 1 },
-              $set: { status: 'available' },
-            });
+            const currentBed = await Bed.findById(booking.bed).select('status').lean();
+            if (currentBed?.status === 'reserved') {
+              await Bed.findByIdAndUpdate(booking.bed, { status: 'available' });
+              if (booking.room) {
+                await Room.findByIdAndUpdate(booking.room, {
+                  $inc: { available_beds: 1 },
+                  $set: { status: 'available' },
+                });
+              }
+            }
           }
           if (booking.invoice) {
             await InvoiceLineItem.deleteMany({ invoice: booking.invoice });
@@ -101,6 +106,22 @@ const scheduleContractActivation = () => {
             ),
           ]);
           console.log(`[ContractActivation] Activated ${contractResult.modifiedCount} contract(s), beds set to occupied`);
+        }
+
+        // Safety net: active/extended contracts whose bed is not 'occupied'
+        const desynced = await Contract.find(
+          { status: { $in: ['active', 'extended'] } },
+          { bed: 1 }
+        ).lean();
+        if (desynced.length > 0) {
+          const desyncedBedIds = desynced.map((c) => c.bed);
+          const fixResult = await Bed.updateMany(
+            { _id: { $in: desyncedBedIds }, status: { $in: ['available', 'reserved'] } },
+            { $set: { status: 'occupied' } }
+          );
+          if (fixResult.modifiedCount > 0) {
+            console.log(`[ContractActivation] Fixed ${fixResult.modifiedCount} desynced bed(s) → occupied`);
+          }
         }
       } catch (err) {
         console.error('[ContractActivation] Error:', err.message);

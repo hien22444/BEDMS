@@ -96,7 +96,8 @@ const cancelBooking = catchAsync(async (req, res) => {
 });
 
 const keepBed = catchAsync(async (req, res) => {
-  const data = await bookingService.keepBed(req.user.id);
+  const io = req.app.get('io');
+  const data = await bookingService.keepBed(req.user.id, io);
   res.success(data, status.CREATED);
 });
 

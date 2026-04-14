@@ -206,10 +206,24 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
     .lean();
 
   if (existingPayment?.payos_checkout_url) {
-    return {
-      invoice: buildInvoiceResponse(invoice),
-      payos: buildPayosPayload(existingPayment),
-    };
+    if (existingPayment.payos_order_code) {
+      const payosInfo = await getPayosPaymentInfo(existingPayment.payos_order_code);
+      const payosStatus = String(payosInfo?.status || payosInfo?.data?.status || '').toLowerCase();
+      if (payosStatus === 'cancelled' || payosStatus === 'canceled') {
+        // Link đã bị cancel trên PayOS — xóa record stale, tạo link mới bên dưới
+        await Payment.findByIdAndDelete(existingPayment._id);
+      } else {
+        return {
+          invoice: buildInvoiceResponse(invoice),
+          payos: buildPayosPayload(existingPayment),
+        };
+      }
+    } else {
+      return {
+        invoice: buildInvoiceResponse(invoice),
+        payos: buildPayosPayload(existingPayment),
+      };
+    }
   }
 
   const returnUrl = process.env.PAYOS_RETURN_URL;
