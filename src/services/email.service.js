@@ -13,10 +13,14 @@ const getTransporter = () => {
     return null;
   }
 
+  const port = Number(SMTP_PORT);
+  const secure = String(SMTP_SECURE).toLowerCase() === 'true';
+
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: String(SMTP_SECURE).toLowerCase() === 'true',
+    port,
+    secure,
+    requireTLS: !secure && port === 587,
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS,
