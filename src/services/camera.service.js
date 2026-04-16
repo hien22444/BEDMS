@@ -1,12 +1,11 @@
 const { CameraConfig } = require('../models');
 const AppError = require('../utils/AppError');
 const { getFaceServiceAuthHeaders } = require('./internalAuth.service');
-
-const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8000';
+const { faceServiceUrl } = require('../utils/faceServiceUrl');
 
 const stopCameraIfActive = async (cameraId) => {
   try {
-    const statusRes = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`, {
+    const statusRes = await fetch(faceServiceUrl(`/cameras/${cameraId}/status`), {
       headers: {
         ...getFaceServiceAuthHeaders(),
       },
@@ -17,7 +16,7 @@ const stopCameraIfActive = async (cameraId) => {
 
     const statusData = await statusRes.json();
     if (statusData.status === 'active') {
-      await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/stop`, {
+      await fetch(faceServiceUrl(`/cameras/${cameraId}/stop`), {
         method: 'POST',
         headers: {
           ...getFaceServiceAuthHeaders(),
@@ -62,7 +61,7 @@ const startCamera = async (cameraId) => {
     throw new AppError('Camera not found', 404);
   }
 
-  const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/start`, {
+  const response = await fetch(faceServiceUrl(`/cameras/${cameraId}/start`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -91,7 +90,7 @@ const stopCamera = async (cameraId) => {
     throw new AppError('Camera not found', 404);
   }
 
-  const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/stop`, {
+  const response = await fetch(faceServiceUrl(`/cameras/${cameraId}/stop`), {
     method: 'POST',
     headers: {
       ...getFaceServiceAuthHeaders(),
@@ -107,7 +106,7 @@ const stopCamera = async (cameraId) => {
 };
 
 const getCameraStatus = async (cameraId) => {
-  const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`, {
+  const response = await fetch(faceServiceUrl(`/cameras/${cameraId}/status`), {
     headers: {
       ...getFaceServiceAuthHeaders(),
     },
