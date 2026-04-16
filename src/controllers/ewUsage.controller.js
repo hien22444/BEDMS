@@ -46,7 +46,12 @@ const exportEWUsages = catchAsync(async (req, res) => {
 });
 
 const recalculate = catchAsync(async (req, res) => {
-  const result = await ewUsageService.recalculate();
+  const result = await ewUsageService.recalculate(req.body || {});
+  res.success(result, status.OK);
+});
+
+const createEWInvoices = catchAsync(async (req, res) => {
+  const result = await ewUsageService.createEWInvoices(req.body || {});
   res.success(result, status.OK);
 });
 
@@ -65,4 +70,5 @@ module.exports = {
   importEWUsages,
   exportEWUsages,
   recalculate,
+  createEWInvoices,
 };
