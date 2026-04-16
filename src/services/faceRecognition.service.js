@@ -4,8 +4,7 @@ const { FaceEmbedding, Student, StudentAccessLog } = require('../models');
 const AppError = require('../utils/AppError');
 const { uploadBase64Image } = require('../config/cloudinary');
 const { getFaceServiceAuthHeaders } = require('./internalAuth.service');
-
-const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8000';
+const { faceServiceUrl } = require('../utils/faceServiceUrl');
 
 // ---------------------------------------------------------------------------
 // In-memory embedding cache for fast cosine similarity matching
@@ -106,7 +105,7 @@ const registerFace = async (studentId, imageBuffer, registeredBy) => {
   const form = new FormData();
   form.append('image', new Blob([imageBuffer], { type: 'image/jpeg' }), 'face.jpg');
 
-  const response = await fetch(`${FACE_SERVICE_URL}/register`, {
+  const response = await fetch(faceServiceUrl('/register'), {
     method: 'POST',
     headers: {
       ...getFaceServiceAuthHeaders(),
