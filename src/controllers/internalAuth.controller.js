@@ -5,7 +5,7 @@ const catchAsync = require('../utils/catchAsync');
 const getJwks = catchAsync(async (_req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=300');
   const data = internalAuthService.getFaceServiceJwks();
-  res.success(data, status.OK);
+  res.status(status.OK).json(data);
 });
 
 module.exports = {
