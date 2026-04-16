@@ -12,8 +12,10 @@ router.get('/:id/payment-status', authenticate, authorize('student'), invoiceCon
 // ─── Manager routes ────────────────────────────────────────────────────────────
 router.get('/', authenticate, authorize('manager'), invoiceController.getInvoices);
 router.post('/', authenticate, authorize('manager'), invoiceController.createInvoiceForStudent);
+router.post('/ew/student', authenticate, authorize('manager'), invoiceController.createEWInvoiceForStudent);
 router.post('/bulk/room/:roomId', authenticate, authorize('manager'), invoiceController.createInvoicesForRoom);
 router.post('/bulk/block/:blockId', authenticate, authorize('manager'), invoiceController.createInvoicesForBlock);
+router.post('/ew/block', authenticate, authorize('manager'), invoiceController.createEWInvoicesForAllBlocks);
 router.patch('/:id/cancel', authenticate, authorize('manager'), invoiceController.cancelInvoice);
 router.delete('/:id', authenticate, authorize('manager'), invoiceController.deleteInvoice);
 router.get('/:id', authenticate, authorize('manager'), invoiceController.getInvoiceDetail);

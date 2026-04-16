@@ -5,6 +5,7 @@ const { authController } = require('../../controllers');
 const { authenticate, authorize } = require('../../middleware/auth');
 
 const router = express.Router();
+const getFrontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 
 // Rate limiter: max 5 login attempts per 15 minutes per IP
 const loginLimiter = rateLimit({
@@ -50,7 +51,7 @@ router.get(
 router.get(
   '/google/callback',
   (req, res, next) => {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
 
     passport.authenticate('google', { session: false }, (err, user, info) => {
       // Handle authentication error

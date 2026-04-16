@@ -117,7 +117,7 @@ const searchStudentForCheckout = catchAsync(async (req, res) => {
 });
 
 const checkoutStudent = catchAsync(async (req, res) => {
-  const data = await bookingService.checkoutStudent(req.body.student_code, req.user.id);
+  const data = await bookingService.checkoutStudent(req.body.student_code, req.user.id, req.body);
   res.success(data, status.OK);
 });
 
