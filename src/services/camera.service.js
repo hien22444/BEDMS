@@ -1,18 +1,28 @@
 const { CameraConfig } = require('../models');
 const AppError = require('../utils/AppError');
+const { getFaceServiceAuthHeaders } = require('./internalAuth.service');
 
 const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8000';
 
 const stopCameraIfActive = async (cameraId) => {
   try {
-    const statusRes = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`);
+    const statusRes = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`, {
+      headers: {
+        ...getFaceServiceAuthHeaders(),
+      },
+    });
     if (!statusRes.ok) {
       return false;
     }
 
     const statusData = await statusRes.json();
     if (statusData.status === 'active') {
-      await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/stop`, { method: 'POST' });
+      await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/stop`, {
+        method: 'POST',
+        headers: {
+          ...getFaceServiceAuthHeaders(),
+        },
+      });
       return true;
     }
   } catch {
@@ -54,7 +64,10 @@ const startCamera = async (cameraId) => {
 
   const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/start`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getFaceServiceAuthHeaders(),
+    },
     body: JSON.stringify({
       source_type: camera.source_type,
       source_url: camera.source_url,
@@ -80,6 +93,9 @@ const stopCamera = async (cameraId) => {
 
   const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/stop`, {
     method: 'POST',
+    headers: {
+      ...getFaceServiceAuthHeaders(),
+    },
   });
 
   const result = await response.json();
@@ -91,7 +107,11 @@ const stopCamera = async (cameraId) => {
 };
 
 const getCameraStatus = async (cameraId) => {
-  const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`);
+  const response = await fetch(`${FACE_SERVICE_URL}/cameras/${cameraId}/status`, {
+    headers: {
+      ...getFaceServiceAuthHeaders(),
+    },
+  });
 
   if (response.status === 404) {
     return { camera_id: cameraId, status: 'offline' };

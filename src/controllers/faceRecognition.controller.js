@@ -3,6 +3,12 @@ const { faceRecognitionService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
 const registerFace = catchAsync(async (req, res) => {
+  if (!req.file) {
+    return res.status(status.BAD_REQUEST).json({
+      success: false,
+      message: 'Image file is required',
+    });
+  }
   const { studentId } = req.body;
   if (!studentId) {
     return res.status(status.BAD_REQUEST).json({
@@ -10,31 +16,7 @@ const registerFace = catchAsync(async (req, res) => {
       message: 'studentId is required',
     });
   }
-
-  const hasEmbedding = Array.isArray(req.body?.embedding);
-  if (!req.file && !hasEmbedding) {
-    return res.status(status.BAD_REQUEST).json({
-      success: false,
-      message: 'Either an image file or a precomputed embedding is required',
-    });
-  }
-
-  const rawQualityScore = req.body?.qualityScore;
-  const qualityScore =
-    rawQualityScore === undefined || rawQualityScore === null ? undefined : Number(rawQualityScore);
-
-  const data = hasEmbedding
-    ? await faceRecognitionService.registerFaceWithEmbedding(
-        studentId,
-        req.body.embedding,
-        req.user.id,
-        {
-          qualityScore: Number.isFinite(qualityScore) ? qualityScore : undefined,
-          faceCropBase64:
-            typeof req.body.faceCropBase64 === 'string' ? req.body.faceCropBase64 : undefined,
-        }
-      )
-    : await faceRecognitionService.registerFace(studentId, req.file.buffer, req.user.id);
+  const data = await faceRecognitionService.registerFace(studentId, req.file.buffer, req.user.id);
   res.success(data, status.CREATED);
 });
 

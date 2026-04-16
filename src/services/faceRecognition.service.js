@@ -3,6 +3,7 @@
 const { FaceEmbedding, Student, StudentAccessLog } = require('../models');
 const AppError = require('../utils/AppError');
 const { uploadBase64Image } = require('../config/cloudinary');
+const { getFaceServiceAuthHeaders } = require('./internalAuth.service');
 
 const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:8000';
 
@@ -26,16 +27,6 @@ const recentLogTimestamps = new Map(); // key: "studentId:check_in" → Date.now
 const UNKNOWN_GRACE_PERIOD_MS = 30_000; // 30s grace period
 const pendingUnknowns = new Map(); // camera_id → { firstSeen: number, frame_base64: string }
 const unknownCooldowns = new Map(); // camera_id → timestamp of last unknown log created
-
-const formatFaceImageUrl = (faceCropBase64) => {
-  if (!faceCropBase64) {
-    return null;
-  }
-
-  return faceCropBase64.startsWith('data:')
-    ? faceCropBase64
-    : `data:image/jpeg;base64,${faceCropBase64}`;
-};
 
 const loadEmbeddingCache = async () => {
   // If a load is already in progress, wait for it instead of starting another
@@ -104,33 +95,41 @@ const findBestMatch = (queryEmbedding, threshold = 0.6) => {
 // Service methods
 // ---------------------------------------------------------------------------
 
-const saveFaceRegistration = async ({
-  studentId,
-  embedding,
-  registeredBy,
-  qualityScore,
-  faceCropBase64,
-}) => {
+const registerFace = async (studentId, imageBuffer, registeredBy) => {
+  // Verify student exists
   const student = await Student.findById(studentId);
   if (!student) {
     throw new AppError('Student not found', 404);
   }
 
-  if (
-    !Array.isArray(embedding) ||
-    embedding.length !== 512 ||
-    embedding.some((value) => typeof value !== 'number' || Number.isNaN(value))
-  ) {
-    throw new AppError('Embedding must be a valid 512D numeric vector', 422);
+  // Call FaceService to detect + embed
+  const form = new FormData();
+  form.append('image', new Blob([imageBuffer], { type: 'image/jpeg' }), 'face.jpg');
+
+  const response = await fetch(`${FACE_SERVICE_URL}/register`, {
+    method: 'POST',
+    headers: {
+      ...getFaceServiceAuthHeaders(),
+    },
+    body: form,
+  });
+
+  const result = await response.json();
+
+  if (!response.ok || !result.success) {
+    throw new AppError(result.detail || 'Face detection failed', response.status);
   }
 
+  // Upsert face embedding
   const faceData = {
     student: studentId,
-    embedding,
-    face_image_url: formatFaceImageUrl(faceCropBase64),
+    embedding: result.embedding,
+    face_image_url: result.face_crop_base64
+      ? `data:image/jpeg;base64,${result.face_crop_base64}`
+      : null,
     registered_by: registeredBy,
     is_active: true,
-    quality_score: qualityScore,
+    quality_score: result.quality_score,
   };
 
   const faceEmbedding = await FaceEmbedding.findOneAndUpdate({ student: studentId }, faceData, {
@@ -147,49 +146,11 @@ const saveFaceRegistration = async ({
     studentId: student._id,
     studentCode: student.student_code,
     fullName: student.full_name,
-    qualityScore,
+    qualityScore: result.quality_score,
     faceImageUrl: faceData.face_image_url,
     registeredAt: faceEmbedding.createdAt,
   };
 };
-
-const registerFace = async (studentId, imageBuffer, registeredBy) => {
-  const form = new FormData();
-  form.append('image', new Blob([imageBuffer], { type: 'image/jpeg' }), 'face.jpg');
-
-  const response = await fetch(`${FACE_SERVICE_URL}/register`, {
-    method: 'POST',
-    body: form,
-  });
-
-  const result = await response.json();
-
-  if (!response.ok || !result.success) {
-    throw new AppError(result.detail || 'Face detection failed', response.status);
-  }
-
-  return saveFaceRegistration({
-    studentId,
-    embedding: result.embedding,
-    registeredBy,
-    qualityScore: result.quality_score,
-    faceCropBase64: result.face_crop_base64,
-  });
-};
-
-const registerFaceWithEmbedding = async (
-  studentId,
-  embedding,
-  registeredBy,
-  { qualityScore, faceCropBase64 } = {}
-) =>
-  saveFaceRegistration({
-    studentId,
-    embedding,
-    registeredBy,
-    qualityScore,
-    faceCropBase64,
-  });
 
 const removeFace = async (studentId) => {
   const result = await FaceEmbedding.findOneAndDelete({ student: studentId });
@@ -422,7 +383,6 @@ const getAllStudents = async () => {
 
 module.exports = {
   registerFace,
-  registerFaceWithEmbedding,
   removeFace,
   getRegisteredStudents,
   getStudentFaceDetail,
