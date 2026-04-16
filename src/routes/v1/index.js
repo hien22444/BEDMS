@@ -15,6 +15,7 @@ const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
 const payosRoute = require('./payos.route');
 const faceRecognitionRoute = require('./faceRecognition.route');
+const internalAuthRoute = require('./internalAuth.route');
 const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
@@ -98,6 +99,10 @@ const defaultRoutes = [
   {
     path: '/face-recognition',
     route: faceRecognitionRoute,
+  },
+  {
+    path: '/internal-auth',
+    route: internalAuthRoute,
   },
   {
     path: '/access-logs',
