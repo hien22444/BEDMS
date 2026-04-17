@@ -47,7 +47,11 @@ const updateDormRules = catchAsync(async (req, res) => {
   if (!Array.isArray(rules)) {
     throw new AppError('rules must be an array', 400);
   }
-  await dormRulesService.updateDormRulesKB(req.user.id, { rules, knowledge_base, system_instructions });
+  await dormRulesService.updateDormRulesKB(req.user.id, {
+    rules,
+    knowledge_base,
+    system_instructions,
+  });
   res.success({ message: 'Dorm rules updated successfully' });
 });
 
