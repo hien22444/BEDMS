@@ -1,8 +1,8 @@
-const Dorm = require("../models/dorm.model");
-const Block = require("../models/block.model");
-const AppError = require("../utils/AppError");
+const Dorm = require('../models/dorm.model');
+const Block = require('../models/block.model');
+const AppError = require('../utils/AppError');
 
-const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Create new dorm
@@ -12,22 +12,22 @@ const createDorm = async (body) => {
   const { dorm_name, dorm_code, total_floors } = body;
 
   if (!dorm_name || !dorm_code) {
-    throw new Error("dorm_name and dorm_code are required");
+    throw new Error('dorm_name and dorm_code are required');
   }
 
   const code = String(dorm_code).trim();
   if (!/^[A-Za-z]$/.test(code)) {
-    throw new Error("dorm_code must be 1 letter (A-Z)");
+    throw new Error('dorm_code must be 1 letter (A-Z)');
   }
 
   const floors = Number(total_floors);
   if (!Number.isFinite(floors) || floors < 1) {
-    throw new Error("total_floors is required and must be at least 1");
+    throw new Error('total_floors is required and must be at least 1');
   }
 
   const existing = await Dorm.findOne({ dorm_code: code.toUpperCase() });
   if (existing) {
-    throw new Error("Dorm code already exists");
+    throw new Error('Dorm code already exists');
   }
 
   const dorm = await Dorm.create({
@@ -54,12 +54,12 @@ const getDorms = async (query = {}) => {
   const filter = {};
 
   if (query.search) {
-    const regex = new RegExp(escapeRegex(query.search), "i");
+    const regex = new RegExp(escapeRegex(query.search), 'i');
     filter.$or = [{ dorm_name: regex }, { dorm_code: regex }];
   }
 
-  if (typeof query.is_active !== "undefined") {
-    filter.is_active = query.is_active === "true";
+  if (typeof query.is_active !== 'undefined') {
+    filter.is_active = query.is_active === 'true';
   }
 
   const [items, total] = await Promise.all([
@@ -85,7 +85,7 @@ const getDorms = async (query = {}) => {
 const getDormById = async (id) => {
   const dorm = await Dorm.findById(id);
   if (!dorm) {
-    throw new Error("Dorm not found");
+    throw new Error('Dorm not found');
   }
   return dorm;
 };
@@ -99,21 +99,21 @@ const updateDorm = async (id, body) => {
   if (body.dorm_code) {
     const code = String(body.dorm_code).trim();
     if (!/^[A-Za-z]$/.test(code)) {
-      throw new Error("dorm_code must be 1 letter (A-Z)");
+      throw new Error('dorm_code must be 1 letter (A-Z)');
     }
     const existing = await Dorm.findOne({
       dorm_code: code.toUpperCase(),
       _id: { $ne: id },
     });
     if (existing) {
-      throw new Error("Dorm code already exists");
+      throw new Error('Dorm code already exists');
     }
   }
 
-  if (typeof body.total_floors !== "undefined") {
+  if (typeof body.total_floors !== 'undefined') {
     const floors = Number(body.total_floors);
     if (!Number.isFinite(floors) || floors < 1) {
-      throw new Error("total_floors must be at least 1");
+      throw new Error('total_floors must be at least 1');
     }
     const highestBlock = await Block.findOne({ dorm: id }).sort({ floor: -1 });
     if (highestBlock && highestBlock.floor > floors) {
@@ -129,13 +129,13 @@ const updateDorm = async (id, body) => {
       $set: {
         ...(body.dorm_name && { dorm_name: body.dorm_name }),
         ...(body.dorm_code && { dorm_code: body.dorm_code }),
-        ...(typeof body.total_floors !== "undefined" && {
+        ...(typeof body.total_floors !== 'undefined' && {
           total_floors: body.total_floors,
         }),
-        ...(typeof body.description !== "undefined" && {
+        ...(typeof body.description !== 'undefined' && {
           description: body.description,
         }),
-        ...(typeof body.is_active !== "undefined" && {
+        ...(typeof body.is_active !== 'undefined' && {
           is_active: body.is_active,
         }),
       },
@@ -144,7 +144,7 @@ const updateDorm = async (id, body) => {
   );
 
   if (!dorm) {
-    throw new Error("Dorm not found");
+    throw new Error('Dorm not found');
   }
 
   return dorm;
@@ -157,7 +157,7 @@ const updateDorm = async (id, body) => {
 const deleteDorm = async (id) => {
   const dorm = await Dorm.findById(id);
   if (!dorm) {
-    throw new Error("Dorm not found");
+    throw new Error('Dorm not found');
   }
 
   const blockCount = await Block.countDocuments({ dorm: id });
@@ -169,7 +169,7 @@ const deleteDorm = async (id) => {
   }
 
   await dorm.deleteOne();
-  return { message: "Dorm deleted successfully" };
+  return { message: 'Dorm deleted successfully' };
 };
 
 module.exports = {
@@ -179,4 +179,3 @@ module.exports = {
   updateDorm,
   deleteDorm,
 };
-

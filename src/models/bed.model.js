@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const BedSchema = new mongoose.Schema(
   {
@@ -19,8 +19,8 @@ const BedSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "available",
-      enum: ["available", "occupied", "maintenance", "reserved"],
+      default: 'available',
+      enum: ['available', 'occupied', 'maintenance', 'reserved'],
     },
   },
   {
@@ -30,7 +30,7 @@ const BedSchema = new mongoose.Schema(
 
 BedSchema.index({ room: 1, bed_number: 1 }, { unique: true });
 
-BedSchema.set("toJSON", {
+BedSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

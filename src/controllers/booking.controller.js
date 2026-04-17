@@ -2,6 +2,11 @@ const { status } = require('http-status');
 const { bookingService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
+const getBookingWindowStatus = catchAsync(async (req, res) => {
+  const data = await bookingService.getBookingWindowStatus(req.user.id);
+  res.success(data, status.OK);
+});
+
 const getNextSemesterInfo = catchAsync(async (req, res) => {
   const data = await bookingService.getNextSemesterInfo(req.user.id);
   res.success(data, status.OK);
@@ -18,17 +23,30 @@ const getDormsForBooking = catchAsync(async (req, res) => {
 });
 
 const getFloorsForBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.getFloorsForBooking(req.user.id, req.query.dorm_id, req.query.room_type);
+  const data = await bookingService.getFloorsForBooking(
+    req.user.id,
+    req.query.dorm_id,
+    req.query.room_type
+  );
   res.success(data, status.OK);
 });
 
 const getBlocksForBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.getBlocksForBooking(req.user.id, req.query.dorm_id, req.query.floor, req.query.room_type);
+  const data = await bookingService.getBlocksForBooking(
+    req.user.id,
+    req.query.dorm_id,
+    req.query.floor,
+    req.query.room_type
+  );
   res.success(data, status.OK);
 });
 
 const getRoomsForBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.getRoomsForBooking(req.user.id, req.query.block_id, req.query.room_type);
+  const data = await bookingService.getRoomsForBooking(
+    req.user.id,
+    req.query.block_id,
+    req.query.room_type
+  );
   res.success(data, status.OK);
 });
 
@@ -38,12 +56,31 @@ const getBedsForBooking = catchAsync(async (req, res) => {
 });
 
 const submitBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.submitBooking(req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await bookingService.submitBooking(req.user.id, req.body, io);
   res.success(data, status.CREATED);
 });
 
+const softLockBed = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
+  const data = await bookingService.softLockBed(req.user.id, req.body.bed_id, io);
+  res.success(data, status.OK);
+});
+
+const softUnlockBed = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
+  bookingService.softUnlockBed(req.user.id, req.params.bedId, io);
+  res.success({ message: 'Unlocked' }, status.OK);
+});
+
+const getSoftLockedBeds = catchAsync(async (req, res) => {
+  const data = bookingService.getSoftLockedBeds();
+  res.success(data, status.OK);
+});
+
 const checkPaymentStatus = catchAsync(async (req, res) => {
-  const data = await bookingService.checkPaymentStatus(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await bookingService.checkPaymentStatus(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
@@ -53,7 +90,19 @@ const getMyBookings = catchAsync(async (req, res) => {
 });
 
 const cancelBooking = catchAsync(async (req, res) => {
-  const data = await bookingService.cancelBooking(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await bookingService.cancelBooking(req.params.id, req.user.id, io);
+  res.success(data, status.OK);
+});
+
+const keepBed = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
+  const data = await bookingService.keepBed(req.user.id, io);
+  res.success(data, status.CREATED);
+});
+
+const createPayosLinkForBooking = catchAsync(async (req, res) => {
+  const data = await bookingService.createPayosLinkForBooking(req.params.id, req.user.id);
   res.success(data, status.OK);
 });
 
@@ -62,7 +111,44 @@ const getAllBookings = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const searchStudentForCheckout = catchAsync(async (req, res) => {
+  const data = await bookingService.searchStudentForCheckout(req.query.student_code);
+  res.success(data, status.OK);
+});
+
+const checkoutStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.checkoutStudent(req.body.student_code, req.user.id);
+  res.success(data, status.OK);
+});
+
+const listCfdAtRiskStudents = catchAsync(async (req, res) => {
+  const data = await bookingService.listCfdAtRiskStudents();
+  res.success(data, status.OK);
+});
+
+const cfdDormExpelStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.cfdDormExpelStudent(req.body.student_code);
+  res.success(data, status.OK);
+});
+
+const getRoommates = catchAsync(async (req, res) => {
+  const data = await bookingService.getRoommates(req.user.id, req.params.id);
+  res.success(data, status.OK);
+});
+
+const sendEmailToStudent = catchAsync(async (req, res) => {
+  const data = await bookingService.sendEmailToStudent(req.params.id, req.body);
+  res.success(data, status.OK);
+});
+
+const sendEmailToAllStudents = catchAsync(async (req, res) => {
+  const data = await bookingService.sendEmailToAllStudents(req.body);
+  res.success(data, status.OK);
+});
+
 module.exports = {
+  getBookingWindowStatus,
+  keepBed,
   getNextSemesterInfo,
   getAvailableRoomTypes,
   getDormsForBooking,
@@ -72,7 +158,18 @@ module.exports = {
   getBedsForBooking,
   submitBooking,
   checkPaymentStatus,
+  createPayosLinkForBooking,
   getMyBookings,
   cancelBooking,
+  sendEmailToStudent,
+  sendEmailToAllStudents,
   getAllBookings,
+  searchStudentForCheckout,
+  checkoutStudent,
+  listCfdAtRiskStudents,
+  cfdDormExpelStudent,
+  getRoommates,
+  softLockBed,
+  softUnlockBed,
+  getSoftLockedBeds,
 };

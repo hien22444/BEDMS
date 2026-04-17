@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const InvoiceSchema = new mongoose.Schema(
   {
@@ -52,8 +52,8 @@ const InvoiceSchema = new mongoose.Schema(
     },
     payment_status: {
       type: String,
-      default: "unpaid",
-      enum: ["unpaid", "paid", "overdue", "cancelled"],
+      default: 'unpaid',
+      enum: ['unpaid', 'paid', 'overdue', 'cancelled'],
     },
     due_date: {
       type: Date,
@@ -74,7 +74,7 @@ const InvoiceSchema = new mongoose.Schema(
   }
 );
 
-InvoiceSchema.set("toJSON", {
+InvoiceSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

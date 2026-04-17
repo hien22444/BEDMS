@@ -1,11 +1,11 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const PricingConfigSchema = new mongoose.Schema({
   config_type: {
     type: String,
     required: true,
-    enum: ["electricity", "water", "service_fee", "late_payment_fee"],
+    enum: ['electricity', 'water', 'service_fee', 'late_payment_fee'],
   },
   price_per_unit: {
     type: Number,
@@ -38,7 +38,7 @@ const PricingConfigSchema = new mongoose.Schema({
   },
 });
 
-PricingConfigSchema.set("toJSON", {
+PricingConfigSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -46,9 +46,6 @@ PricingConfigSchema.set("toJSON", {
   },
 });
 
-const PricingConfig = mongoose.model(
-  DBCollections.PRICING_CONFIG,
-  PricingConfigSchema
-);
+const PricingConfig = mongoose.model(DBCollections.PRICING_CONFIG, PricingConfigSchema);
 
 module.exports = PricingConfig;

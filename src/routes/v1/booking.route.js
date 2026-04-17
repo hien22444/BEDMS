@@ -7,6 +7,13 @@ const router = express.Router();
 // ─── Student endpoints ───
 
 router.get(
+  '/window-status',
+  authenticate,
+  authorize('student'),
+  bookingController.getBookingWindowStatus
+);
+
+router.get(
   '/next-semester',
   authenticate,
   authorize('student'),
@@ -55,12 +62,14 @@ router.get(
   bookingController.getBedsForBooking
 );
 
-router.post(
-  '/',
-  authenticate,
-  authorize('student'),
-  bookingController.submitBooking
-);
+router.post('/keep-bed', authenticate, authorize('student'), bookingController.keepBed);
+
+// Soft lock routes (must be before /:id)
+router.get('/beds/soft-locks', authenticate, authorize('student'), bookingController.getSoftLockedBeds);
+router.post('/beds/soft-lock', authenticate, authorize('student'), bookingController.softLockBed);
+router.delete('/beds/soft-lock/:bedId', authenticate, authorize('student'), bookingController.softUnlockBed);
+
+router.post('/', authenticate, authorize('student'), bookingController.submitBooking);
 
 router.get(
   '/:id/payment-status',
@@ -69,27 +78,52 @@ router.get(
   bookingController.checkPaymentStatus
 );
 
-router.get(
-  '/my',
+router.post(
+  '/:id/payos-link',
   authenticate,
   authorize('student'),
-  bookingController.getMyBookings
+  bookingController.createPayosLinkForBooking
 );
 
-router.patch(
-  '/:id/cancel',
-  authenticate,
-  authorize('student'),
-  bookingController.cancelBooking
-);
+router.get('/my', authenticate, authorize('student'), bookingController.getMyBookings);
+
+router.get('/:id/roommates', authenticate, authorize('student'), bookingController.getRoommates);
+
+router.patch('/:id/cancel', authenticate, authorize('student'), bookingController.cancelBooking);
 
 // ─── Manager endpoints ───
 
+router.post('/:id/send-email', authenticate, authorize('manager'), bookingController.sendEmailToStudent);
+router.post('/send-email-all', authenticate, authorize('manager'), bookingController.sendEmailToAllStudents);
+
+router.get('/', authenticate, authorize('manager'), bookingController.getAllBookings);
+
 router.get(
-  '/',
+  '/cfd-at-risk',
   authenticate,
   authorize('manager'),
-  bookingController.getAllBookings
+  bookingController.listCfdAtRiskStudents
+);
+
+router.post(
+  '/cfd-expel',
+  authenticate,
+  authorize('manager'),
+  bookingController.cfdDormExpelStudent
+);
+
+router.get(
+  '/checkout/search',
+  authenticate,
+  authorize('manager'),
+  bookingController.searchStudentForCheckout
+);
+
+router.post(
+  '/checkout',
+  authenticate,
+  authorize('manager'),
+  bookingController.checkoutStudent
 );
 
 module.exports = router;

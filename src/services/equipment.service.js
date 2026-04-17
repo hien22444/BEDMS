@@ -2,9 +2,9 @@ const crypto = require('crypto');
 const EquipmentCategory = require('../models/equipmentCategory.model');
 const EquipmentTemplate = require('../models/equipmentTemplate.model');
 const RoomEquipment = require('../models/roomEquipment.model');
-// const EquipmentHistory = require('../models/equipmentHistory.model'); // reserved for future audit trail
+const EquipmentHistory = require('../models/equipmentHistory.model');
 const RoomTypeEquipmentConfig = require('../models/roomTypeEquipmentConfig.model');
-const { Room } = require('../models');
+const { Room, MaintenanceRequest } = require('../models');
 const AppError = require('../utils/AppError');
 
 // ==================== CATEGORY ====================
@@ -187,7 +187,9 @@ const deleteTemplate = async (id) => {
   ]);
 
   if (equipCount > 0) {
-    throw new AppError(`Cannot delete template: ${equipCount} room equipment(s) still linked to it.`);
+    throw new AppError(
+      `Cannot delete template: ${equipCount} room equipment(s) still linked to it.`
+    );
   }
   if (configCount > 0) {
     throw new AppError(
@@ -291,6 +293,125 @@ const deleteRoomEquipment = async (id) => {
   return { message: 'Room equipment deleted successfully' };
 };
 
+const getRoomEquipmentHistory = async (equipmentId, query = {}) => {
+  const page = Number(query.page) > 0 ? Number(query.page) : 1;
+  const limit = Number(query.limit) > 0 ? Number(query.limit) : 500;
+  const skip = (page - 1) * limit;
+  const maxRows = 2000;
+
+  const equipment = await RoomEquipment.findById(equipmentId).select('_id').lean();
+  if (!equipment) {
+    throw new AppError('Room equipment not found', 404);
+  }
+
+  const actionType = query.action_type ? String(query.action_type).trim() : '';
+
+  // Non-repair audit trail only (added / moved / …)
+  if (actionType && actionType !== 'repaired') {
+    const filter = { equipment: equipmentId, action_type: actionType };
+    const [items, total] = await Promise.all([
+      EquipmentHistory.find(filter)
+        .populate({ path: 'performed_by', select: 'full_name staff_code' })
+        .sort({ performed_at: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      EquipmentHistory.countDocuments(filter),
+    ]);
+    return {
+      items,
+      repairedCount: 0,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  // Full repair history: every completed maintenance request linked to this equipment
+  const maintenanceRows = await MaintenanceRequest.find({
+    equipment: equipmentId,
+    status: { $in: ['completed', 'done'] },
+  })
+    .populate({ path: 'reviewed_by', select: 'full_name staff_code' })
+    .sort({ completed_at: -1, reviewed_at: -1, requested_at: -1 })
+    .limit(maxRows)
+    .select('request_code completion_notes completed_at reviewed_at reviewed_by')
+    .lean();
+
+  const fromMaintenance = maintenanceRows.map((r) => ({
+    id: `mr-${String(r._id)}`,
+    equipment: equipmentId,
+    action_type: 'repaired',
+    notes:
+      (r.completion_notes && String(r.completion_notes).trim()) ||
+      `Repaired via maintenance request ${r.request_code || ''}`.trim(),
+    performed_by: r.reviewed_by || null,
+    performed_at: r.completed_at || r.reviewed_at || null,
+  }));
+
+  const requestCodes = new Set(maintenanceRows.map((r) => r.request_code).filter(Boolean));
+
+  // EquipmentHistory "repaired" rows: keep only if not already covered by a maintenance completion
+  // (same completion creates both MR + EH; avoid duplicate rows in UI)
+  const ehRepairedAll = await EquipmentHistory.find({
+    equipment: equipmentId,
+    action_type: 'repaired',
+  })
+    .populate({ path: 'performed_by', select: 'full_name staff_code' })
+    .sort({ performed_at: -1 })
+    .limit(maxRows)
+    .lean();
+
+  const ehRepairedExtra = ehRepairedAll.filter((h) => {
+    const note = String(h.notes || '');
+    return ![...requestCodes].some((code) => code && note.includes(code));
+  });
+
+  const mapEhToItem = (doc) => {
+    const o = { ...doc };
+    o.id = doc.id || String(doc._id);
+    delete o._id;
+    return o;
+  };
+
+  const otherAudit = await EquipmentHistory.find({
+    equipment: equipmentId,
+    action_type: { $nin: ['repaired'] },
+  })
+    .populate({ path: 'performed_by', select: 'full_name staff_code' })
+    .sort({ performed_at: -1 })
+    .limit(maxRows)
+    .lean();
+
+  const merged = [
+    ...fromMaintenance,
+    ...ehRepairedExtra.map(mapEhToItem),
+    ...otherAudit.map(mapEhToItem),
+  ].sort((a, b) => {
+    const ta = a.performed_at ? new Date(a.performed_at).getTime() : 0;
+    const tb = b.performed_at ? new Date(b.performed_at).getTime() : 0;
+    return tb - ta;
+  });
+
+  const repairedCount = fromMaintenance.length + ehRepairedExtra.length;
+  const total = merged.length;
+  const items = merged.slice(skip, skip + limit);
+
+  return {
+    items,
+    repairedCount,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    },
+  };
+};
+
 // ==================== ROOM TYPE EQUIPMENT CONFIG ====================
 
 const createRoomTypeConfig = async (body) => {
@@ -385,6 +506,7 @@ module.exports = {
   getRoomEquipments,
   updateRoomEquipment,
   deleteRoomEquipment,
+  getRoomEquipmentHistory,
   createTemplate,
   getTemplates,
   getTemplateById,

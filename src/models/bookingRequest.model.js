@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const BookingRequestSchema = new mongoose.Schema(
   {
@@ -14,6 +14,12 @@ const BookingRequestSchema = new mongoose.Schema(
       ref: DBCollections.ROOM,
     },
     bed: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.BED,
+      default: null,
+    },
+    // Keep original booked bed immutable; store post-transfer bed here.
+    bed_transfer: {
       type: mongoose.Types.ObjectId,
       ref: DBCollections.BED,
       default: null,
@@ -37,8 +43,8 @@ const BookingRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: "awaiting_payment",
-      enum: ["awaiting_payment", "approved", "cancelled", "expired"],
+      default: 'awaiting_payment',
+      enum: ['awaiting_payment', 'approved', 'cancelled', 'expired'],
     },
     note: {
       type: String,
@@ -61,13 +67,17 @@ const BookingRequestSchema = new mongoose.Schema(
       ref: DBCollections.STAFF,
       default: null,
     },
+    checkout_date: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-BookingRequestSchema.set("toJSON", {
+BookingRequestSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -75,9 +85,11 @@ BookingRequestSchema.set("toJSON", {
   },
 });
 
-const BookingRequest = mongoose.model(
-  DBCollections.BOOKING_REQUEST,
-  BookingRequestSchema
-);
+// Convenience field for consumers: use transferred bed if present.
+BookingRequestSchema.virtual('effective_bed').get(function getEffectiveBed() {
+  return this.bed_transfer || this.bed || null;
+});
+
+const BookingRequest = mongoose.model(DBCollections.BOOKING_REQUEST, BookingRequestSchema);
 
 module.exports = BookingRequest;

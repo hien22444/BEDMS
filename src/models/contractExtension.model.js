@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const ContractExtensionSchema = new mongoose.Schema({
   contract: {
@@ -26,8 +26,8 @@ const ContractExtensionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    default: "pending",
-    enum: ["pending", "approved", "rejected"],
+    default: 'pending',
+    enum: ['pending', 'approved', 'rejected'],
   },
   requested_at: {
     type: Date,
@@ -44,7 +44,7 @@ const ContractExtensionSchema = new mongoose.Schema({
   },
 });
 
-ContractExtensionSchema.set("toJSON", {
+ContractExtensionSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -52,9 +52,6 @@ ContractExtensionSchema.set("toJSON", {
   },
 });
 
-const ContractExtension = mongoose.model(
-  DBCollections.CONTRACT_EXTENSION,
-  ContractExtensionSchema
-);
+const ContractExtension = mongoose.model(DBCollections.CONTRACT_EXTENSION, ContractExtensionSchema);
 
 module.exports = ContractExtension;

@@ -13,7 +13,19 @@ const newsRoute = require('./news.route');
 const bedRoute = require('./bed.route');
 const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
-const aiRulesRoute = require('./aiRules.route');
+const payosRoute = require('./payos.route');
+const faceRecognitionRoute = require('./faceRecognition.route');
+const internalAuthRoute = require('./internalAuth.route');
+const accessLogRoute = require('./accessLog.route');
+const cameraRoute = require('./camera.route');
+const dateConfigRoute = require('./dateConfig.route');
+const otherRequestRoute = require('./otherRequest.route');
+const maintenanceRequestRoute = require('./maintenanceRequest.route');
+const checkoutRequestRoute = require('./checkoutRequest.route');
+const roomTransferRoute = require('./roomTransfer.route');
+const ewUsageRoute = require('./ewUsage.route');
+const invoiceRoute = require('./invoice.route');
+const agentRoute = require('./agent.route');
 
 const express = require('express');
 
@@ -81,8 +93,56 @@ const defaultRoutes = [
     route: bookingRoute,
   },
   {
-    path: '/ai',
-    route: aiRulesRoute,
+    path: '/payos',
+    route: payosRoute,
+  },
+  {
+    path: '/face-recognition',
+    route: faceRecognitionRoute,
+  },
+  {
+    path: '/internal-auth',
+    route: internalAuthRoute,
+  },
+  {
+    path: '/access-logs',
+    route: accessLogRoute,
+  },
+  {
+    path: '/cameras',
+    route: cameraRoute,
+  },
+  {
+    path: '/date-config',
+    route: dateConfigRoute,
+  },
+  {
+    path: '/other-requests',
+    route: otherRequestRoute,
+  },
+  {
+    path: '/maintenance-requests',
+    route: maintenanceRequestRoute,
+  },
+  {
+    path: '/room-transfers',
+    route: roomTransferRoute,
+  },
+  {
+    path: '/ew-usages',
+    route: ewUsageRoute,
+  },
+  {
+    path: '/invoices',
+    route: invoiceRoute,
+  },
+  {
+    path: '/checkout-requests',
+    route: checkoutRequestRoute,
+  },
+  {
+    path: '/agents',
+    route: agentRoute,
   },
 ];
 

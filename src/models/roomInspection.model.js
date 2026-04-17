@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const RoomInspectionSchema = new mongoose.Schema({
   room: {
@@ -15,17 +15,17 @@ const RoomInspectionSchema = new mongoose.Schema({
   inspection_type: {
     type: String,
     required: true,
-    enum: ["check_in", "check_out", "periodic", "complaint"],
+    enum: ['check_in', 'check_out', 'periodic', 'complaint'],
   },
   cleanliness_status: {
     type: String,
     required: true,
-    enum: ["clean", "dirty", "needs_cleaning"],
+    enum: ['clean', 'dirty', 'needs_cleaning'],
   },
   equipment_status: {
     type: String,
     required: true,
-    enum: ["complete", "missing", "damaged"],
+    enum: ['complete', 'missing', 'damaged'],
   },
   equipment_notes: {
     type: String,
@@ -47,7 +47,7 @@ const RoomInspectionSchema = new mongoose.Schema({
   },
 });
 
-RoomInspectionSchema.set("toJSON", {
+RoomInspectionSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;
@@ -55,9 +55,6 @@ RoomInspectionSchema.set("toJSON", {
   },
 });
 
-const RoomInspection = mongoose.model(
-  DBCollections.ROOM_INSPECTION,
-  RoomInspectionSchema
-);
+const RoomInspection = mongoose.model(DBCollections.ROOM_INSPECTION, RoomInspectionSchema);
 
 module.exports = RoomInspection;

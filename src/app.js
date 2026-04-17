@@ -9,6 +9,11 @@ const path = require('path');
 const passport = require('./config/passport');
 const responseHandler = require('./middleware/responseHandle');
 const { scheduleVisitorExpiry } = require('./jobs/visitorScheduler');
+const {
+  scheduleBookingExpiry,
+  scheduleContractActivation,
+} = require('./jobs/bookingExpiryScheduler');
+const { confirmPayosWebhook } = require('./services/payos.service');
 
 const app = express();
 
@@ -30,8 +35,8 @@ app.use(
 );
 app.use(cookieParser());
 app.use(passport.initialize());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use(responseHandler);
 
@@ -64,6 +69,31 @@ app.use((err, _req, res, _next) => {
     });
   }
 
+  // PayOS SDK (not wrapped in AppError in some code paths)
+  if (err.name === 'APIError' || err.name === 'PayOSError') {
+    return res.status(502).json({
+      success: false,
+      message: err.message || 'Payment provider error',
+    });
+  }
+
+  if (err.name === 'ValidationError' && err.errors) {
+    const msg = Object.values(err.errors)
+      .map((e) => e.message)
+      .join('; ');
+    return res.status(400).json({
+      success: false,
+      message: msg || err.message || 'Validation failed',
+    });
+  }
+
+  if (err.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: isDev ? err.message : 'Duplicate record',
+    });
+  }
+
   res.status(500).json({
     success: false,
     message: isDev ? err.message : 'Internal server error',
@@ -71,5 +101,8 @@ app.use((err, _req, res, _next) => {
 });
 
 scheduleVisitorExpiry();
+scheduleBookingExpiry();
+scheduleContractActivation();
+confirmPayosWebhook();
 
 module.exports = app;

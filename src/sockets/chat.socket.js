@@ -91,7 +91,8 @@ const registerChatEvents = (io, socket) => {
           // Student is actively viewing — reset unread counter silently
           await ChatConversation.findByIdAndUpdate(conversationId, { student_unread: 0 });
         } else {
-          const staffName = conversation.staff?.fullname || conversation.staff?.email || 'Support Agent';
+          const staffName =
+            conversation.staff?.fullname || conversation.staff?.email || 'Support Agent';
           const studentId = conversation.student._id.toString();
           try {
             await Notification.create({
@@ -116,7 +117,7 @@ const registerChatEvents = (io, socket) => {
       // new conversations that were not yet visible in the manager's list.
       if (senderType === 'student') {
         io.to('managers').emit('conversation_updated', {
-          conversation,  // socket.io serialises via toJSON() — includes id virtual + populated fields
+          conversation, // socket.io serialises via toJSON() — includes id virtual + populated fields
           conversationId,
           manager_unread: conversation.manager_unread,
           last_message_at: message.sent_at,
@@ -218,11 +219,15 @@ const registerChatEvents = (io, socket) => {
       if (conv?.student) {
         io.to(`user_${conv.student.toString()}`).emit('new_notification', {
           title: 'Conversation Closed',
-          message: 'Your support conversation has been closed by the manager. You can start a new one anytime.',
+          message:
+            'Your support conversation has been closed by the manager. You can start a new one anytime.',
         });
       }
     } catch (err) {
-      console.error('[Socket] close_conversation: failed to push notification to student:', err.message);
+      console.error(
+        '[Socket] close_conversation: failed to push notification to student:',
+        err.message
+      );
     }
   });
 

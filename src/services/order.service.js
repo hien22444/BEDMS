@@ -1,16 +1,16 @@
-const { Order, Laptop } = require("../models");
+const { Order, Laptop } = require('../models');
 
 const createOrder = async (body) => {
   const laptop = await Laptop.findById(body.laptop);
 
   if (!laptop) {
-    throw new Error("Laptop not found");
+    throw new Error('Laptop not found');
   }
 
   const newStockQuantity = laptop.stockQuantity - body.quantity;
 
   if (newStockQuantity < 0) {
-    throw new Error("Insufficient stock quantity available");
+    throw new Error('Insufficient stock quantity available');
   }
 
   laptop.set({
@@ -23,10 +23,7 @@ const createOrder = async (body) => {
 };
 
 const getAllOrders = async () => {
-  const orders = await Order.find().populate([
-    { path: "user" },
-    { path: "laptop" },
-  ]);
+  const orders = await Order.find().populate([{ path: 'user' }, { path: 'laptop' }]);
 
   return orders;
 };
@@ -37,7 +34,7 @@ const getAllOrdersByDate = async (start, end) => {
       $gte: start,
       $lte: end,
     },
-  }).populate([{ path: "user" }, { path: "laptop" }]);
+  }).populate([{ path: 'user' }, { path: 'laptop' }]);
 
   return orders;
 };

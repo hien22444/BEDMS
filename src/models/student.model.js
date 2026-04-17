@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const StudentSchema = new mongoose.Schema(
   {
@@ -24,7 +24,7 @@ const StudentSchema = new mongoose.Schema(
     },
     gender: {
       type: String,
-      enum: ["male", "female", "other"],
+      enum: ['male', 'female', 'other'],
     },
     phone: {
       type: String,
@@ -48,7 +48,7 @@ const StudentSchema = new mongoose.Schema(
     },
     student_type: {
       type: String,
-      enum: ["domestic", "international"],
+      enum: ['domestic', 'international'],
     },
     behavioral_score: {
       type: Number,
@@ -68,13 +68,18 @@ const StudentSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /** Manager CFD expulsion: student may log in but cannot create new bookings / keep bed */
+    dorm_booking_suspended: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-StudentSchema.set("toJSON", {
+StudentSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

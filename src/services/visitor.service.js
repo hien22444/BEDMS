@@ -4,8 +4,10 @@ const {
   VisitorCheckin,
   User,
   Student,
+  Contract,
   Notification,
 } = require('../models');
+const AppError = require('../utils/AppError');
 
 // Vietnamese phone: 10 digits starting with 0 (covers mobile 03/05/07/08/09 and landlines 02x)
 const PHONE_REGEX = /^0\d{9}$/;
@@ -77,6 +79,17 @@ const createVisitorRequest = async (userId, body) => {
   const student = await Student.findOne({ user: userId });
   if (!student) {
     throw new Error('Only registered students can create visitor requests.');
+  }
+  const activeContract = await Contract.findOne({
+    student: student._id,
+    status: 'active',
+    room: { $ne: null },
+    bed: { $ne: null },
+  })
+    .select('_id')
+    .lean();
+  if (!activeContract) {
+    throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
   }
 
   // H2: Enforce ban status before allowing any further processing
@@ -194,9 +207,11 @@ const getMyVisitorRequests = async (userId) => {
   const visitors = await Visitor.find({
     request: { $in: requestIds },
   }).lean();
-  const checkins = (await VisitorCheckin.find({
-    request: { $in: requestIds },
-  }).lean()).map((c) => ({ ...c, id: c._id.toString() }));
+  const checkins = (
+    await VisitorCheckin.find({
+      request: { $in: requestIds },
+    }).lean()
+  ).map((c) => ({ ...c, id: c._id.toString() }));
 
   return requests.map((r) => ({
     ...r,
@@ -251,9 +266,11 @@ const getAllVisitorRequests = async (query = {}) => {
   const visitors = await Visitor.find({
     request: { $in: requestIds },
   }).lean();
-  const checkins = (await VisitorCheckin.find({
-    request: { $in: requestIds },
-  }).lean()).map((c) => ({ ...c, id: c._id.toString() }));
+  const checkins = (
+    await VisitorCheckin.find({
+      request: { $in: requestIds },
+    }).lean()
+  ).map((c) => ({ ...c, id: c._id.toString() }));
 
   // Get student profiles for the users
   const userIds = requests.map((r) => r.user?._id || r.user);
@@ -298,11 +315,11 @@ const approveVisitorRequest = async (requestId, userId) => {
   await request.save();
 
   // Notify the student
-  const visitDateStr = new Date(request.visit_date).toLocaleDateString('vi-VN');
+  const visitDateStr = new Date(request.visit_date).toLocaleDateString('en-US');
   await Notification.create({
     user: request.user,
-    title: 'Yêu cầu thăm người thân được duyệt',
-    message: `Yêu cầu ${request.request_code} của bạn đã được duyệt. Người thân có thể đến thăm vào ngày ${visitDateStr} từ ${request.visit_time_from} đến ${request.visit_time_to}.`,
+    title: 'Visitor request approved',
+    message: `Your request ${request.request_code} was approved. Your guest may visit on ${visitDateStr} from ${request.visit_time_from} to ${request.visit_time_to}.`,
     notification_type: 'success',
     category: 'visitor',
     related_id: request._id.toString(),
@@ -328,11 +345,11 @@ const rejectVisitorRequest = async (requestId, userId, reason) => {
   await request.save();
 
   // Notify the student
-  const reasonText = reason ? ` Lý do: ${reason}` : '';
+  const reasonText = reason ? ` Reason: ${reason}` : '';
   await Notification.create({
     user: request.user,
-    title: 'Yêu cầu thăm người thân bị từ chối',
-    message: `Yêu cầu ${request.request_code} của bạn đã bị từ chối.${reasonText}`,
+    title: 'Visitor request rejected',
+    message: `Your request ${request.request_code} was rejected.${reasonText}`,
     notification_type: 'warning',
     category: 'visitor',
     related_id: request._id.toString(),

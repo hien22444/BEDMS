@@ -1,6 +1,76 @@
-const { ViolationReport, Penalty, Student } = require('../models');
+const { ViolationReport, Penalty, Student, Staff, Contract } = require('../models');
+const AppError = require('../utils/AppError');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Add reporter.student_code (student_code for students, staff_code for staff) */
+const enrichReporterStudentCode = async (report) => {
+  if (!report?.reporter?._id) return report;
+
+  const userId = report.reporter._id;
+  let code = null;
+
+  if (report.reporter_type === 'student') {
+    const student = await Student.findOne({ user: userId }).select('student_code');
+    if (student) code = student.student_code;
+  } else if (report.reporter_type === 'manager' || report.reporter_type === 'security') {
+    const staff = await Staff.findOne({ user: userId }).select('staff_code');
+    if (staff) code = staff.staff_code;
+  }
+
+  if (code) {
+    report.reporter.student_code = code;
+    report.reporter_code = code;
+  }
+
+  return report;
+};
+
+/** Add reporter.student_code for multiple reports */
+const enrichReportsReporterStudentCode = async (reports) => {
+  const studentReporters = reports.filter((r) => r.reporter_type === 'student' && r.reporter);
+  const staffReporters = reports.filter(
+    (r) => (r.reporter_type === 'manager' || r.reporter_type === 'security') && r.reporter
+  );
+
+  const studentUserIds = [
+    ...new Set(studentReporters.map((r) => r.reporter._id?.toString()).filter(Boolean)),
+  ];
+  const staffUserIds = [
+    ...new Set(staffReporters.map((r) => r.reporter._id?.toString()).filter(Boolean)),
+  ];
+
+  const [students, staff] = await Promise.all([
+    Student.find({ user: { $in: studentUserIds } }).select('user student_code'),
+    Staff.find({ user: { $in: staffUserIds } }).select('user staff_code'),
+  ]);
+
+  const studentMap = Object.fromEntries(students.map((s) => [s.user.toString(), s.student_code]));
+  const staffMap = Object.fromEntries(staff.map((s) => [s.user.toString(), s.staff_code]));
+
+  reports.forEach((r) => {
+    const reporterId = r.reporter?._id && r.reporter._id.toString();
+    if (!reporterId) return;
+
+    let code = null;
+
+    if (r.reporter_type === 'student' && studentMap[reporterId]) {
+      code = studentMap[reporterId];
+    } else if (
+      (r.reporter_type === 'manager' || r.reporter_type === 'security') &&
+      staffMap[reporterId]
+    ) {
+      code = staffMap[reporterId];
+    }
+
+    if (code) {
+      r.reporter.student_code = code;
+      r.reporter_code = code;
+    }
+  });
+
+  return reports;
+};
 
 /**
  * Generate unique report code with retry loop to handle concurrent requests.
@@ -53,24 +123,106 @@ const getCurrentSemester = () => {
   }
 };
 
+const ensureStudentInDorm = async (studentId, notAllowedMessage) => {
+  const activeContract = await Contract.findOne({
+    student: studentId,
+    status: 'active',
+    room: { $ne: null },
+    bed: { $ne: null },
+  })
+    .select('_id')
+    .lean();
+  if (!activeContract) {
+    throw new AppError(
+      notAllowedMessage || 'Only students currently staying in the dormitory can be reported/penalized.',
+      403
+    );
+  }
+};
+
+/**
+ * Recalculate and persist a student's behavioral snapshot based on existing penalties.
+ * This keeps Student.behavioral_score in sync even if penalties are edited/deleted manually in DB.
+ */
+const syncStudentBehavioralSnapshot = async (studentId) => {
+  const student = await Student.findById(studentId);
+  if (!student) return null;
+
+  const penalties = await Penalty.find({ student: student._id }).select('points_deducted');
+  const totalDeducted = penalties.reduce((sum, p) => sum + (Number(p.points_deducted) || 0), 0);
+  const violationsCount = penalties.length;
+  const recalculatedScore = Math.max(0, 10 - totalDeducted);
+
+  student.behavioral_score = recalculatedScore;
+  student.violations_current_semester = violationsCount;
+  student.ban_until_semester =
+    recalculatedScore < 4 || violationsCount >= 3 ? getNextSemester() : null;
+
+  await student.save();
+  return student;
+};
+
 /**
  * Create a new violation report
  */
 const createViolationReport = async (body) => {
-  // Find student by student_code
-  const student = await Student.findOne({ student_code: body.student_code });
-  if (!student) {
-    throw new Error(`Student with code ${body.student_code} not found`);
+  let student;
+  let reporterCode = null;
+
+  // If reporter is a student, only set reporter code; reported_student stays null until manager penalizes
+  if (body.reporter_type === 'student') {
+    const reporterStudent = await Student.findOne({ user: body.reporter_id });
+    if (!reporterStudent) {
+      throw new Error('Student profile not found for current user');
+    }
+    const activeContract = await Contract.findOne({
+      student: reporterStudent._id,
+      status: 'active',
+      room: { $ne: null },
+      bed: { $ne: null },
+    })
+      .select('_id')
+      .lean();
+    if (!activeContract) {
+      throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
+    }
+    reporterCode = reporterStudent.student_code;
+    student = null;
+  } else {
+    // Manager / security must specify student_code explicitly
+    if (!body.student_code) {
+      throw new Error('student_code is required for manager/security reports');
+    }
+    student = await Student.findOne({ student_code: body.student_code });
+    if (!student) {
+      throw new Error(`Student with code ${body.student_code} not found`);
+    }
+    await ensureStudentInDorm(
+      student._id,
+      'Managers/Security can only create violation reports for students currently staying in the dormitory.'
+    );
+
+    // Manager / security reporter — try to resolve staff_code
+    const staff = await Staff.findOne({ user: body.reporter_id }).select('staff_code');
+    if (staff) {
+      reporterCode = staff.staff_code;
+    }
+  }
+
+  if (body.violation_type === 'other' && !body.violation_other_detail) {
+    throw new Error("violation_other_detail is required when violation_type is 'other'");
   }
 
   const reportCode = await generateReportCode();
 
   const violationReport = new ViolationReport({
     report_code: reportCode,
-    reported_student: student._id,
+    ...(student ? { reported_student: student._id } : {}),
     reporter: body.reporter_id,
     reporter_type: body.reporter_type,
+    reporter_code: reporterCode,
     violation_type: body.violation_type,
+    violation_other_detail: body.violation_other_detail,
     description: body.description,
     evidence_urls: body.evidence_urls || [],
     violation_date: body.violation_date,
@@ -88,10 +240,22 @@ const createViolationReport = async (body) => {
     throw err;
   }
 
-  return violationReport.populate([
+  // If manager provided initial penalty on creation, immediately penalize and close report
+  if (body.initial_penalty) {
+    violationReport.status = 'resolved_penalized';
+    violationReport.reviewed_by = body.reporter_id;
+    violationReport.reviewed_at = new Date();
+    await violationReport.save();
+
+    await createPenaltyFromReport(violationReport, body.initial_penalty, body.reporter_id);
+  }
+
+  const populated = await violationReport.populate([
     { path: 'reported_student', select: 'student_code full_name' },
     { path: 'reporter', select: 'fullname email' },
   ]);
+  await enrichReporterStudentCode(populated);
+  return populated;
 };
 
 /**
@@ -150,6 +314,8 @@ const getAllViolationReports = async (query = {}) => {
     ViolationReport.countDocuments(filter),
   ]);
 
+  await enrichReportsReporterStudentCode(reports);
+
   return {
     data: reports,
     pagination: {
@@ -178,6 +344,7 @@ const getViolationReportById = async (id) => {
     throw new Error('Violation report not found');
   }
 
+  await enrichReporterStudentCode(report);
   return report;
 };
 
@@ -195,6 +362,18 @@ const reviewViolationReport = async (id, body, staffId) => {
   report.reviewed_by = staffId;
   report.reviewed_at = new Date();
 
+  // When penalizing, set reported_student to the student being penalized (so details show correctly)
+  if (body.status === 'resolved_penalized' && body.penalty?.student_code) {
+    const penalizedStudent = await Student.findOne({
+      student_code: {
+        $regex: new RegExp(`^${escapeRegex(body.penalty.student_code.trim())}$`, 'i'),
+      },
+    }).select('_id');
+    if (penalizedStudent) {
+      report.reported_student = penalizedStudent._id;
+    }
+  }
+
   await report.save();
 
   // If penalized, create penalty and update student score
@@ -202,18 +381,44 @@ const reviewViolationReport = async (id, body, staffId) => {
     await createPenaltyFromReport(report, body.penalty, staffId);
   }
 
-  return report.populate([
+  const populated = await report.populate([
     { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reporter', select: 'fullname email' },
     { path: 'reviewed_by', select: 'full_name' },
   ]);
+  await enrichReporterStudentCode(populated);
+  return populated;
 };
 
 /**
  * Create penalty from violation report
  */
 const createPenaltyFromReport = async (report, penaltyData, staffId) => {
+  let studentId = report.reported_student;
+
+  if (penaltyData.student_code) {
+    const studentByCode = await Student.findOne({
+      student_code: {
+        $regex: new RegExp(`^${escapeRegex(penaltyData.student_code.trim())}$`, 'i'),
+      },
+    });
+    if (!studentByCode) {
+      throw new Error(`Student with code "${penaltyData.student_code}" not found`);
+    }
+    await ensureStudentInDorm(
+      studentByCode._id,
+      'Only students currently staying in the dormitory can be penalized.'
+    );
+    studentId = studentByCode._id;
+  }
+
+  await ensureStudentInDorm(
+    studentId,
+    'Only students currently staying in the dormitory can be penalized.'
+  );
+
   const penalty = new Penalty({
-    student: report.reported_student,
+    student: studentId,
     report: report._id,
     penalty_type: penaltyData.penalty_type,
     points_deducted: penaltyData.points_deducted,
@@ -224,20 +429,8 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
 
   await penalty.save();
 
-  // Update student behavioral score
-  const student = await Student.findById(report.reported_student);
-  if (student) {
-    const newScore = Math.max(0, student.behavioral_score - penaltyData.points_deducted);
-    student.behavioral_score = newScore;
-    student.violations_current_semester += 1;
-
-    // Check for ban conditions (e.g., score below 4 or 3+ violations)
-    if (newScore < 4 || student.violations_current_semester >= 3) {
-      student.ban_until_semester = getNextSemester();
-    }
-
-    await student.save();
-  }
+  // Keep snapshot fields in Student synchronized with real penalty records.
+  await syncStudentBehavioralSnapshot(studentId);
 
   return penalty;
 };
@@ -263,10 +456,12 @@ const getNextSemester = () => {
  * Get all penalties for a student
  */
 const getStudentPenalties = async (studentCode) => {
-  const student = await Student.findOne({ student_code: studentCode });
+  let student = await Student.findOne({ student_code: studentCode });
   if (!student) {
     throw new Error(`Student with code ${studentCode} not found`);
   }
+
+  student = await syncStudentBehavioralSnapshot(student._id);
 
   const penalties = await Penalty.find({ student: student._id })
     .populate([
@@ -283,18 +478,63 @@ const getStudentPenalties = async (studentCode) => {
       violations_current_semester: student.violations_current_semester,
       is_banned_permanently: student.is_banned_permanently,
       ban_until_semester: student.ban_until_semester,
+      dorm_booking_suspended: !!student.dorm_booking_suspended,
     },
     penalties,
   };
 };
 
 /**
- * Search student by student code
+ * CFD / penalties for the logged-in student (resolved from user id)
+ */
+const getMyPenaltiesForStudentUser = async (userId) => {
+  let student = await Student.findOne({ user: userId });
+  if (!student) {
+    return { student: null, penalties: [] };
+  }
+
+  student = await syncStudentBehavioralSnapshot(student._id);
+
+  const penalties = await Penalty.find({ student: student._id })
+    .populate([
+      { path: 'report', select: 'report_code violation_type description' },
+      { path: 'issued_by', select: 'full_name' },
+    ])
+    .sort({ issued_at: -1 });
+
+  return {
+    student: {
+      student_code: student.student_code,
+      full_name: student.full_name,
+      behavioral_score: student.behavioral_score,
+      violations_current_semester: student.violations_current_semester,
+      is_banned_permanently: student.is_banned_permanently,
+      ban_until_semester: student.ban_until_semester,
+      dorm_booking_suspended: !!student.dorm_booking_suspended,
+    },
+    penalties,
+  };
+};
+
+/**
+ * Search student by student code — full code only (exact match).
+ * Partial input (e.g. "DE" or "DE1") does not return a result.
  */
 const searchStudentByCode = async (studentCode) => {
-  const student = await Student.findOne({
-    student_code: { $regex: escapeRegex(studentCode), $options: 'i' },
+  const code = (studentCode || '').trim();
+  if (!code) return null;
+
+  let student = await Student.findOne({
+    student_code: { $regex: new RegExp(`^${escapeRegex(code)}$`, 'i') },
   }).select('student_code full_name phone behavioral_score violations_current_semester');
+
+  if (student) {
+    await ensureStudentInDorm(
+      student._id,
+      `Student ${student.student_code} is not currently staying in the dormitory.`
+    );
+    student = await syncStudentBehavioralSnapshot(student._id);
+  }
 
   return student;
 };
@@ -338,6 +578,18 @@ const getViolationStatistics = async () => {
 };
 
 /**
+ * Get violation reports created by the current user (for student "My Reports")
+ */
+const getMyViolationReports = async (reporterId) => {
+  const reports = await ViolationReport.find({ reporter: reporterId })
+    .populate([{ path: 'reported_student', select: 'student_code full_name' }])
+    .sort({ createdAt: -1 })
+    .limit(100);
+
+  return reports;
+};
+
+/**
  * Delete violation report (only new reports can be deleted)
  */
 const deleteViolationReport = async (id) => {
@@ -358,8 +610,10 @@ module.exports = {
   createViolationReport,
   getAllViolationReports,
   getViolationReportById,
+  getMyViolationReports,
   reviewViolationReport,
   getStudentPenalties,
+  getMyPenaltiesForStudentUser,
   searchStudentByCode,
   getViolationStatistics,
   deleteViolationReport,

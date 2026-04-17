@@ -1,5 +1,5 @@
-const mongoose = require("mongoose");
-const { DBCollections } = require("../utils/constant");
+const mongoose = require('mongoose');
+const { DBCollections } = require('../utils/constant');
 
 const MaintenanceFeedbackSchema = new mongoose.Schema({
   request: {
@@ -21,7 +21,7 @@ const MaintenanceFeedbackSchema = new mongoose.Schema({
   completion_status: {
     type: String,
     required: true,
-    enum: ["completed", "incomplete", "needs_rework"],
+    enum: ['completed', 'incomplete', 'needs_rework'],
   },
   comments: {
     type: String,
@@ -35,7 +35,7 @@ const MaintenanceFeedbackSchema = new mongoose.Schema({
   },
 });
 
-MaintenanceFeedbackSchema.set("toJSON", {
+MaintenanceFeedbackSchema.set('toJSON', {
   virtuals: true,
   transform(doc, ret) {
     delete ret._id;

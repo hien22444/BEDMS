@@ -54,7 +54,12 @@ const googleCallback = catchAsync(async (req, res) => {
   };
 
   // Store sensitive data server-side; give FE a one-time opaque code
-  const code = authService.storeOAuthData({ token, refreshToken: refreshTkn, user: userData, profile });
+  const code = authService.storeOAuthData({
+    token,
+    refreshToken: refreshTkn,
+    user: userData,
+    profile,
+  });
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   res.redirect(`${frontendUrl}/auth/google/callback?code=${code}`);
@@ -83,10 +88,21 @@ const refreshToken = catchAsync(async (req, res) => {
   res.success(data, httpStatus.OK);
 });
 
+/**
+ * Login as a student (Manager only)
+ * POST /v1/auth/login-as-student
+ */
+const loginAsStudent = catchAsync(async (req, res) => {
+  const { student_code } = req.body;
+  const data = await authService.loginAsStudent(student_code);
+  res.success(data, httpStatus.OK);
+});
+
 module.exports = {
   login,
   register,
   getProfile,
+  loginAsStudent,
   googleCallback,
   exchangeOAuthCode,
   refreshToken,

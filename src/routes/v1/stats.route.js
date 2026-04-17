@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDashboard } = require('../../controllers/stats.controller');
+const { getDashboard, getBedUsage } = require('../../controllers/stats.controller');
 const { authenticate, authorize } = require('../../middleware/auth');
 
 const router = express.Router();
@@ -7,5 +7,6 @@ const router = express.Router();
 router.use(authenticate, authorize('admin', 'manager'));
 
 router.get('/dashboard', getDashboard);
+router.get('/bed-usage', getBedUsage);
 
 module.exports = router;

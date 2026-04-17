@@ -1,16 +1,16 @@
-const crypto = require("crypto");
-const { Room, Block } = require("../models");
-const AppError = require("../utils/AppError");
-const RoomTypeEquipmentConfig = require("../models/roomTypeEquipmentConfig.model");
-const RoomEquipment = require("../models/roomEquipment.model");
-const Bed = require("../models/bed.model");
+const crypto = require('crypto');
+const { Room, Block } = require('../models');
+const AppError = require('../utils/AppError');
+const RoomTypeEquipmentConfig = require('../models/roomTypeEquipmentConfig.model');
+const RoomEquipment = require('../models/roomEquipment.model');
+const Bed = require('../models/bed.model');
 
 const populateBlockDorm = {
-  path: "block",
-  select: "block_name block_code dorm",
+  path: 'block',
+  select: 'block_name block_code dorm',
   populate: {
-    path: "dorm",
-    select: "dorm_name dorm_code",
+    path: 'dorm',
+    select: 'dorm_name dorm_code',
   },
 };
 
@@ -32,7 +32,7 @@ const getAllRooms = async (query = {}) => {
 
   // Filter by dorm via blocks
   if (dorm && !block) {
-    const blocks = await Block.find({ dorm }).select("_id");
+    const blocks = await Block.find({ dorm }).select('_id');
     filter.block = { $in: blocks.map((b) => b._id) };
   }
 
@@ -45,16 +45,21 @@ const getAllRooms = async (query = {}) => {
   if (search) {
     const raw = String(search).trim();
     if (raw) {
-      const regex = new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      const regex = new RegExp(raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
       // If user types something like "A101-2", split and search block + room separately
-      if (raw.includes("-")) {
-        const [blockPart, roomPart] = raw.split("-", 2).map((p) => p.trim());
-        const roomRegex = roomPart ? new RegExp(roomPart.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
+      if (raw.includes('-')) {
+        const [blockPart, roomPart] = raw.split('-', 2).map((p) => p.trim());
+        const roomRegex = roomPart
+          ? new RegExp(roomPart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+          : null;
 
         const blocksByName = await Block.find({
-          $or: [{ block_name: new RegExp(blockPart, "i") }, { block_code: new RegExp(blockPart, "i") }],
-        }).select("_id");
+          $or: [
+            { block_name: new RegExp(blockPart, 'i') },
+            { block_code: new RegExp(blockPart, 'i') },
+          ],
+        }).select('_id');
 
         const blockIds = blocksByName.map((b) => b._id);
 
@@ -69,7 +74,7 @@ const getAllRooms = async (query = {}) => {
         // Generic search on room_number or matching blocks
         const blocksBySearch = await Block.find({
           $or: [{ block_name: regex }, { block_code: regex }],
-        }).select("_id");
+        }).select('_id');
         const blockIds = blocksBySearch.map((b) => b._id);
 
         filter.$or = [{ room_number: regex }];
@@ -105,7 +110,7 @@ const getRoomById = async (id) => {
   const room = await Room.findById(id).populate(populateBlockDorm);
 
   if (!room) {
-    throw new Error("Room not found");
+    throw new Error('Room not found');
   }
 
   return room;
@@ -114,7 +119,7 @@ const getRoomById = async (id) => {
 const createRoom = async (body) => {
   const blk = await Block.findById(body.block);
   if (!blk) {
-    throw new Error("Block not found");
+    throw new Error('Block not found');
   }
 
   const maxRooms = Number(blk.total_rooms);
@@ -133,14 +138,14 @@ const createRoom = async (body) => {
     room_number: body.room_number,
   });
   if (existingRoom) {
-    throw new Error("Room number already exists for this block");
+    throw new Error('Room number already exists for this block');
   }
 
   const totalBeds = Number(body.total_beds);
   const availableBeds = Number(body.available_beds);
   if (Number.isFinite(totalBeds) && Number.isFinite(availableBeds)) {
     if (availableBeds > totalBeds) {
-      throw new Error("available_beds cannot be greater than total_beds");
+      throw new Error('available_beds cannot be greater than total_beds');
     }
   }
 
@@ -149,14 +154,17 @@ const createRoom = async (body) => {
 
   // Auto-assign default equipment based on RoomTypeEquipmentConfig
   if (room.room_type) {
-    const configs = await RoomTypeEquipmentConfig.find({ room_type: room.room_type, is_mandatory: true });
+    const configs = await RoomTypeEquipmentConfig.find({
+      room_type: room.room_type,
+      is_mandatory: true,
+    });
     if (configs.length > 0) {
       const equipmentDocs = configs.map((cfg) => ({
         room: room._id,
         template: cfg.template,
-        equipment_code: `${room.room_number.toUpperCase()}-${cfg.template.toString().slice(-4).toUpperCase()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+        equipment_code: `${room.room_number.toUpperCase()}-${cfg.template.toString().slice(-4).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
         quantity: cfg.standard_quantity,
-        status: "good",
+        status: 'good',
         assigned_at: new Date(),
       }));
       await RoomEquipment.insertMany(equipmentDocs, { ordered: false });
@@ -170,7 +178,7 @@ const createRoom = async (body) => {
     const bedDocs = Array.from({ length: totalBeds }, (_, i) => ({
       room: room._id,
       bed_number: String(i + 1),
-      status: i < availableBeds ? "available" : "maintenance",
+      status: i < availableBeds ? 'available' : 'maintenance',
       bed_id: startId + i,
     }));
     await Bed.insertMany(bedDocs, { ordered: false });
@@ -183,7 +191,7 @@ const updateRoom = async (id, body) => {
   const room = await Room.findById(id);
 
   if (!room) {
-    throw new Error("Room not found");
+    throw new Error('Room not found');
   }
 
   const nextBlock = body.block ? String(body.block) : String(room.block);
@@ -193,7 +201,7 @@ const updateRoom = async (id, body) => {
   if (body.block && String(body.block) !== String(room.block)) {
     const blk = await Block.findById(body.block);
     if (!blk) {
-      throw new Error("Block not found");
+      throw new Error('Block not found');
     }
 
     const maxRooms = Number(blk.total_rooms);
@@ -213,7 +221,7 @@ const updateRoom = async (id, body) => {
       _id: { $ne: id },
     });
     if (existingRoom) {
-      throw new Error("Room number already exists for this block");
+      throw new Error('Room number already exists for this block');
     }
   } else if (body.room_number && body.room_number !== room.room_number) {
     const existingRoom = await Room.findOne({
@@ -222,19 +230,19 @@ const updateRoom = async (id, body) => {
       _id: { $ne: id },
     });
     if (existingRoom) {
-      throw new Error("Room number already exists for this block");
+      throw new Error('Room number already exists for this block');
     }
   }
 
   const nextTotalBeds =
-    typeof body.total_beds !== "undefined" ? Number(body.total_beds) : Number(room.total_beds);
+    typeof body.total_beds !== 'undefined' ? Number(body.total_beds) : Number(room.total_beds);
   const nextAvailableBeds =
-    typeof body.available_beds !== "undefined"
+    typeof body.available_beds !== 'undefined'
       ? Number(body.available_beds)
       : Number(room.available_beds);
   if (Number.isFinite(nextTotalBeds) && Number.isFinite(nextAvailableBeds)) {
     if (nextAvailableBeds > nextTotalBeds) {
-      throw new Error("available_beds cannot be greater than total_beds");
+      throw new Error('available_beds cannot be greater than total_beds');
     }
   }
 
@@ -262,16 +270,18 @@ const updateRoom = async (id, body) => {
       const newBedDocs = Array.from({ length: newTotalBeds - currentCount }, (_, i) => ({
         room: id,
         bed_number: String(currentCount + i + 1),
-        status: "maintenance",
+        status: 'maintenance',
         bed_id: startId + i,
       }));
       await Bed.insertMany(newBedDocs, { ordered: false });
     } else if (newTotalBeds < currentCount) {
       // Remove excess beds from the end (highest bed_number first) if not occupied/reserved
       const toRemove = existingBeds.slice(newTotalBeds);
-      const occupiedIds = toRemove.filter((b) => b.status === "occupied" || b.status === "reserved").map((b) => b._id);
+      const occupiedIds = toRemove
+        .filter((b) => b.status === 'occupied' || b.status === 'reserved')
+        .map((b) => b._id);
       if (occupiedIds.length > 0) {
-        throw new AppError("Cannot reduce total_beds: some beds are occupied or reserved", 400);
+        throw new AppError('Cannot reduce total_beds: some beds are occupied or reserved', 400);
       }
       await Bed.deleteMany({ _id: { $in: toRemove.map((b) => b._id) } });
     }
@@ -280,11 +290,11 @@ const updateRoom = async (id, body) => {
     const newAvailableBeds = Number(room.available_beds);
     const allBeds = await Bed.find({ room: id }).sort({ bed_id: 1 });
     const bulkOps = allBeds
-      .filter((b) => b.status !== "occupied" && b.status !== "reserved")
+      .filter((b) => b.status !== 'occupied' && b.status !== 'reserved')
       .map((bed, idx) => ({
         updateOne: {
           filter: { _id: bed._id },
-          update: { $set: { status: idx < newAvailableBeds ? "available" : "maintenance" } },
+          update: { $set: { status: idx < newAvailableBeds ? 'available' : 'maintenance' } },
         },
       }));
     if (bulkOps.length > 0) {
@@ -299,13 +309,13 @@ const deleteRoom = async (id) => {
   const room = await Room.findById(id);
 
   if (!room) {
-    throw new Error("Room not found");
+    throw new Error('Room not found');
   }
 
   // Block deletion if any bed is occupied or reserved
   const blockedCount = await Bed.countDocuments({
     room: id,
-    status: { $in: ["occupied", "reserved"] },
+    status: { $in: ['occupied', 'reserved'] },
   });
   if (blockedCount > 0) {
     throw new AppError(
@@ -315,9 +325,10 @@ const deleteRoom = async (id) => {
   }
 
   await Bed.deleteMany({ room: id });
+  await RoomEquipment.deleteMany({ room: id });
   await room.deleteOne();
 
-  return { message: "Room deleted successfully" };
+  return { message: 'Room deleted successfully' };
 };
 
 module.exports = {
@@ -327,4 +338,3 @@ module.exports = {
   updateRoom,
   deleteRoom,
 };
-

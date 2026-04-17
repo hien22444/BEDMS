@@ -1,6 +1,6 @@
-const { status } = require("http-status");
-const { violationService } = require("../services");
-const catchAsync = require("../utils/catchAsync");
+const { status } = require('http-status');
+const { violationService } = require('../services');
+const catchAsync = require('../utils/catchAsync');
 
 /**
  * Create a new violation report
@@ -26,6 +26,24 @@ const getAllViolationReports = catchAsync(async (req, res) => {
 });
 
 /**
+ * Get my violation reports (student only — reports created by current user)
+ * GET /violations/my-reports
+ */
+const getMyViolationReports = catchAsync(async (req, res) => {
+  const data = await violationService.getMyViolationReports(req.user.id);
+  res.success(data, status.OK);
+});
+
+/**
+ * CFD: current student summary + penalty history (deductions)
+ * GET /violations/my-penalties
+ */
+const getMyPenalties = catchAsync(async (req, res) => {
+  const data = await violationService.getMyPenaltiesForStudentUser(req.user.id);
+  res.success(data, status.OK);
+});
+
+/**
  * Get violation report by ID
  * GET /violations/:id
  */
@@ -40,11 +58,7 @@ const getViolationReportById = catchAsync(async (req, res) => {
  * PUT /violations/:id/review
  */
 const reviewViolationReport = catchAsync(async (req, res) => {
-  const data = await violationService.reviewViolationReport(
-    req.params.id,
-    req.body,
-    req.user.id
-  );
+  const data = await violationService.reviewViolationReport(req.params.id, req.body, req.user.id);
 
   res.success(data, status.OK);
 });
@@ -67,7 +81,7 @@ const searchStudent = catchAsync(async (req, res) => {
   const { code } = req.query;
 
   if (!code) {
-    throw new Error("Student code is required");
+    throw new Error('Student code is required');
   }
 
   const data = await violationService.searchStudentByCode(code);
@@ -99,6 +113,8 @@ module.exports = {
   createViolationReport,
   getAllViolationReports,
   getViolationReportById,
+  getMyViolationReports,
+  getMyPenalties,
   reviewViolationReport,
   getStudentPenalties,
   searchStudent,
