@@ -3,17 +3,79 @@ const openaiService = require('./openai.service');
 const bookingService = require('./booking.service');
 const dormRulesService = require('./dormRules.service');
 const { BookingRequest, Contract, Student, UtilityReading } = require('../models');
+const { detectPreferredLanguage, normalize } = require('../utils/lang');
 
-const GENERAL_SYSTEM_PROMPT =
-  'You are an AI Assistant in FPT University Dormitory. Answer general support questions clearly. Do not invent booking, utility, conduct, or dormitory rule data.';
+const GENERAL_SYSTEM_PROMPT = {
+  en: 'You are a friendly AI Assistant in FPT University Dormitory. Answer general support questions clearly and warmly in English. Keep replies concise and human. Do not invent booking, utility, conduct, or dormitory rule data — if the student asks for those, politely say you can help them open the booking flow, check utilities, or view conduct instead.',
+  vi: 'Bạn là trợ lý AI thân thiện của Ký túc xá Đại học FPT. Trả lời bằng tiếng Việt, ngắn gọn, gần gũi như một người bạn hỗ trợ. Không bịa đặt thông tin về đặt phòng, điện nước, hạnh kiểm hay nội quy — nếu sinh viên hỏi những nội dung đó, hãy mời bạn ấy dùng chức năng đặt phòng, xem điện nước hoặc xem hạnh kiểm.',
+};
 
-const toText = (value) => String(value || '').trim();
+const BOOKING_PROMPTS = {
+  en: {
+    room_type: 'Choose a room type to continue.',
+    dorm: 'Choose a dorm building.',
+    floor: 'Choose a floor.',
+    block: 'Choose a block.',
+    room: 'Choose a room.',
+    bed: 'Choose a bed, then I will show the booking confirmation card.',
+    confirm: 'Review the booking details and agree to the dormitory rules to continue.',
+    closed: 'Dormitory booking is not currently open.',
+    success: 'Your booking is created. Please complete payment.',
+    fail: 'Failed to complete booking.',
+    rules_text:
+      'I confirm that I have reviewed the booking details and agree to the dormitory rules.',
+    room_price_label: 'Room price',
+  },
+  vi: {
+    room_type: 'Vui lòng chọn loại phòng để tiếp tục.',
+    dorm: 'Vui lòng chọn tòa ký túc xá.',
+    floor: 'Vui lòng chọn tầng.',
+    block: 'Vui lòng chọn dãy phòng.',
+    room: 'Vui lòng chọn phòng.',
+    bed: 'Vui lòng chọn giường, mình sẽ hiển thị thẻ xác nhận đặt phòng ngay sau đó.',
+    confirm: 'Vui lòng xem lại thông tin và xác nhận đồng ý với nội quy ký túc xá để tiếp tục.',
+    closed: 'Hiện tại chưa mở đợt đăng ký ký túc xá.',
+    success: 'Đã tạo yêu cầu đặt phòng. Vui lòng hoàn tất thanh toán.',
+    fail: 'Không thể hoàn tất đặt phòng.',
+    rules_text: 'Tôi xác nhận đã xem thông tin đặt phòng và đồng ý với nội quy ký túc xá.',
+    room_price_label: 'Giá phòng',
+  },
+};
 
-const normalize = (value) => toText(value).toLowerCase();
+const UTILITY_MESSAGES = {
+  en: {
+    no_room:
+      'I could not find an active room assignment for you, so there are no utility readings to show yet.',
+    no_reading: (label) => `There are no utility readings recorded yet for ${label || 'your room'}.`,
+    found: (label) => `Here is the latest utility reading for ${label || 'your room'}.`,
+  },
+  vi: {
+    no_room:
+      'Mình chưa tìm thấy phòng đang ở của bạn, nên chưa có chỉ số điện nước để hiển thị.',
+    no_reading: (label) =>
+      `Chưa có chỉ số điện nước nào được ghi nhận cho ${label || 'phòng của bạn'}.`,
+    found: (label) => `Đây là chỉ số điện nước mới nhất của ${label || 'phòng bạn'}.`,
+  },
+};
+
+const CONDUCT_MESSAGES = {
+  en: { summary: 'Here is your current conduct summary.' },
+  vi: { summary: 'Đây là thông tin điểm hạnh kiểm hiện tại của bạn.' },
+};
+
+const pickLangBucket = (bucket, lang) => bucket[lang] || bucket.en;
+
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const hasAnyTerm = (text, terms) => {
   const source = normalize(text);
-  return terms.some((term) => source.includes(term));
+  if (!source) return false;
+  return terms.some((term) => {
+    const nt = normalize(term);
+    if (!nt) return false;
+    const pattern = new RegExp(`(^|\\s)${escapeRegex(nt)}(\\s|$)`);
+    return pattern.test(source);
+  });
 };
 
 const hasDormRulesContext = (histories = []) => {
@@ -39,6 +101,19 @@ const hasDormRulesContext = (histories = []) => {
     'fire safety',
     'opening hours',
     'closing time',
+    'nội quy',
+    'quy định',
+    'khách',
+    'giờ đóng cửa',
+    'giờ mở cửa',
+    'nấu ăn',
+    'hút thuốc',
+    'rượu bia',
+    'thú cưng',
+    'tiếng ồn',
+    'đổi phòng',
+    'thiết bị điện',
+    'phòng cháy',
   ]);
 };
 
@@ -46,7 +121,7 @@ const formatCurrency = (amount) =>
   `${new Intl.NumberFormat('vi-VN').format(Number(amount || 0))} VND`;
 
 const formatRoomTypeLabel = (roomType) => {
-  const value = toText(roomType).replace(/_/g, ' ').trim();
+  const value = String(roomType || '').replace(/_/g, ' ').trim();
   if (!value) return 'Room type';
 
   const match = value.match(/^(\d+)\s*bed/i);
@@ -77,14 +152,12 @@ const createChunkedTextStream = (content = '') => {
       return;
     }
 
-    const chunks = text
-      .split(/\n{2,}/)
-      .flatMap((block) =>
-        block
-          .split(/(?<=[.!?])\s+/)
-          .map((part) => part.trim())
-          .filter(Boolean)
-      );
+    const chunks = text.split(/\n{2,}/).flatMap((block) =>
+      block
+        .split(/(?<=[.!?])\s+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+    );
 
     if (chunks.length === 0) {
       subscriber.next({ content: text });
@@ -167,23 +240,47 @@ const getStudentRoomContext = async (userId) => {
   };
 };
 
-const buildBookingSummary = (bookingState, semesterLabel) => {
+const buildBookingSummary = (bookingState, semesterLabel, lang = 'en') => {
+  const prompts = pickLangBucket(BOOKING_PROMPTS, lang);
+  const labels =
+    lang === 'vi'
+      ? {
+          Semester: 'Học kỳ',
+          'Room type': 'Loại phòng',
+          Dorm: 'Tòa',
+          Floor: 'Tầng',
+          Block: 'Dãy',
+          Room: 'Phòng',
+          Bed: 'Giường',
+          Note: 'Ghi chú',
+        }
+      : {
+          Semester: 'Semester',
+          'Room type': 'Room type',
+          Dorm: 'Dorm',
+          Floor: 'Floor',
+          Block: 'Block',
+          Room: 'Room',
+          Bed: 'Bed',
+          Note: 'Note',
+        };
+
   const rows = [
-    ['Semester', semesterLabel || bookingState.semester || '—'],
-    ['Room type', bookingState.room_type_label || bookingState.room_type || '—'],
-    ['Dorm', bookingState.dorm_name || bookingState.dorm_id || '—'],
-    ['Floor', bookingState.floor != null ? String(bookingState.floor) : '—'],
-    ['Block', bookingState.block_name || bookingState.block_id || '—'],
-    ['Room', bookingState.room_number || bookingState.room_id || '—'],
-    ['Bed', bookingState.bed_number || bookingState.bed_id || '—'],
+    [labels.Semester, semesterLabel || bookingState.semester || '—'],
+    [labels['Room type'], bookingState.room_type_label || bookingState.room_type || '—'],
+    [labels.Dorm, bookingState.dorm_name || bookingState.dorm_id || '—'],
+    [labels.Floor, bookingState.floor != null ? String(bookingState.floor) : '—'],
+    [labels.Block, bookingState.block_name || bookingState.block_id || '—'],
+    [labels.Room, bookingState.room_number || bookingState.room_id || '—'],
+    [labels.Bed, bookingState.bed_number || bookingState.bed_id || '—'],
   ];
 
   if (bookingState.price_per_semester != null) {
-    rows.push(['Room price', formatCurrency(bookingState.price_per_semester)]);
+    rows.push([prompts.room_price_label, formatCurrency(bookingState.price_per_semester)]);
   }
 
   if (bookingState.note) {
-    rows.push(['Note', bookingState.note]);
+    rows.push([labels.Note, bookingState.note]);
   }
 
   return rows.map(([label, value]) => ({ label, value }));
@@ -195,33 +292,27 @@ const buildOption = (value, label, description) => ({
   description: description || '',
 });
 
-const getBookingPrompt = (step) => {
-  switch (step) {
-    case 'room_type':
-      return 'Choose a room type to continue.';
-    case 'dorm':
-      return 'Choose a dorm building.';
-    case 'floor':
-      return 'Choose a floor.';
-    case 'block':
-      return 'Choose a block.';
-    case 'room':
-      return 'Choose a room.';
-    case 'bed':
-      return 'Choose a bed, then I will show the booking confirmation card.';
-    default:
-      return 'Review the booking details and confirm the dormitory rules to continue.';
-  }
+const getBookingPrompt = (step, lang = 'en') => {
+  const prompts = pickLangBucket(BOOKING_PROMPTS, lang);
+  return prompts[step] || prompts.confirm;
 };
 
-const resolveBookingFlow = async (userId, bookingState = {}) => {
+const describeBedsAvailable = (count, lang = 'en') =>
+  lang === 'vi' ? `Còn ${count} giường trống` : `${count} beds available`;
+
+const describeTapToReview = (lang = 'en') =>
+  lang === 'vi' ? 'Chạm để xem lại và xác nhận' : 'Tap to review and confirm';
+
+const resolveBookingFlow = async (userId, bookingState = {}, lang = 'en') => {
+  const prompts = pickLangBucket(BOOKING_PROMPTS, lang);
   const bookingWindow = await bookingService.getBookingWindowStatus(userId);
   if (!bookingWindow.allowed) {
     return createStructuredStream({
-      content: 'Dormitory booking is not currently open.',
+      content: prompts.closed,
       meta: {
         type: 'booking_closed',
         window_type: bookingWindow.window_type || null,
+        lang,
       },
     });
   }
@@ -235,11 +326,12 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
   if (!draft.room_type) {
     const roomTypes = await bookingService.getAvailableRoomTypes(userId);
     return createStructuredStream({
-      content: getBookingPrompt('room_type'),
+      content: getBookingPrompt('room_type', lang),
       meta: {
         type: 'booking_options',
         step: 'room_type',
         draft,
+        lang,
         options: roomTypes.map((roomType) =>
           buildOption(
             {
@@ -248,7 +340,7 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
               price_per_semester: roomType.price_per_semester,
             },
             formatRoomTypeLabel(roomType.room_type),
-            `${roomType.available_slots} beds available · ${formatCurrency(roomType.price_per_semester)}`
+            `${describeBedsAvailable(roomType.available_slots, lang)} · ${formatCurrency(roomType.price_per_semester)}`
           )
         ),
       },
@@ -258,11 +350,12 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
   if (!draft.dorm_id) {
     const dorms = await bookingService.getDormsForBooking(userId, draft.room_type);
     return createStructuredStream({
-      content: getBookingPrompt('dorm'),
+      content: getBookingPrompt('dorm', lang),
       meta: {
         type: 'booking_options',
         step: 'dorm',
         draft,
+        lang,
         options: dorms.map((dorm) =>
           buildOption(
             {
@@ -271,7 +364,7 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
               dorm_code: dorm.dorm_code,
             },
             dorm.dorm_name,
-            `${dorm.available_slots} beds available`
+            describeBedsAvailable(dorm.available_slots, lang)
           )
         ),
       },
@@ -282,18 +375,17 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
     const floors = await bookingService.getFloorsForBooking(userId, draft.dorm_id, draft.room_type);
 
     return createStructuredStream({
-      content: getBookingPrompt('floor'),
+      content: getBookingPrompt('floor', lang),
       meta: {
         type: 'booking_options',
         step: 'floor',
         draft,
+        lang,
         options: floors.map((floor) =>
           buildOption(
-            {
-              floor: floor.floor,
-            },
-            `Floor ${floor.floor}`,
-            `${floor.available_slots} beds available`
+            { floor: floor.floor },
+            lang === 'vi' ? `Tầng ${floor.floor}` : `Floor ${floor.floor}`,
+            describeBedsAvailable(floor.available_slots, lang)
           )
         ),
       },
@@ -309,11 +401,12 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
     );
 
     return createStructuredStream({
-      content: getBookingPrompt('block'),
+      content: getBookingPrompt('block', lang),
       meta: {
         type: 'booking_options',
         step: 'block',
         draft,
+        lang,
         options: blocks.map((block) =>
           buildOption(
             {
@@ -322,7 +415,7 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
               block_code: block.block_code,
             },
             block.block_code || block.block_name,
-            `${block.available_slots} beds available`
+            describeBedsAvailable(block.available_slots, lang)
           )
         ),
       },
@@ -333,11 +426,12 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
     const rooms = await bookingService.getRoomsForBooking(userId, draft.block_id, draft.room_type);
 
     return createStructuredStream({
-      content: getBookingPrompt('room'),
+      content: getBookingPrompt('room', lang),
       meta: {
         type: 'booking_options',
         step: 'room',
         draft,
+        lang,
         options: rooms.map((room) =>
           buildOption(
             {
@@ -345,8 +439,8 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
               room_number: room.room_number,
               price_per_semester: room.price_per_semester,
             },
-            `Room ${room.room_number}`,
-            `${room.available_beds} beds available · ${formatCurrency(room.price_per_semester)}`
+            lang === 'vi' ? `Phòng ${room.room_number}` : `Room ${room.room_number}`,
+            `${describeBedsAvailable(room.available_beds, lang)} · ${formatCurrency(room.price_per_semester)}`
           )
         ),
       },
@@ -357,19 +451,20 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
     const beds = await bookingService.getBedsForBooking(userId, draft.room_id);
 
     return createStructuredStream({
-      content: getBookingPrompt('bed'),
+      content: getBookingPrompt('bed', lang),
       meta: {
         type: 'booking_options',
         step: 'bed',
         draft,
+        lang,
         options: beds.map((bed) =>
           buildOption(
             {
               bed_id: bed.id || bed._id?.toString(),
               bed_number: bed.bed_number,
             },
-            `Bed ${bed.bed_number}`,
-            'Tap to review and confirm'
+            lang === 'vi' ? `Giường ${bed.bed_number}` : `Bed ${bed.bed_number}`,
+            describeTapToReview(lang)
           )
         ),
       },
@@ -378,13 +473,13 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
 
   if (!draft.rules_accepted) {
     return createStructuredStream({
-      content: 'Review the booking details and agree to the dormitory rules to continue.',
+      content: getBookingPrompt('confirm', lang),
       meta: {
         type: 'booking_confirm',
         draft,
-        summary: buildBookingSummary(draft, nextSemester.semester),
-        rules_text:
-          'I confirm that I have reviewed the booking details and agree to the dormitory rules.',
+        lang,
+        summary: buildBookingSummary(draft, nextSemester.semester, lang),
+        rules_text: prompts.rules_text,
       },
     });
   }
@@ -396,9 +491,10 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
     });
 
     return createStructuredStream({
-      content: 'Your booking is created. Please complete payment.',
+      content: prompts.success,
       meta: {
         type: 'payment_handoff',
+        lang,
         booking: result.booking,
         invoice: result.invoice,
         payos: result.payos || null,
@@ -408,25 +504,27 @@ const resolveBookingFlow = async (userId, bookingState = {}) => {
     });
   } catch (error) {
     return createStructuredStream({
-      content: error?.message || 'Failed to complete booking.',
+      content: error?.message || prompts.fail,
       meta: {
         type: 'booking_error',
+        lang,
       },
     });
   }
 };
 
-const resolveUtilityLookup = async (userId) => {
+const resolveUtilityLookup = async (userId, lang = 'en') => {
+  const msgs = pickLangBucket(UTILITY_MESSAGES, lang);
   const { room, bed, source } = await getStudentRoomContext(userId);
 
   if (!room) {
     return createStructuredStream({
-      content:
-        'I could not find an active room assignment for you, so there are no utility readings to show yet.',
+      content: msgs.no_room,
       meta: {
         type: 'utility_summary',
         has_data: false,
         room: null,
+        lang,
       },
     });
   }
@@ -435,18 +533,20 @@ const resolveUtilityLookup = async (userId) => {
     .sort({ recorded_at: -1, createdAt: -1 })
     .lean();
 
+  const roomPrefix = lang === 'vi' ? 'Phòng' : 'Room';
+  const bedPrefix = lang === 'vi' ? 'Giường' : 'Bed';
   const roomLabel = [
     room.block?.dorm?.dorm_name,
     room.block?.block_code,
-    room.room_number ? `Room ${room.room_number}` : null,
-    bed?.bed_number != null ? `Bed ${bed.bed_number}` : null,
+    room.room_number ? `${roomPrefix} ${room.room_number}` : null,
+    bed?.bed_number != null ? `${bedPrefix} ${bed.bed_number}` : null,
   ]
     .filter(Boolean)
     .join(' · ');
 
   if (!latestReading) {
     return createStructuredStream({
-      content: `There are no utility readings recorded yet for ${roomLabel || 'your room'}.`,
+      content: msgs.no_reading(roomLabel),
       meta: {
         type: 'utility_summary',
         has_data: false,
@@ -455,12 +555,13 @@ const resolveUtilityLookup = async (userId) => {
           label: roomLabel,
           source,
         },
+        lang,
       },
     });
   }
 
   return createStructuredStream({
-    content: `Here is the latest utility reading for ${roomLabel || 'your room'}.`,
+    content: msgs.found(roomLabel),
     meta: {
       type: 'utility_summary',
       has_data: true,
@@ -479,15 +580,17 @@ const resolveUtilityLookup = async (userId) => {
         water_consumption: latestReading.water_consumption,
         recorded_at: latestReading.recorded_at,
       },
+      lang,
     },
   });
 };
 
-const resolveConductLookup = async (userId) => {
+const resolveConductLookup = async (userId, lang = 'en') => {
+  const msgs = pickLangBucket(CONDUCT_MESSAGES, lang);
   const student = await getStudentProfile(userId);
 
   return createStructuredStream({
-    content: 'Here is your current conduct summary.',
+    content: msgs.summary,
     meta: {
       type: 'conduct_summary',
       student: {
@@ -497,6 +600,7 @@ const resolveConductLookup = async (userId) => {
       },
       behavioral_score: student.behavioral_score,
       violations_current_semester: student.violations_current_semester,
+      lang,
     },
   });
 };
@@ -512,6 +616,17 @@ const isBookingIntent = (question, bookingState) => {
     'bed',
     'keep bed',
     'reservation',
+    'register room',
+    'đặt phòng',
+    'đặt giường',
+    'thuê phòng',
+    'đăng ký phòng',
+    'đăng ký ở',
+    'tìm phòng',
+    'chọn phòng',
+    'giữ giường',
+    'book phòng',
+    'book giường',
   ]);
 };
 
@@ -545,9 +660,7 @@ const isDormRulesIntent = (question) => {
     'alcohol',
     'beer',
     'drug',
-    'pet',
-    'cat',
-    'dog',
+    'pets',
     'animal',
     'noise',
     'party',
@@ -562,6 +675,41 @@ const isDormRulesIntent = (question) => {
     'flammable',
     'gas',
     'fuel',
+    'nội quy',
+    'quy định',
+    'quy tắc',
+    'khách',
+    'người thân',
+    'giờ đóng cửa',
+    'giờ mở cửa',
+    'giờ nghiêm',
+    'về trễ',
+    'qua đêm',
+    'nấu ăn',
+    'bếp',
+    'nồi lẩu',
+    'hút thuốc',
+    'thuốc lá',
+    'rượu',
+    'bia',
+    'chất kích thích',
+    'ma túy',
+    'thú cưng',
+    'động vật',
+    'nuôi chó',
+    'nuôi mèo',
+    'ồn ào',
+    'tiếng ồn',
+    'đổi phòng',
+    'chuyển phòng',
+    'đổi giường',
+    'thiết bị điện',
+    'tủ lạnh',
+    'phòng cháy',
+    'chất dễ cháy',
+    'bình gas',
+    'xăng dầu',
+    'chất nổ',
   ]);
 };
 
@@ -578,6 +726,14 @@ const isDormRulesFollowUpIntent = (question) => {
     'is there anything else',
     'that all',
     'all of them',
+    'còn gì nữa không',
+    'thêm gì nữa',
+    'có thêm không',
+    'kể thêm',
+    'còn nữa không',
+    'hết chưa',
+    'tất cả chưa',
+    'nữa không',
   ]);
 };
 
@@ -590,6 +746,16 @@ const isUtilityIntent = (question) => {
     'meter',
     'reading',
     'bill',
+    'điện',
+    'nước',
+    'điện nước',
+    'đồng hồ',
+    'chỉ số',
+    'tiêu thụ',
+    'hóa đơn',
+    'số điện',
+    'số nước',
+    'đọc chỉ số',
   ]);
 };
 
@@ -603,7 +769,60 @@ const isConductIntent = (question) => {
     'violations',
     'penalty',
     'conduct',
+    'hạnh kiểm',
+    'điểm hạnh kiểm',
+    'vi phạm',
+    'kỷ luật',
+    'điểm rèn luyện',
+    'bị phạt',
+    'xử lý kỷ luật',
+    'đánh giá hạnh kiểm',
   ]);
+};
+
+const isSmallTalkIntent = (question) => {
+  return hasAnyTerm(question, [
+    'hello',
+    'hi',
+    'hey',
+    'good morning',
+    'good afternoon',
+    'good evening',
+    'how are you',
+    'what can you do',
+    'who are you',
+    'what are you',
+    'thank you',
+    'thanks',
+    'bye',
+    'goodbye',
+    'xin chào',
+    'chào',
+    'chào bạn',
+    'chào buổi sáng',
+    'chào buổi chiều',
+    'chào buổi tối',
+    'bạn khỏe không',
+    'bạn là ai',
+    'bạn có thể làm gì',
+    'bạn giúp được gì',
+    'cảm ơn',
+    'tạm biệt',
+  ]);
+};
+
+const classifyIntent = (question, bookingState = {}, histories = []) => {
+  if (isBookingIntent(question, bookingState)) return 'booking';
+  if (
+    isDormRulesIntent(question) ||
+    (isDormRulesFollowUpIntent(question) && hasDormRulesContext(histories))
+  ) {
+    return 'regulation';
+  }
+  if (isUtilityIntent(question)) return 'utility';
+  if (isConductIntent(question)) return 'conduct';
+  if (isSmallTalkIntent(question)) return 'smalltalk';
+  return 'unknown';
 };
 
 const answer = async (payload, userId) => {
@@ -612,12 +831,19 @@ const answer = async (payload, userId) => {
   const assistantState = payload?.assistant_state || payload?.assistantState || {};
   const bookingState = assistantState.booking || payload?.bookingState || {};
 
-  if (isDormRulesIntent(question) || (isDormRulesFollowUpIntent(question) && hasDormRulesContext(histories))) {
+  const lang = detectPreferredLanguage(question);
+  const intent = classifyIntent(question, bookingState, histories);
+
+  if (intent === 'regulation') {
     const kb = await dormRulesService.getDormRulesKnowledgeBase();
 
     if (!kb) {
       return createStructuredStream({
-        content: 'Dormitory rules are not configured yet.',
+        content:
+          lang === 'vi'
+            ? 'Nội quy ký túc xá chưa được cập nhật.'
+            : 'Dormitory rules are not configured yet.',
+        meta: { type: 'dorm_rules_missing', lang },
       });
     }
 
@@ -625,29 +851,25 @@ const answer = async (payload, userId) => {
     return createChunkedTextStream(dormRulesAnswer.answer);
   }
 
-  if (isBookingIntent(question, bookingState)) {
-    return resolveBookingFlow(userId, bookingState);
+  if (intent === 'booking') {
+    return resolveBookingFlow(userId, bookingState, lang);
   }
 
-  if (isUtilityIntent(question)) {
-    return resolveUtilityLookup(userId);
+  if (intent === 'utility') {
+    return resolveUtilityLookup(userId, lang);
   }
 
-  if (isConductIntent(question)) {
-    return resolveConductLookup(userId);
+  if (intent === 'conduct') {
+    return resolveConductLookup(userId, lang);
   }
+
+  const systemPrompt = pickLangBucket(GENERAL_SYSTEM_PROMPT, lang);
 
   const stream$ = await openaiService.stream({
     messages: [
-      {
-        role: 'system',
-        content: GENERAL_SYSTEM_PROMPT,
-      },
+      { role: 'system', content: systemPrompt },
       ...histories,
-      {
-        role: 'user',
-        content: question,
-      },
+      { role: 'user', content: question },
     ],
   });
 
@@ -656,4 +878,5 @@ const answer = async (payload, userId) => {
 
 module.exports = {
   answer,
+  classifyIntent,
 };
