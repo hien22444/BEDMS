@@ -1,43 +1,50 @@
-const nodemailer = require('nodemailer');
+const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
-let transporter = null;
+const sendMail = async ({ to, subject, html, text, cc, bcc, replyTo, attachments }) => {
+  const apiKey = process.env.BREVO_API_KEY;
+  const fromName = process.env.EMAIL_FROM_NAME;
+  const fromAddress = process.env.EMAIL_FROM_ADDRESS;
 
-const getTransporter = () => {
-  if (transporter) return transporter;
+  if (!apiKey || !fromAddress) return { skipped: true };
 
-  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+  const normalize = (v) =>
+    Array.isArray(v)
+      ? v
+      : String(v)
+          .split(',')
+          .map((e) => e.trim())
+          .filter(Boolean);
 
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
-    // Email is optional at runtime but required by the task;
-    // we fail softly and log in callers.
-    return null;
+  const toArr = normalize(to).map((email) => ({ email }));
+
+  const payload = {
+    sender: { name: fromName || fromAddress, email: fromAddress },
+    to: toArr,
+    subject,
+    ...(html ? { htmlContent: html } : {}),
+    ...(text ? { textContent: text } : {}),
+    ...(cc ? { cc: normalize(cc).map((email) => ({ email })) } : {}),
+    ...(bcc ? { bcc: normalize(bcc).map((email) => ({ email })) } : {}),
+    ...(replyTo ? { replyTo: { email: replyTo } } : {}),
+    ...(attachments ? { attachment: attachments } : {}),
+  };
+
+  const res = await fetch(BREVO_URL, {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Brevo API error ${res.status}: ${body}`);
   }
 
-  transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT),
-    secure: String(SMTP_SECURE).toLowerCase() === 'true',
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
-  });
-
-  transporter.__from = SMTP_FROM || SMTP_USER;
-  return transporter;
-};
-
-const sendMail = async ({ to, subject, html, text }) => {
-  const t = getTransporter();
-  if (!t) return { skipped: true };
-
-  return t.sendMail({
-    from: t.__from,
-    to,
-    subject,
-    ...(text ? { text } : {}),
-    ...(html ? { html } : {}),
-  });
+  return res.json();
 };
 
 const sendPaymentSuccessEmail = async ({ to, studentName, invoiceCode, amountVnd }) => {
