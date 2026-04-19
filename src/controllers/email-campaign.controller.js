@@ -5,12 +5,12 @@ const { cloudinary } = require('../config/cloudinary');
 
 exports.previewStudents = catchAsync(async (req, res) => {
   const result = await svc.previewStudents(req.query);
-  res.json(result);
+  res.success(result);
 });
 
 exports.getFilterOptions = catchAsync(async (req, res) => {
   const result = await svc.getFilterOptions();
-  res.json(result);
+  res.success(result);
 });
 
 exports.sendCampaign = catchAsync(async (req, res) => {
@@ -18,7 +18,7 @@ exports.sendCampaign = catchAsync(async (req, res) => {
   const result = await svc.sendCampaign({
     subject, body, filters, extra_emails, userId: req.user.id,
   });
-  res.json(result);
+  res.success(result);
 });
 
 exports.uploadInlineImage = catchAsync(async (req, res) => {
@@ -30,32 +30,32 @@ exports.uploadInlineImage = catchAsync(async (req, res) => {
     folder: 'dms/email-inline',
     resource_type: 'image',
   });
-  res.json({ url: result.secure_url });
+  res.success({ url: result.secure_url });
 });
 
 exports.listTemplates = catchAsync(async (req, res) => {
   const items = await svc.listTemplates();
-  res.json({ items });
+  res.success({ items });
 });
 
 exports.createTemplate = catchAsync(async (req, res) => {
   const { name, subject, body } = req.body;
   const item = await svc.createTemplate({ name, subject, body, userId: req.user.id });
-  res.status(201).json(item);
+  res.success(item, 201);
 });
 
 exports.updateTemplate = catchAsync(async (req, res) => {
   const item = await svc.updateTemplate(req.params.id, req.body);
-  res.json(item);
+  res.success(item);
 });
 
 exports.deleteTemplate = catchAsync(async (req, res) => {
   await svc.deleteTemplate(req.params.id);
-  res.status(204).send();
+  res.success(null, 204);
 });
 
 exports.getHistory = catchAsync(async (req, res) => {
   const { page, limit } = req.query;
   const result = await svc.getHistory({ page: Number(page) || 1, limit: Number(limit) || 20 });
-  res.json(result);
+  res.success(result);
 });
