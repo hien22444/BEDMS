@@ -34,6 +34,11 @@ const createInvoiceForStudent = catchAsync(async (req, res) => {
   res.success(data, status.CREATED);
 });
 
+const createEWInvoiceForStudent = catchAsync(async (req, res) => {
+  const data = await invoiceService.createEWInvoiceForStudent(req.body, req.user.id);
+  res.success(data, status.CREATED);
+});
+
 const createInvoicesForRoom = catchAsync(async (req, res) => {
   const data = await invoiceService.createInvoicesForRoom(req.params.roomId, req.body, req.user.id);
   res.success(data, status.CREATED);
@@ -41,6 +46,11 @@ const createInvoicesForRoom = catchAsync(async (req, res) => {
 
 const createInvoicesForBlock = catchAsync(async (req, res) => {
   const data = await invoiceService.createInvoicesForBlock(req.params.blockId, req.body, req.user.id);
+  res.success(data, status.CREATED);
+});
+
+const createEWInvoicesForAllBlocks = catchAsync(async (req, res) => {
+  const data = await invoiceService.createEWInvoicesForAllBlocks(req.body, req.user.id);
   res.success(data, status.CREATED);
 });
 
@@ -62,8 +72,10 @@ module.exports = {
   getInvoices,
   getInvoiceDetail,
   createInvoiceForStudent,
+  createEWInvoiceForStudent,
   createInvoicesForRoom,
   createInvoicesForBlock,
+  createEWInvoicesForAllBlocks,
   cancelInvoice,
   deleteInvoice,
 };
