@@ -1,51 +1,98 @@
 const mongoose = require('mongoose');
-const { User, BookingRequest, EmailTemplate, EmailLog } = require('../models');
+const {
+  User, Student, Room, BookingRequest, Invoice, EmailTemplate, EmailLog,
+} = require('../models');
 const { sendMail } = require('./email.service');
 const AppError = require('../utils/AppError');
 
-const getStudentsForFilters = async ({ dorm_id, block_id, gender, student_type } = {}) => {
-  const hasSpatialFilter = dorm_id || block_id;
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  if (!hasSpatialFilter && !gender && !student_type) {
-    const users = await User.find({ role: 'student', is_active: true }).select('email').lean();
-    return { emails: users.map((u) => u.email).filter(Boolean), students: [] };
+const PREVIEW_LIMIT = 500;
+
+const buildStudentPipeline = (filters = {}) => {
+  const {
+    dorm_id, block_id, gender, student_type,
+    student_code_prefix, room_type, semester,
+    invoice_status, behavioral_score_max,
+  } = filters;
+
+  const needsBooking = !!(dorm_id || block_id || room_type || semester);
+  const pipeline = [];
+
+  if (needsBooking) {
+    pipeline.push(
+      { $match: { status: 'approved' } },
+      { $lookup: { from: 'students', localField: 'student', foreignField: '_id', as: 'student' } },
+      { $unwind: '$student' },
+      { $lookup: { from: 'users', localField: 'student.user', foreignField: '_id', as: 'user' } },
+      { $unwind: '$user' },
+      { $match: { 'user.is_active': true, 'user.role': 'student' } }
+    );
+
+    if (semester) pipeline.push({ $match: { semester } });
+
+    if (dorm_id || block_id || room_type) {
+      pipeline.push(
+        { $lookup: { from: 'beds', localField: 'bed', foreignField: '_id', as: 'bed' } },
+        { $unwind: { path: '$bed', preserveNullAndEmptyArrays: false } },
+        { $lookup: { from: 'rooms', localField: 'bed.room', foreignField: '_id', as: 'room' } },
+        { $unwind: { path: '$room', preserveNullAndEmptyArrays: false } }
+      );
+      if (room_type) pipeline.push({ $match: { 'room.room_type': room_type } });
+      if (dorm_id || block_id) {
+        pipeline.push(
+          { $lookup: { from: 'blocks', localField: 'room.block', foreignField: '_id', as: 'block' } },
+          { $unwind: { path: '$block', preserveNullAndEmptyArrays: false } }
+        );
+        if (dorm_id) pipeline.push({ $match: { 'block.dorm': new mongoose.Types.ObjectId(dorm_id) } });
+        if (block_id) pipeline.push({ $match: { 'block._id': new mongoose.Types.ObjectId(block_id) } });
+      }
+    }
+  } else {
+    pipeline.push(
+      { $match: { role: 'student', is_active: true } },
+      { $lookup: { from: 'students', localField: '_id', foreignField: 'user', as: 'student' } },
+      { $unwind: '$student' },
+      {
+        $project: {
+          _id: 0,
+          user: { _id: '$_id', email: '$email', fullname: '$fullname' },
+          student: '$student',
+        },
+      }
+    );
   }
-
-  const pipeline = [
-    { $match: { status: 'approved' } },
-    {
-      $lookup: {
-        from: 'students', localField: 'student', foreignField: '_id', as: 'student',
-      },
-    },
-    { $unwind: '$student' },
-    {
-      $lookup: {
-        from: 'users', localField: 'student.user', foreignField: '_id', as: 'user',
-      },
-    },
-    { $unwind: '$user' },
-    { $match: { 'user.is_active': true } },
-  ];
 
   if (gender) pipeline.push({ $match: { 'student.gender': gender } });
   if (student_type) pipeline.push({ $match: { 'student.student_type': student_type } });
+  if (student_code_prefix) {
+    pipeline.push({
+      $match: {
+        'student.student_code': {
+          $regex: `^${escapeRegex(student_code_prefix)}`, $options: 'i',
+        },
+      },
+    });
+  }
+  if (behavioral_score_max !== undefined && behavioral_score_max !== null && behavioral_score_max !== '') {
+    const n = Number(behavioral_score_max);
+    if (!Number.isNaN(n)) {
+      pipeline.push({ $match: { 'student.behavioral_score': { $lte: n } } });
+    }
+  }
 
-  if (hasSpatialFilter) {
+  if (invoice_status) {
     pipeline.push(
-      { $lookup: { from: 'beds', localField: 'bed', foreignField: '_id', as: 'bed' } },
-      { $unwind: { path: '$bed', preserveNullAndEmptyArrays: false } },
-      { $lookup: { from: 'rooms', localField: 'bed.room', foreignField: '_id', as: 'room' } },
-      { $unwind: { path: '$room', preserveNullAndEmptyArrays: false } },
-      { $lookup: { from: 'blocks', localField: 'room.block', foreignField: '_id', as: 'block' } },
-      { $unwind: { path: '$block', preserveNullAndEmptyArrays: false } }
+      {
+        $lookup: {
+          from: 'invoices',
+          localField: 'student._id',
+          foreignField: 'student',
+          as: 'invoices',
+        },
+      },
+      { $match: { 'invoices.payment_status': invoice_status } }
     );
-    if (dorm_id) {
-      pipeline.push({ $match: { 'block.dorm': new mongoose.Types.ObjectId(dorm_id) } });
-    }
-    if (block_id) {
-      pipeline.push({ $match: { 'block._id': new mongoose.Types.ObjectId(block_id) } });
-    }
   }
 
   pipeline.push({
@@ -54,21 +101,34 @@ const getStudentsForFilters = async ({ dorm_id, block_id, gender, student_type }
       email: { $first: '$user.email' },
       full_name: { $first: '$student.full_name' },
       student_code: { $first: '$student.student_code' },
+      behavioral_score: { $first: '$student.behavioral_score' },
     },
   });
 
-  const results = await BookingRequest.aggregate(pipeline);
-  const students = results.filter((r) => r.email);
-  return { emails: students.map((s) => s.email), students };
+  pipeline.push({ $match: { email: { $ne: null } } });
+  pipeline.push({ $sort: { student_code: 1 } });
+
+  return { pipeline, rootModel: needsBooking ? BookingRequest : User };
+};
+
+const getStudentsForFilters = async (filters = {}) => {
+  const { pipeline, rootModel } = buildStudentPipeline(filters);
+  const results = await rootModel.aggregate(pipeline);
+  return { emails: results.map((r) => r.email), students: results };
 };
 
 const previewStudents = async (filters) => {
-  const { emails, students } = await getStudentsForFilters(filters);
-  return { count: emails.length, students: students.slice(0, 20) };
+  const { emails, students } = await getStudentsForFilters(filters || {});
+  return { count: emails.length, students: students.slice(0, PREVIEW_LIMIT) };
 };
 
-const sendCampaign = async ({ subject, body, filters, userId }) => {
-  const { emails } = await getStudentsForFilters(filters || {});
+const sendCampaign = async ({ subject, body, filters, extra_emails, userId }) => {
+  const { emails: filteredEmails } = await getStudentsForFilters(filters || {});
+  const manualEmails = Array.isArray(extra_emails) ? extra_emails.filter(Boolean) : [];
+  const emails = Array.from(new Set([...filteredEmails, ...manualEmails]
+    .map((e) => String(e).trim().toLowerCase())
+    .filter(Boolean)));
+
   if (!emails.length) throw new AppError('No matching students found', 404);
 
   let status = 'sent';
@@ -92,6 +152,17 @@ const sendCampaign = async ({ subject, body, filters, userId }) => {
   }
 
   return { sent: true, count: emails.length };
+};
+
+const getFilterOptions = async () => {
+  const [roomTypes, semesters] = await Promise.all([
+    Room.distinct('room_type'),
+    BookingRequest.distinct('semester', { status: 'approved' }),
+  ]);
+  return {
+    room_types: roomTypes.filter(Boolean).sort(),
+    semesters: semesters.filter(Boolean).sort(),
+  };
 };
 
 const listTemplates = () => EmailTemplate.find().sort({ updatedAt: -1 }).lean();
@@ -129,6 +200,7 @@ const getHistory = async ({ page = 1, limit = 20 } = {}) => {
 module.exports = {
   previewStudents,
   sendCampaign,
+  getFilterOptions,
   listTemplates,
   createTemplate,
   updateTemplate,
