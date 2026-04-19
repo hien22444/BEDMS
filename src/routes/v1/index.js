@@ -26,6 +26,7 @@ const roomTransferRoute = require('./roomTransfer.route');
 const ewUsageRoute = require('./ewUsage.route');
 const invoiceRoute = require('./invoice.route');
 const agentRoute = require('./agent.route');
+const emailCampaignRoute = require('./email-campaign.route');
 
 const express = require('express');
 
@@ -143,6 +144,10 @@ const defaultRoutes = [
   {
     path: '/agents',
     route: agentRoute,
+  },
+  {
+    path: '/emails',
+    route: emailCampaignRoute,
   },
 ];
 
