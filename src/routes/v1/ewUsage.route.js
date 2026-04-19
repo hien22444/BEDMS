@@ -16,6 +16,7 @@ router.post('/quick-create', authenticate, authorize('manager'), ewUsageControll
 router.get('/export', authenticate, authorize('manager'), ewUsageController.exportEWUsages);
 router.post('/import', authenticate, authorize('manager'), upload.single('file'), ewUsageController.importEWUsages);
 router.post('/recalculate', authenticate, authorize('manager'), ewUsageController.recalculate);
+router.post('/create-invoices', authenticate, authorize('manager'), ewUsageController.createEWInvoices);
 router.put('/reset', authenticate, authorize('manager'), ewUsageController.resetMeter);
 router.put('/:id', authenticate, authorize('manager'), ewUsageController.updateEWUsage);
 
