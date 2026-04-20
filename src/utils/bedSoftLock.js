@@ -40,6 +40,13 @@ const lockBed = (bedId, userId, io) => {
   if (io) io.emit('bed_soft_locked', { bedId: String(bedId) });
 };
 
+const releaseLockSilent = (bedId) => {
+  const lock = locks.get(String(bedId));
+  if (!lock) return;
+  clearTimeout(lock.timeout);
+  locks.delete(String(bedId));
+};
+
 const isLockedByOther = (bedId, userId) => {
   const lock = locks.get(String(bedId));
   return lock ? lock.userId !== String(userId) : false;
@@ -47,4 +54,4 @@ const isLockedByOther = (bedId, userId) => {
 
 const getAllLockedBedIds = () => [...locks.keys()];
 
-module.exports = { lockBed, unlockBed, unlockByUser, isLockedByOther, getAllLockedBedIds };
+module.exports = { lockBed, unlockBed, unlockByUser, isLockedByOther, getAllLockedBedIds, releaseLockSilent };
