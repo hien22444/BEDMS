@@ -646,9 +646,10 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
     throw new AppError('This bed already has a contract for next semester', 409);
   }
 
-  // Release soft lock; notify other students' UIs to hide this bed.
-  // Bed status and room.available_beds are updated only after payment is confirmed.
-  bedSoftLock.unlockBed(String(bed._id), io);
+  // Release soft lock silently (no bed_soft_unlocked event) then notify UIs to hide this bed.
+  // Emitting bed_soft_unlocked here would cause a brief flicker on the occupant's hold-bed button.
+  // bed_reserved is sufficient to remove the bed from all clients.
+  bedSoftLock.releaseLockSilent(String(bed._id));
   if (io) io.emit('bed_reserved', { bedId: String(bed._id) });
 
   // If booking an occupied bed, notify the current occupant that their bed has been taken —
@@ -1210,6 +1211,31 @@ const cancelBooking = async (bookingId, userId, io) => {
     io.to(`user_${student.user}`).emit('booking_cancelled', {
       bookingId: booking._id.toString(),
     });
+  }
+
+  // Clear any lingering soft lock so the bed is truly selectable again.
+  // Without this, Student B sees the bed (from the event) but can't select it
+  // (isLockedByOther returns true) and reload hides the bed (API filters locked beds).
+  bedSoftLock.releaseLockSilent(String(booking.bed));
+  if (io) io.emit('bed_soft_unlocked', { bedId: String(booking.bed) });
+
+  // If the cancelled booking was for an occupied bed (hold-bed scenario),
+  // notify the current occupant that their bed is free to hold again.
+  if (io && currentBed?.status === 'occupied') {
+    const occupantContract = await Contract.findOne({
+      bed: booking.bed,
+      status: { $in: ['active', 'extended'] },
+    })
+      .select('student')
+      .lean();
+    if (occupantContract) {
+      const occupantStudent = await Student.findById(occupantContract.student)
+        .select('user')
+        .lean();
+      if (occupantStudent?.user) {
+        io.to(`user_${occupantStudent.user}`).emit('booking_window_status_changed');
+      }
+    }
   }
 
   return booking;
