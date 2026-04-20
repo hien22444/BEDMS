@@ -941,6 +941,10 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   }
   // 'occupied' bed: student still living there, no change needed
 
+  // Clear any lingering soft lock so its auto-expire timer doesn't fire bed_soft_unlocked
+  // after payment, which would incorrectly restore the bed on other students' booking UIs.
+  bedSoftLock.releaseLockSilent(String(bed._id));
+
   // Create contract if not exists
   // Hold-bed bookings have a future start_date → create as 'upcoming' to avoid
   // having two 'active' contracts simultaneously (current + future semester).
