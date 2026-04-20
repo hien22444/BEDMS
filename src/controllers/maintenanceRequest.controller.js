@@ -3,7 +3,8 @@ const { maintenanceRequestService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
 const createMaintenanceRequest = catchAsync(async (req, res) => {
-  const data = await maintenanceRequestService.createMaintenanceRequest(req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await maintenanceRequestService.createMaintenanceRequest(req.user.id, req.body, io);
   res.success(data, status.CREATED);
 });
 
@@ -28,10 +29,12 @@ const getAllMaintenanceRequests = catchAsync(async (req, res) => {
 });
 
 const reviewMaintenanceRequest = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
   const data = await maintenanceRequestService.reviewMaintenanceRequest(
     req.params.id,
     req.user.id,
-    req.body
+    req.body,
+    io
   );
   res.success(data, status.OK);
 });

@@ -7,8 +7,9 @@ const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * Create new dorm
  * @param {Object} body
+ * @param {import('socket.io').Server} io
  */
-const createDorm = async (body) => {
+const createDorm = async (body, io) => {
   const { dorm_name, dorm_code, total_floors } = body;
 
   if (!dorm_name || !dorm_code) {
@@ -38,6 +39,10 @@ const createDorm = async (body) => {
     description: body.description,
     is_active: body.is_active,
   });
+
+  if (io) {
+    io.emit('dorm_updated', { action: 'create', data: dorm });
+  }
 
   return dorm;
 };
@@ -94,8 +99,9 @@ const getDormById = async (id) => {
  * Update dorm
  * @param {string} id
  * @param {Object} body
+ * @param {import('socket.io').Server} io
  */
-const updateDorm = async (id, body) => {
+const updateDorm = async (id, body, io) => {
   if (body.dorm_code) {
     const code = String(body.dorm_code).trim();
     if (!/^[A-Za-z]$/.test(code)) {
@@ -147,14 +153,19 @@ const updateDorm = async (id, body) => {
     throw new Error('Dorm not found');
   }
 
+  if (io) {
+    io.emit('dorm_updated', { action: 'update', data: dorm });
+  }
+
   return dorm;
 };
 
 /**
  * Delete dorm (hard delete)
  * @param {string} id
+ * @param {import('socket.io').Server} io
  */
-const deleteDorm = async (id) => {
+const deleteDorm = async (id, io) => {
   const dorm = await Dorm.findById(id);
   if (!dorm) {
     throw new Error('Dorm not found');
@@ -169,6 +180,9 @@ const deleteDorm = async (id) => {
   }
 
   await dorm.deleteOne();
+  if (io) {
+    io.emit('dorm_updated', { action: 'delete', id });
+  }
   return { message: 'Dorm deleted successfully' };
 };
 

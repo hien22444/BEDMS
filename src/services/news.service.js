@@ -75,8 +75,10 @@ const getNewsById = async (id, forStudent = false) => {
 
 /**
  * Create a news item
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
  */
-const createNews = async (body) => {
+const createNews = async (body, io) => {
   const now = new Date();
 
   const isPublished = typeof body.is_published === 'boolean' ? body.is_published : true;
@@ -90,13 +92,22 @@ const createNews = async (body) => {
     published_at: isPublished ? now : null,
   });
 
-  return news.toJSON();
+  const result = news.toJSON();
+
+  if (io && result.is_published) {
+    io.emit('news_updated', result);
+  }
+
+  return result;
 };
 
 /**
  * Update a news item
+ * @param {string} id
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
  */
-const updateNews = async (id, body) => {
+const updateNews = async (id, body, io) => {
   const news = await News.findById(id);
 
   if (!news) {
@@ -128,14 +139,21 @@ const updateNews = async (id, body) => {
   }
 
   await news.save();
+  const result = news.toJSON();
 
-  return news.toJSON();
+  if (io) {
+    io.emit('news_updated', result);
+  }
+
+  return result;
 };
 
 /**
  * Delete a news item
+ * @param {string} id
+ * @param {import('socket.io').Server} io
  */
-const deleteNews = async (id) => {
+const deleteNews = async (id, io) => {
   const news = await News.findById(id);
 
   if (!news) {
@@ -143,6 +161,10 @@ const deleteNews = async (id) => {
   }
 
   await news.deleteOne();
+
+  if (io) {
+    io.emit('news_updated', { id, action: 'delete' });
+  }
 
   return { message: 'News deleted successfully' };
 };
