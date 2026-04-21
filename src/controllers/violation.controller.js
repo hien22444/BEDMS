@@ -3,14 +3,32 @@ const { violationService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
 /**
+ * Upload evidence image to Cloudinary
+ * POST /violations/upload-evidence
+ */
+const uploadEvidenceImage = catchAsync(async (req, res) => {
+  if (!req.file) {
+    throw new Error('Image file is required');
+  }
+  const { uploadBase64Image } = require('../config/cloudinary');
+  const base64Data = req.file.buffer.toString('base64');
+  const url = await uploadBase64Image(base64Data, { folder: 'dms/violations' });
+  res.success({ url }, status.OK);
+});
+
+/**
  * Create a new violation report
  * POST /violations
  */
 const createViolationReport = catchAsync(async (req, res) => {
-  const data = await violationService.createViolationReport({
-    ...req.body,
-    reporter_id: req.user.id,
-  });
+  const io = req.app.get('io');
+  const data = await violationService.createViolationReport(
+    {
+      ...req.body,
+      reporter_id: req.user.id,
+    },
+    io
+  );
 
   res.success(data, status.CREATED);
 });
@@ -58,7 +76,8 @@ const getViolationReportById = catchAsync(async (req, res) => {
  * PUT /violations/:id/review
  */
 const reviewViolationReport = catchAsync(async (req, res) => {
-  const data = await violationService.reviewViolationReport(req.params.id, req.body, req.user.id);
+  const io = req.app.get('io');
+  const data = await violationService.reviewViolationReport(req.params.id, req.body, req.user.id, io);
 
   res.success(data, status.OK);
 });
@@ -104,12 +123,14 @@ const getViolationStatistics = catchAsync(async (req, res) => {
  * DELETE /violations/:id
  */
 const deleteViolationReport = catchAsync(async (req, res) => {
-  const data = await violationService.deleteViolationReport(req.params.id);
+  const io = req.app.get('io');
+  const data = await violationService.deleteViolationReport(req.params.id, io);
 
   res.success(data, status.OK);
 });
 
 module.exports = {
+  uploadEvidenceImage,
   createViolationReport,
   getAllViolationReports,
   getViolationReportById,

@@ -15,19 +15,22 @@ const getBlockById = catchAsync(async (req, res) => {
 });
 
 const createBlock = catchAsync(async (req, res) => {
-  const data = await blockService.createBlock(req.body);
+  const io = req.app.get('io');
+  const data = await blockService.createBlock(req.body, io);
 
   res.success(data, status.CREATED);
 });
 
 const updateBlock = catchAsync(async (req, res) => {
-  const data = await blockService.updateBlock(req.params.id, req.body);
+  const io = req.app.get('io');
+  const data = await blockService.updateBlock(req.params.id, req.body, io);
 
   res.success(data, status.OK);
 });
 
 const deleteBlock = catchAsync(async (req, res) => {
-  const data = await blockService.deleteBlock(req.params.id);
+  const io = req.app.get('io');
+  const data = await blockService.deleteBlock(req.params.id, io);
 
   res.success(data, status.OK);
 });

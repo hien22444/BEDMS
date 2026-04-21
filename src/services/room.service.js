@@ -116,7 +116,12 @@ const getRoomById = async (id) => {
   return room;
 };
 
-const createRoom = async (body) => {
+/**
+ * Create new room
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const createRoom = async (body, io) => {
   const blk = await Block.findById(body.block);
   if (!blk) {
     throw new Error('Block not found');
@@ -184,10 +189,22 @@ const createRoom = async (body) => {
     await Bed.insertMany(bedDocs, { ordered: false });
   }
 
-  return await Room.findById(room._id).populate(populateBlockDorm);
+  const created = await Room.findById(room._id).populate(populateBlockDorm);
+
+  if (io) {
+    io.emit('room_updated', { action: 'create', data: created });
+  }
+
+  return created;
 };
 
-const updateRoom = async (id, body) => {
+/**
+ * Update room
+ * @param {string} id
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const updateRoom = async (id, body, io) => {
   const room = await Room.findById(id);
 
   if (!room) {
@@ -302,10 +319,21 @@ const updateRoom = async (id, body) => {
     }
   }
 
-  return await Room.findById(id).populate(populateBlockDorm);
+  const updated = await Room.findById(id).populate(populateBlockDorm);
+
+  if (io) {
+    io.emit('room_updated', { action: 'update', data: updated });
+  }
+
+  return updated;
 };
 
-const deleteRoom = async (id) => {
+/**
+ * Delete room
+ * @param {string} id
+ * @param {import('socket.io').Server} io
+ */
+const deleteRoom = async (id, io) => {
   const room = await Room.findById(id);
 
   if (!room) {
@@ -328,6 +356,9 @@ const deleteRoom = async (id) => {
   await RoomEquipment.deleteMany({ room: id });
   await room.deleteOne();
 
+  if (io) {
+    io.emit('room_updated', { action: 'delete', id });
+  }
   return { message: 'Room deleted successfully' };
 };
 
