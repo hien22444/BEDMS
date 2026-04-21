@@ -256,13 +256,25 @@ const createViolationReport = async (body, io) => {
   }
 
   const populated = await violationReport.populate([
-    { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reported_student', select: 'student_code full_name user' },
     { path: 'reporter', select: 'fullname email' },
   ]);
   await enrichReporterStudentCode(populated);
 
   if (io) {
     io.to('managers').emit('new_violation_report', populated);
+    // If student is reported, notify them in real-time
+    if (populated.reported_student?.user) {
+      const studentUserId = populated.reported_student.user._id || populated.reported_student.user;
+      io.to(`user_${studentUserId}`).emit('violation_updated', populated);
+
+      if (body.initial_penalty) {
+        io.to(`user_${studentUserId}`).emit('cfd_updated', {
+          score: populated.reported_student.behavioral_score,
+          report_code: populated.report_code,
+        });
+      }
+    }
   }
 
   return populated;
@@ -399,7 +411,7 @@ const reviewViolationReport = async (id, body, staffId, io) => {
   }
 
   const populated = await report.populate([
-    { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reported_student', select: 'student_code full_name user' },
     { path: 'reporter', select: 'fullname email' },
     { path: 'reviewed_by', select: 'full_name' },
   ]);
@@ -411,6 +423,13 @@ const reviewViolationReport = async (id, body, staffId, io) => {
     if (populated.reported_student?.user) {
       const studentUserId = populated.reported_student.user._id || populated.reported_student.user;
       io.to(`user_${studentUserId}`).emit('violation_updated', populated);
+
+      if (body.status === 'resolved_penalized') {
+        io.to(`user_${studentUserId}`).emit('cfd_updated', {
+          score: populated.reported_student.behavioral_score,
+          report_code: populated.report_code,
+        });
+      }
     }
   }
 

@@ -156,6 +156,7 @@ const createMaintenanceRequest = async (userId, body, io) => {
   }
 
   const request_code = await generateRequestCode();
+  console.log(`[MaintenanceService] Creating request ${request_code} with evidence_urls:`, evidence_urls);
   const doc = await MaintenanceRequest.create({
     request_code,
     student: student._id,
@@ -198,6 +199,7 @@ const createMaintenanceRequest = async (userId, body, io) => {
 
   if (io) {
     io.to('managers').emit('new_maintenance_request', response);
+    io.to(`user_${userId}`).emit('maintenance_updated', response);
   }
 
   return response;
@@ -391,7 +393,7 @@ const reviewMaintenanceRequest = async (requestId, managerUserId, body, io) => {
   const populated = await MaintenanceRequest.findById(req._id)
     .populate({
       path: 'student',
-      select: 'full_name student_code',
+      select: 'full_name student_code user',
     })
     .populate(populateRoomPath)
     .populate(populateBedPath)
