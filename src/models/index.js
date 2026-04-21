@@ -69,3 +69,7 @@ module.exports.EWUsage = require('./ewUsage.model');
 
 // Checkout
 module.exports.CheckoutRequest = require('./checkoutRequest.model');
+
+// Email Campaign
+module.exports.EmailTemplate = require('./email-template.model');
+module.exports.EmailLog = require('./email-log.model');

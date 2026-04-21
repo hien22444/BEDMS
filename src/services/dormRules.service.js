@@ -1,4 +1,5 @@
 const { SystemConfig } = require('../models');
+const { normalize, detectPreferredLanguage } = require('../utils/lang');
 
 const CONFIG_KEY = 'dorm_rules_kb';
 
@@ -40,85 +41,7 @@ const RULE_SUMMARY_VI = {
     'Cấm mang các chất dễ cháy nổ như xăng dầu, bình gas hoặc vật liệu gây nổ vào ký túc xá.',
 };
 
-const toText = (value) => String(value || '').trim();
-
-const normalize = (text = '') =>
-  toText(text)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
 const tokenize = (text = '') => normalize(text).split(' ').filter(Boolean);
-
-const detectPreferredLanguage = (text = '') => {
-  const raw = text || '';
-  if (
-    /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/u.test(
-      raw
-    )
-  ) {
-    return 'vi';
-  }
-
-  const normalized = normalize(text);
-  const englishSignals = [
-    'hello',
-    'hi',
-    'how are you',
-    'what',
-    'when',
-    'where',
-    'can i',
-    'is it',
-    'allowed',
-    'rules',
-    'policy',
-    'guest',
-    'dorm',
-    'room',
-    'smoke',
-    'cook',
-    'overview',
-    'regulation',
-  ];
-  const viSignals = [
-    'xin chao',
-    'chao',
-    'em',
-    'anh',
-    'chi',
-    'ban',
-    'khong',
-    'duoc',
-    'ktx',
-    'noi quy',
-    'quy dinh',
-    'phong',
-    'giuong',
-    'khach',
-    'nau an',
-    'thu cung',
-    'tong quan',
-  ];
-
-  const englishHits = englishSignals.reduce(
-    (acc, signal) => acc + (normalized.includes(signal) ? 1 : 0),
-    0
-  );
-  const viHits = viSignals.reduce(
-    (acc, signal) => acc + (normalized.includes(signal) ? 1 : 0),
-    0
-  );
-
-  if (englishHits > viHits) return 'en';
-  if (viHits > englishHits) return 'vi';
-
-  const isAsciiOnly = Array.from(raw).every((char) => char.charCodeAt(0) <= 127);
-  return isAsciiOnly ? 'en' : 'vi';
-};
 
 const buildRuleSearchText = (rule) => {
   const fields = [

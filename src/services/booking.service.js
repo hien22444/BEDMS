@@ -20,6 +20,7 @@ const {
   cancelPayosPaymentLink,
 } = require('./payos.service');
 const { sendPaymentSuccessEmail, sendMail } = require('./email.service');
+const { createCheckoutSettlement } = require('./ewUsage.service');
 
 const invoiceCodeToOrderCode = (invoiceCode) => {
   // BOOK-YYYYMMDD-0005 => 202603060005 (safe integer)
@@ -491,7 +492,7 @@ const getBedsForBooking = async (userId, roomId) => {
   let takenBedIdSet = new Set();
   if (allBedIds.length > 0) {
     const nextSem = await getTargetSemester();
-    const [takenByBooking, takenByContract] = await Promise.all([
+    const [takenByBooking, takenByContract, checkedOutBookings] = await Promise.all([
       BookingRequest.find({
         bed: { $in: allBedIds },
         semester: nextSem.semester,
@@ -507,9 +508,22 @@ const getBedsForBooking = async (userId, roomId) => {
       })
         .select('bed')
         .lean(),
+      BookingRequest.find({
+        student: student._id,
+        semester: nextSem.semester,
+        status: 'approved',
+        checkout_date: { $ne: null },
+        $or: [{ bed: { $in: allBedIds } }, { bed_transfer: { $in: allBedIds } }],
+      })
+        .select('bed bed_transfer')
+        .lean(),
     ]);
     for (const r of [...takenByBooking, ...takenByContract]) {
       takenBedIdSet.add(String(r.bed));
+    }
+    for (const booking of checkedOutBookings) {
+      const checkedOutBedId = booking.bed_transfer || booking.bed;
+      if (checkedOutBedId) takenBedIdSet.add(String(checkedOutBedId));
     }
   }
 
@@ -537,6 +551,20 @@ const softUnlockBed = (userId, bedId, io) => {
 };
 
 const getSoftLockedBeds = () => ({ locked_bed_ids: bedSoftLock.getAllLockedBedIds() });
+
+const hasCheckedOutFromBedInSemester = async (studentId, semester, bedId) => {
+  const checkedOutBooking = await BookingRequest.findOne({
+    student: studentId,
+    semester,
+    status: 'approved',
+    checkout_date: { $ne: null },
+    $or: [{ bed: bedId }, { bed_transfer: bedId }],
+  })
+    .select('_id')
+    .lean();
+
+  return !!checkedOutBooking;
+};
 
 // ─── 8. submitBooking ─────────────────────────────────────
 const submitBooking = async (userId, { bed_id, note }, io = null) => {
@@ -592,6 +620,13 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
     throw new AppError('You already have an active booking for this semester', 409);
   }
 
+  if (await hasCheckedOutFromBedInSemester(student._id, nextSem.semester, bed._id)) {
+    throw new AppError(
+      'You cannot book this bed again in the same semester after checking out from it',
+      409
+    );
+  }
+
   // Check if this specific bed is already booked/contracted for next semester
   const bedAlreadyBooked = await BookingRequest.findOne({
     bed: bed._id,
@@ -611,9 +646,10 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
     throw new AppError('This bed already has a contract for next semester', 409);
   }
 
-  // Release soft lock; notify other students' UIs to hide this bed.
-  // Bed status and room.available_beds are updated only after payment is confirmed.
-  bedSoftLock.unlockBed(String(bed._id), io);
+  // Release soft lock silently (no bed_soft_unlocked event) then notify UIs to hide this bed.
+  // Emitting bed_soft_unlocked here would cause a brief flicker on the occupant's hold-bed button.
+  // bed_reserved is sufficient to remove the bed from all clients.
+  bedSoftLock.releaseLockSilent(String(bed._id));
   if (io) io.emit('bed_reserved', { bedId: String(bed._id) });
 
   // If booking an occupied bed, notify the current occupant that their bed has been taken —
@@ -905,6 +941,10 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
   }
   // 'occupied' bed: student still living there, no change needed
 
+  // Clear any lingering soft lock so its auto-expire timer doesn't fire bed_soft_unlocked
+  // after payment, which would incorrectly restore the bed on other students' booking UIs.
+  bedSoftLock.releaseLockSilent(String(bed._id));
+
   // Create contract if not exists
   // Hold-bed bookings have a future start_date → create as 'upcoming' to avoid
   // having two 'active' contracts simultaneously (current + future semester).
@@ -1177,6 +1217,31 @@ const cancelBooking = async (bookingId, userId, io) => {
     });
   }
 
+  // Clear any lingering soft lock so the bed is truly selectable again.
+  // Without this, Student B sees the bed (from the event) but can't select it
+  // (isLockedByOther returns true) and reload hides the bed (API filters locked beds).
+  bedSoftLock.releaseLockSilent(String(booking.bed));
+  if (io) io.emit('bed_soft_unlocked', { bedId: String(booking.bed) });
+
+  // If the cancelled booking was for an occupied bed (hold-bed scenario),
+  // notify the current occupant that their bed is free to hold again.
+  if (io && currentBed?.status === 'occupied') {
+    const occupantContract = await Contract.findOne({
+      bed: booking.bed,
+      status: { $in: ['active', 'extended'] },
+    })
+      .select('student')
+      .lean();
+    if (occupantContract) {
+      const occupantStudent = await Student.findById(occupantContract.student)
+        .select('user')
+        .lean();
+      if (occupantStudent?.user) {
+        io.to(`user_${occupantStudent.user}`).emit('booking_window_status_changed');
+      }
+    }
+  }
+
   return booking;
 };
 
@@ -1424,7 +1489,7 @@ const searchStudentForCheckout = async (studentCode) => {
 };
 
 // ─── 14. checkoutStudent (manager) ────────────────────────
-const checkoutStudent = async (studentCode, managerId) => {
+const checkoutStudent = async (studentCode, managerId, settlementInput = {}) => {
   if (!studentCode) throw new AppError('student_code is required', 400);
 
   const student = await Student.findOne({
@@ -1464,6 +1529,22 @@ const checkoutStudent = async (studentCode, managerId) => {
     { sort: { requested_at: -1 } }
   );
 
+  let ewSettlement = null;
+  if (
+    settlementInput.electric_meter_right !== undefined ||
+    settlementInput.water_meter_right !== undefined
+  ) {
+    const roomDoc = await Room.findById(contract.room).select('block').lean();
+    ewSettlement = await createCheckoutSettlement({
+      studentId: student._id.toString(),
+      blockId: roomDoc?.block?.toString(),
+      snapshotDate: now,
+      electric_meter_right: settlementInput.electric_meter_right,
+      water_meter_right: settlementInput.water_meter_right,
+      term: settlementInput.term,
+    });
+  }
+
   const user = await User.findById(student.user).select('_id').lean();
   if (user) {
     const formattedDate = now.toLocaleString('en-US', {
@@ -1487,6 +1568,7 @@ const checkoutStudent = async (studentCode, managerId) => {
     student_code: student.student_code,
     full_name: student.full_name,
     checkout_date: now,
+    ew_settlement: ewSettlement,
   };
 };
 

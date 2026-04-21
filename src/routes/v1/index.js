@@ -15,6 +15,7 @@ const statsRoute = require('./stats.route');
 const bookingRoute = require('./booking.route');
 const payosRoute = require('./payos.route');
 const faceRecognitionRoute = require('./faceRecognition.route');
+const internalAuthRoute = require('./internalAuth.route');
 const accessLogRoute = require('./accessLog.route');
 const cameraRoute = require('./camera.route');
 const dateConfigRoute = require('./dateConfig.route');
@@ -25,6 +26,7 @@ const roomTransferRoute = require('./roomTransfer.route');
 const ewUsageRoute = require('./ewUsage.route');
 const invoiceRoute = require('./invoice.route');
 const agentRoute = require('./agent.route');
+const emailCampaignRoute = require('./email-campaign.route');
 
 const express = require('express');
 
@@ -100,6 +102,10 @@ const defaultRoutes = [
     route: faceRecognitionRoute,
   },
   {
+    path: '/internal-auth',
+    route: internalAuthRoute,
+  },
+  {
     path: '/access-logs',
     route: accessLogRoute,
   },
@@ -138,6 +144,10 @@ const defaultRoutes = [
   {
     path: '/agents',
     route: agentRoute,
+  },
+  {
+    path: '/emails',
+    route: emailCampaignRoute,
   },
 ];
 

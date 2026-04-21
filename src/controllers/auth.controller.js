@@ -2,6 +2,8 @@ const { status: httpStatus } = require('http-status');
 const { authService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
+const getFrontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+
 /**
  * Login user
  * POST /v1/auth/login
@@ -61,7 +63,7 @@ const googleCallback = catchAsync(async (req, res) => {
     profile,
   });
 
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = getFrontendUrl();
   res.redirect(`${frontendUrl}/auth/google/callback?code=${code}`);
 });
 

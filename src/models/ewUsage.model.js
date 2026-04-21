@@ -66,6 +66,10 @@ const EWUsageSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    is_reset: {
+      type: Boolean,
+      default: false,
+    },
     is_billed: {
       type: Boolean,
       default: false,
