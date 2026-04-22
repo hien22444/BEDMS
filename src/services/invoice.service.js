@@ -33,6 +33,33 @@ const buildInvoiceResponse = (invoice) => ({
   id: invoice._id,
 });
 
+const emitInvoiceRealtime = (io, invoice, action = 'updated') => {
+  if (!io || !invoice) return;
+  const payload = {
+    action,
+    invoiceId: String(invoice._id || invoice.id),
+    invoice_code: invoice.invoice_code,
+    payment_status: invoice.payment_status,
+    total_amount: invoice.total_amount,
+    invoice_month: invoice.invoice_month,
+    student: invoice.student ? String(invoice.student) : null,
+    room: invoice.room ? String(invoice.room) : null,
+  };
+
+  io.to('managers').emit('invoice_updated', payload);
+};
+
+const emitInvoiceNotification = (io, userId, { title, message, relatedId, notificationType = 'info' }) => {
+  if (!io || !userId) return;
+  io.to(`user_${userId}`).emit('new_notification', {
+    title,
+    message,
+    notification_type: notificationType,
+    category: 'payment',
+    related_id: relatedId ? String(relatedId) : undefined,
+  });
+};
+
 const generateInvoiceOrderCode = () => Number(`2${Date.now()}${Math.floor(Math.random() * 10)}`);
 const normalizeFrontendUrl = () => String(process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 const isMissingPayosPaymentError = (error) => {
@@ -91,7 +118,7 @@ const formatInvoices = async (invoices) => {
   }));
 };
 
-const finalizeUtilityInvoicePayment = async (invoice, payment, payosInfo) => {
+const finalizeUtilityInvoicePayment = async (invoice, payment, payosInfo, io = null) => {
   if (!isSameAmount(payment.amount, invoice.total_amount)) {
     if (payment.payment_status === 'pending') {
       payment.payment_status = 'failed';
@@ -126,6 +153,7 @@ const finalizeUtilityInvoicePayment = async (invoice, payment, payosInfo) => {
     invoice.payment_status = 'paid';
     invoice.paid_at = new Date();
     await invoice.save();
+    emitInvoiceRealtime(io, invoice, 'paid');
 
     const student = await Student.findById(invoice.student).lean();
     if (student?.user) {
@@ -136,6 +164,12 @@ const finalizeUtilityInvoicePayment = async (invoice, payment, payosInfo) => {
         notification_type: 'success',
         category: 'payment',
         related_id: invoice._id.toString(),
+      });
+      emitInvoiceNotification(io, student.user, {
+        title: 'Payment Successful',
+        message: `Your payment for ${invoice.invoice_code} was successful.`,
+        relatedId: invoice._id,
+        notificationType: 'success',
       });
 
       const user = await User.findById(student.user).lean();
@@ -300,7 +334,7 @@ const createPayosLinkForInvoice = async (invoiceId, userId) => {
   };
 };
 
-const getInvoicePaymentStatus = async (invoiceId, userId) => {
+const getInvoicePaymentStatus = async (invoiceId, userId, io = null) => {
   const student = await findStudentByUserId(userId);
   const invoice = await Invoice.findOne({
     _id: invoiceId,
@@ -390,7 +424,7 @@ const getInvoicePaymentStatus = async (invoiceId, userId) => {
     };
   }
 
-  return finalizeUtilityInvoicePayment(invoice, payment, payosInfo);
+  return finalizeUtilityInvoicePayment(invoice, payment, payosInfo, io);
 };
 
 const handlePayosWebhook = async (webhookData, io) => {
@@ -439,7 +473,7 @@ const handlePayosWebhook = async (webhookData, io) => {
   }
 
   if (status === 'paid' || status === 'success' || status === 'completed') {
-    return finalizeUtilityInvoicePayment(invoice, payment, webhookData);
+    return finalizeUtilityInvoicePayment(invoice, payment, webhookData, io);
   }
 
   return { ok: true, ignored: true, status };
@@ -525,7 +559,7 @@ const getInvoiceDetail = async (invoiceId) => {
   return { ...invoice, id: invoice._id, line_items: lineItems };
 };
 
-const createSingleInvoice = async ({ student, roomId, body, staffId }) => {
+const createSingleInvoice = async ({ student, roomId, body, staffId, io = null }) => {
   const total =
     Number(body.room_fee || 0) +
     Number(body.electricity_fee || 0) +
@@ -562,7 +596,14 @@ const createSingleInvoice = async ({ student, roomId, body, staffId }) => {
       category: 'payment',
       related_id: invoice._id.toString(),
     }).catch(() => {});
+    emitInvoiceNotification(io, student.user, {
+      title: 'New Invoice',
+      message: `A new invoice ${invoice.invoice_code} for ${body.invoice_month} has been created. Amount: ${total.toLocaleString('vi-VN')} VND.`,
+      relatedId: invoice._id,
+    });
   }
+
+  emitInvoiceRealtime(io, invoice, 'created');
 
   return { ...invoice.toJSON(), id: invoice._id };
 };
@@ -573,7 +614,7 @@ const parseInvoiceMonth = (invoiceMonth) => {
   return { year, month };
 };
 
-const createInvoiceForStudent = async (body, staffId) => {
+const createInvoiceForStudent = async (body, staffId, io = null) => {
   const { student_code } = body;
   if (!student_code) throw new AppError('student_code is required', 400);
 
@@ -583,10 +624,10 @@ const createInvoiceForStudent = async (body, staffId) => {
   const contract = await Contract.findOne({ student: student._id, status: 'active' }).lean();
   if (!contract) throw new AppError(`Student ${student_code} has no active contract`, 400);
 
-  return createSingleInvoice({ student, roomId: contract.room, body, staffId });
+  return createSingleInvoice({ student, roomId: contract.room, body, staffId, io });
 };
 
-const createEWInvoiceForStudent = async (body) => {
+const createEWInvoiceForStudent = async (body, io = null) => {
   const { student_code, invoice_month, due_date } = body;
   if (!student_code) throw new AppError('student_code is required', 400);
 
@@ -599,10 +640,10 @@ const createEWInvoiceForStudent = async (body) => {
     year,
     student_id: student._id.toString(),
     due_date,
-  });
+  }, io);
 };
 
-const createInvoicesForRoom = async (roomId, body, staffId) => {
+const createInvoicesForRoom = async (roomId, body, staffId, io = null) => {
   const room = await Room.findById(roomId).lean();
   if (!room) throw new AppError('Room not found', 404);
 
@@ -617,14 +658,14 @@ const createInvoicesForRoom = async (roomId, body, staffId) => {
   for (const contract of contracts) {
     const student = studentMap.get(contract.student.toString());
     if (student) {
-      const inv = await createSingleInvoice({ student, roomId, body, staffId });
+      const inv = await createSingleInvoice({ student, roomId, body, staffId, io });
       created.push(inv);
     }
   }
   return { created: created.length, invoices: created };
 };
 
-const createInvoicesForBlock = async (blockId, body, staffId) => {
+const createInvoicesForBlock = async (blockId, body, staffId, io = null) => {
   const rooms = await Room.find({ block: blockId }, '_id').lean();
   if (!rooms.length) throw new AppError('No rooms found in this block', 404);
 
@@ -642,37 +683,41 @@ const createInvoicesForBlock = async (blockId, body, staffId) => {
     const student = studentMap.get(contract.student.toString());
     if (student) {
       const roomId = contractRoomMap.get(contract.student.toString());
-      const inv = await createSingleInvoice({ student, roomId, body, staffId });
+      const inv = await createSingleInvoice({ student, roomId, body, staffId, io });
       created.push(inv);
     }
   }
   return { created: created.length, invoices: created };
 };
 
-const createEWInvoicesForAllBlocks = async (body) => {
+const createEWInvoicesForAllBlocks = async (body, io = null) => {
   const { year, month } = parseInvoiceMonth(body.invoice_month);
   return createEWInvoices({
     month,
     year,
     due_date: body.due_date,
-  });
+  }, io);
 };
 
-const cancelInvoice = async (invoiceId) => {
+const cancelInvoice = async (invoiceId, io = null) => {
   const invoice = await Invoice.findById(invoiceId);
   if (!invoice) throw new AppError('Invoice not found', 404);
   if (invoice.payment_status === 'paid') throw new AppError('Cannot cancel a paid invoice', 400);
+  const invoiceSnapshot = invoice.toObject();
   await InvoiceLineItem.deleteMany({ invoice: invoice._id });
   await invoice.deleteOne();
+  emitInvoiceRealtime(io, invoiceSnapshot, 'deleted');
   return { deleted: true };
 };
 
-const deleteInvoice = async (invoiceId) => {
+const deleteInvoice = async (invoiceId, io = null) => {
   const invoice = await Invoice.findById(invoiceId);
   if (!invoice) throw new AppError('Invoice not found', 404);
   if (invoice.payment_status === 'paid') throw new AppError('Cannot delete a paid invoice', 400);
+  const invoiceSnapshot = invoice.toObject();
   await InvoiceLineItem.deleteMany({ invoice: invoice._id });
   await Invoice.deleteOne({ _id: invoice._id });
+  emitInvoiceRealtime(io, invoiceSnapshot, 'deleted');
   return { deleted: true };
 };
 

@@ -489,7 +489,7 @@ const getEWInvoiceQuery = (studentId, monthKey) => ({
 
 const createInvoicesForGroups = async (
   groups,
-  { studentId = null, roomId = null, dueDate: overrideDueDate = null } = {}
+  { studentId = null, roomId = null, dueDate: overrideDueDate = null, io = null } = {}
 ) => {
   if (!groups.length) {
     return {
@@ -1141,6 +1141,7 @@ const createEWInvoices = async (body = {}, io = null) => {
     studentId: studentId || null,
     roomId: roomId || null,
     dueDate: dueDate || null,
+    io,
   });
 };
 

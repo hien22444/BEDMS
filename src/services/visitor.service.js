@@ -19,6 +19,40 @@ const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const VISIT_WINDOW_START = '07:00';
 const VISIT_WINDOW_END = '17:00';
 
+const buildVisitorRequestPayload = (request) => ({
+  id: String(request._id || request.id),
+  request_code: request.request_code,
+  status: request.status,
+  visit_date: request.visit_date,
+  visit_time_from: request.visit_time_from,
+  visit_time_to: request.visit_time_to,
+  reviewed_at: request.reviewed_at || null,
+  rejection_reason: request.rejection_reason || '',
+});
+
+const emitVisitorRequestRealtime = (io, request, action = 'updated') => {
+  if (!io || !request) return;
+  const payload = { action, ...buildVisitorRequestPayload(request) };
+  io.to('security_cameras').emit('visitor_request_updated', payload);
+  if (request.user) io.to(`user_${request.user}`).emit('visitor_request_updated', payload);
+};
+
+const emitVisitorCheckinRealtime = (io, payload) => {
+  if (!io) return;
+  io.to('security_cameras').emit('visitor_checkin_updated', payload);
+};
+
+const emitVisitorNotification = (io, userId, { title, message, relatedId, notificationType = 'info' }) => {
+  if (!io || !userId) return;
+  io.to(`user_${userId}`).emit('new_notification', {
+    title,
+    message,
+    notification_type: notificationType,
+    category: 'visitor',
+    related_id: relatedId ? String(relatedId) : undefined,
+  });
+};
+
 /** Compare two "HH:MM" strings: negative/0/positive */
 const cmpTime = (a, b) => {
   const [ah, am] = a.split(':').map(Number);
@@ -68,7 +102,7 @@ const generateRequestCode = async (maxRetries = 3) => {
  * @param {string} userId - The authenticated user's ID
  * @param {Object} body - { visit_date, visit_time_from, visit_time_to, purpose, visitors: [...] }
  */
-const createVisitorRequest = async (userId, body) => {
+const createVisitorRequest = async (userId, body, io = null) => {
   const { visit_date, purpose, visitors, visit_time_from, visit_time_to } = body;
 
   // H4: Verify the caller is an active student
@@ -190,10 +224,12 @@ const createVisitorRequest = async (userId, body) => {
     throw new Error('Failed to create visitors. Request has been rolled back.');
   }
 
-  return {
+  const result = {
     ...request.toJSON(),
     visitors: visitorDocs,
   };
+  emitVisitorRequestRealtime(io, request, 'created');
+  return result;
 };
 
 /**
@@ -229,7 +265,7 @@ const getMyVisitorRequests = async (userId) => {
 /**
  * Cancel a pending visitor request (student only)
  */
-const cancelVisitorRequest = async (requestId, userId) => {
+const cancelVisitorRequest = async (requestId, userId, io = null) => {
   const request = await VisitorRequest.findById(requestId);
   if (!request) throw new Error('Request not found');
   if (request.user.toString() !== userId.toString()) {
@@ -241,6 +277,7 @@ const cancelVisitorRequest = async (requestId, userId) => {
 
   request.status = 'cancelled';
   await request.save();
+  emitVisitorRequestRealtime(io, request, 'cancelled');
   return request;
 };
 
@@ -302,7 +339,7 @@ const getAllVisitorRequests = async (query = {}) => {
 /**
  * Approve a visitor request (security)
  */
-const approveVisitorRequest = async (requestId, userId) => {
+const approveVisitorRequest = async (requestId, userId, io = null) => {
   const request = await VisitorRequest.findById(requestId);
   if (!request) throw new Error('Request not found');
   if (request.status !== 'pending') {
@@ -324,6 +361,13 @@ const approveVisitorRequest = async (requestId, userId) => {
     category: 'visitor',
     related_id: request._id.toString(),
   });
+  emitVisitorNotification(io, request.user, {
+    title: 'Visitor request approved',
+    message: `Your request ${request.request_code} was approved. Your guest may visit on ${visitDateStr} from ${request.visit_time_from} to ${request.visit_time_to}.`,
+    relatedId: request._id,
+    notificationType: 'success',
+  });
+  emitVisitorRequestRealtime(io, request, 'approved');
 
   return request;
 };
@@ -331,7 +375,7 @@ const approveVisitorRequest = async (requestId, userId) => {
 /**
  * Reject a visitor request (security)
  */
-const rejectVisitorRequest = async (requestId, userId, reason) => {
+const rejectVisitorRequest = async (requestId, userId, reason, io = null) => {
   const request = await VisitorRequest.findById(requestId);
   if (!request) throw new Error('Request not found');
   if (request.status !== 'pending') {
@@ -354,6 +398,13 @@ const rejectVisitorRequest = async (requestId, userId, reason) => {
     category: 'visitor',
     related_id: request._id.toString(),
   });
+  emitVisitorNotification(io, request.user, {
+    title: 'Visitor request rejected',
+    message: `Your request ${request.request_code} was rejected.${reasonText}`,
+    relatedId: request._id,
+    notificationType: 'warning',
+  });
+  emitVisitorRequestRealtime(io, request, 'rejected');
 
   return request;
 };
@@ -361,7 +412,7 @@ const rejectVisitorRequest = async (requestId, userId, reason) => {
 /**
  * Complete a visitor request (security marks it manually)
  */
-const completeVisitorRequest = async (requestId, _userId) => {
+const completeVisitorRequest = async (requestId, _userId, io = null) => {
   const request = await VisitorRequest.findById(requestId);
   if (!request) throw new Error('Request not found');
   if (request.status !== 'approved') {
@@ -381,13 +432,14 @@ const completeVisitorRequest = async (requestId, _userId) => {
 
   request.status = 'completed';
   await request.save();
+  emitVisitorRequestRealtime(io, request, 'completed');
   return request;
 };
 
 /**
  * Check in a visitor (security)
  */
-const checkinVisitor = async (requestId, visitorId, userId) => {
+const checkinVisitor = async (requestId, visitorId, userId, io = null) => {
   const request = await VisitorRequest.findById(requestId);
   if (!request) throw new Error('Request not found');
   if (request.status !== 'approved') {
@@ -415,13 +467,20 @@ const checkinVisitor = async (requestId, visitorId, userId) => {
     checked_in_by: userId,
   });
 
+  emitVisitorCheckinRealtime(io, {
+    action: 'checkin',
+    requestId: String(requestId),
+    visitorId: String(visitorId),
+    checkinId: String(checkin._id),
+  });
+
   return checkin;
 };
 
 /**
  * Check out a visitor (security)
  */
-const checkoutVisitor = async (checkinId, userId) => {
+const checkoutVisitor = async (checkinId, userId, io = null) => {
   const checkin = await VisitorCheckin.findById(checkinId);
   if (!checkin) throw new Error('Check-in record not found');
   if (checkin.check_out_time) throw new Error('Visitor already checked out');
@@ -429,6 +488,12 @@ const checkoutVisitor = async (checkinId, userId) => {
   checkin.check_out_time = new Date();
   checkin.checked_out_by = userId;
   await checkin.save();
+  emitVisitorCheckinRealtime(io, {
+    action: 'checkout',
+    requestId: String(checkin.request),
+    visitorId: String(checkin.visitor),
+    checkinId: String(checkin._id),
+  });
 
   return checkin;
 };
