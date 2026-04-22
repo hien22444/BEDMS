@@ -7,6 +7,24 @@ const EW_INVOICE_REGEX = /^EW-/;
 const DAY_END = [23, 59, 59, 999];
 
 const getPricePerUnit = (type) => PRICE_MAP[type] || 3000;
+const emitInvoiceRealtime = async (io, invoice, action = 'updated') => {
+  if (!io || !invoice) return;
+  const invoiceId = String(invoice._id || invoice.id);
+  const studentId = String(invoice.student);
+  const student = await Student.findById(studentId).select('user').lean().catch(() => null);
+  const payload = {
+    action,
+    invoiceId,
+    invoice_code: invoice.invoice_code,
+    payment_status: invoice.payment_status,
+    total_amount: invoice.total_amount,
+    invoice_month: invoice.invoice_month,
+    student: studentId,
+    room: invoice.room ? String(invoice.room) : null,
+  };
+  io.to('managers').emit('invoice_updated', payload);
+  if (student?.user) io.to(`user_${student.user}`).emit('invoice_updated', payload);
+};
 
 const deriveTermFromDate = (date) => {
   const d = new Date(date);
@@ -20,7 +38,8 @@ const deriveTermFromDate = (date) => {
 const normalizeRecordDate = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return d;
-  d.setHours(...DAY_END);
+  // Keep EW usage as a date-only concept; noon avoids client timezone rollover.
+  d.setHours(12, 0, 0, 0);
   return d;
 };
 
@@ -294,14 +313,22 @@ const getContractsForBlock = async (blockId, { populateRoom = false } = {}) => {
   }));
 };
 
-const contractOverlapsSegment = (contract, startBoundary, endBoundary) => {
+const contractActiveOnSnapshotDate = (contract, snapshotDate) => {
   const occupancyStart = new Date(contract.start_date);
   const occupancyEnd = getContractEffectiveEnd(contract);
-  return occupancyStart <= endBoundary && occupancyEnd > startBoundary;
+  const snapshot = new Date(snapshotDate);
+  const snapshotStart = new Date(snapshot.getFullYear(), snapshot.getMonth(), snapshot.getDate());
+  const snapshotEnd = new Date(snapshot.getFullYear(), snapshot.getMonth(), snapshot.getDate(), ...DAY_END);
+  return occupancyStart <= snapshotEnd && occupancyEnd >= snapshotStart;
 };
 
 const sortContractsForAllocation = (contracts) =>
   [...contracts].sort((left, right) => left.student.toString().localeCompare(right.student.toString()));
+
+const getActiveContractsAtDate = (contracts, snapshotDate) =>
+  sortContractsForAllocation(
+    contracts.filter((contract) => contractActiveOnSnapshotDate(contract, snapshotDate))
+  );
 
 const allocateAmountToContracts = (totalAmount, contracts) => {
   const allocations = new Map();
@@ -356,15 +383,9 @@ const buildGroupComputation = async (blockId, monthKey) => {
     const monthRecords = chain.filter((record) => getMonthKey(record.date) === monthKey);
 
     monthRecords.forEach((record) => {
-      const chainIndex = chain.findIndex((candidate) => candidate._id.toString() === record._id.toString());
-      const previousRecord = chainIndex > 0 ? chain[chainIndex - 1] : null;
-      const segmentStart = previousRecord ? new Date(previousRecord.date) : new Date(0);
-      const segmentEnd = new Date(record.date);
-      const segmentContracts = sortContractsForAllocation(
-        contracts.filter((contract) => contractOverlapsSegment(contract, segmentStart, segmentEnd))
-      );
-      const allocations = allocateAmountToContracts(record.amount || 0, segmentContracts);
-      const occupiedBeds = segmentContracts.length;
+      const activeContracts = getActiveContractsAtDate(contracts, record.date);
+      const allocations = allocateAmountToContracts(record.amount || 0, activeContracts);
+      const occupiedBeds = activeContracts.length;
       const amountPerBed = occupiedBeds > 0 && record.amount > 0 ? Math.round(record.amount / occupiedBeds) : 0;
 
       recordSummaries.push({
@@ -534,6 +555,7 @@ const createInvoicesForGroups = async (
           extras.map(async (invoice) => {
             await InvoiceLineItem.deleteMany({ invoice: invoice._id });
             await Invoice.deleteOne({ _id: invoice._id });
+            await emitInvoiceRealtime(io, invoice, 'deleted');
           })
         );
         invoicesCancelled += extras.length;
@@ -554,8 +576,10 @@ const createInvoicesForGroups = async (
         if (!invoice) throw new AppError('Invoice not found during EW invoice creation', 404);
 
         if (plan.totalAmount <= 0) {
+          const deletedSnapshot = invoice.toObject();
           await InvoiceLineItem.deleteMany({ invoice: invoice._id });
           await invoice.deleteOne();
+          await emitInvoiceRealtime(io, deletedSnapshot, 'deleted');
           invoicesCancelled++;
           continue;
         }
@@ -567,6 +591,7 @@ const createInvoicesForGroups = async (
         invoice.due_date = dueDate;
         await invoice.save();
         await syncInvoiceLineItems(invoice._id, group.monthKey, plan.electricityFee, plan.waterFee);
+        await emitInvoiceRealtime(io, invoice, 'updated');
         invoicesUpdated++;
         continue;
       }
@@ -587,6 +612,7 @@ const createInvoicesForGroups = async (
         due_date: dueDate,
       });
       await syncInvoiceLineItems(invoice._id, group.monthKey, plan.electricityFee, plan.waterFee);
+      await emitInvoiceRealtime(io, invoice, 'created');
       invoicesCreated++;
     }
 
@@ -601,6 +627,7 @@ const createInvoicesForGroups = async (
           staleInvoices.map(async (invoice) => {
             await InvoiceLineItem.deleteMany({ invoice: invoice._id });
             await Invoice.deleteOne({ _id: invoice._id });
+            await emitInvoiceRealtime(io, invoice, 'deleted');
           })
         );
         invoicesCancelled += staleInvoices.length;
@@ -621,12 +648,9 @@ const createInvoicesForGroups = async (
   };
 };
 
-const countOccupiedBeds = async (blockId, billingDate = new Date(), previousBoundary = null) => {
+const countOccupiedBeds = async (blockId, billingDate = new Date(), _previousBoundary = null) => {
   const contracts = await getContractsForBlock(blockId, { populateRoom: false });
-  const startBoundary = previousBoundary ? new Date(previousBoundary) : new Date(0);
-  const endBoundary = new Date(billingDate);
-  return contracts.filter((contract) => contractOverlapsSegment(contract, startBoundary, endBoundary))
-    .length;
+  return getActiveContractsAtDate(contracts, billingDate).length;
 };
 
 const getEWUsages = async (query) => {
@@ -1090,7 +1114,7 @@ const recalculate = async (filters = {}) => {
   return recalculateGroups(groups);
 };
 
-const createEWInvoices = async (body = {}) => {
+const createEWInvoices = async (body = {}, io = null) => {
   const { block, month, year, student_id: studentId, room_id: roomId, due_date: dueDate } = body;
   if (!month || !year) throw new AppError('month and year are required to create EW invoices', 400);
 
