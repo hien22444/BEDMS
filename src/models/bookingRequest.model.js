@@ -46,6 +46,11 @@ const BookingRequestSchema = new mongoose.Schema(
       default: 'awaiting_payment',
       enum: ['awaiting_payment', 'approved', 'cancelled', 'expired'],
     },
+    source: {
+      type: String,
+      enum: ['hold', 'new_booking'],
+      default: 'new_booking',
+    },
     note: {
       type: String,
       default: null,

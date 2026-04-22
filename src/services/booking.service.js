@@ -261,9 +261,20 @@ const getBookingWindowStatus = async (userId) => {
     );
     if (newAllowed) {
       const nextSem = await getTargetSemester();
+      // Check if student has an approved hold-bed booking (persists even when window switches)
+      const holdBooking = await BookingRequest.findOne({
+        student: student._id,
+        source: 'hold',
+        status: 'approved',
+        checkout_date: null,
+      }).lean();
+      const already_held = !!holdBooking;
+
       if (semesterRank(nextSem.semester) > semesterRank(activeContract.semester)) {
-        return { allowed: true, window_type: 'new' };
+        return { allowed: true, window_type: 'new', already_held };
       }
+      // Window is open but student already has a contract for the target semester
+      return { allowed: false, window_type: null, already_booked: true, already_held };
     }
 
     return { allowed: false, window_type: null };
@@ -1345,6 +1356,7 @@ const keepBed = async (userId, io = null) => {
     end_date: nextSem.end_date,
     expires_at,
     status: 'awaiting_payment',
+    source: 'hold',
   });
 
   // Notify other students' booking UIs to hide this bed immediately
@@ -1723,20 +1735,28 @@ const getRoommates = async (userId, bookingId) => {
 
   // Fallback to booking snapshot for historical records.
   if (!roommates.length) {
-    roommates = await BookingRequest.find({
+    const candidates = await BookingRequest.find({
       room: booking.room,
       semester: booking.semester,
       status: 'approved',
+      checkout_date: null,
     })
       .populate('student', 'student_code full_name phone')
       .populate('bed', 'bed_number')
+      .populate({ path: 'bed_transfer', select: 'bed_number room' })
       .lean();
+
+    const roomId = booking.room.toString();
+    roommates = candidates.filter((r) => {
+      if (!r.bed_transfer) return true;
+      return r.bed_transfer.room?.toString() === roomId;
+    });
   }
 
   return roommates.map((r) => ({
     student_code: r.student?.student_code ?? '—',
     full_name: r.student?.full_name ?? '—',
-    bed_number: r.bed?.bed_number ?? '—',
+    bed_number: (r.bed_transfer?.bed_number ?? r.bed?.bed_number) ?? '—',
     phone: r.student?.phone ?? '—',
   }));
 };
