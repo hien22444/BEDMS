@@ -1,4 +1,5 @@
-const { agentService, dormRulesService } = require('../services');
+const { status } = require('http-status');
+const { agentService, dormRulesService, dormRuleFileService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
 
@@ -55,8 +56,36 @@ const updateDormRules = catchAsync(async (req, res) => {
   res.success({ message: 'Dorm rules updated successfully' });
 });
 
+const getDormRuleFiles = catchAsync(async (_req, res) => {
+  const items = await dormRuleFileService.listDormRuleFiles();
+  res.success({ items }, status.OK);
+});
+
+const uploadDormRuleFile = catchAsync(async (req, res) => {
+  if (!req.file) {
+    throw new AppError('Dorm rule file is required', 400);
+  }
+
+  const file = await dormRuleFileService.uploadDormRuleFile(req.user.id, req.file);
+  res.success(file, status.CREATED);
+});
+
+const featureDormRuleFile = catchAsync(async (req, res) => {
+  const file = await dormRuleFileService.setDormRuleFileFeatured(req.params.id);
+  res.success(file, status.OK);
+});
+
+const deleteDormRuleFile = catchAsync(async (req, res) => {
+  const result = await dormRuleFileService.deleteDormRuleFile(req.params.id);
+  res.success(result, status.OK);
+});
+
 module.exports = {
   answer,
   getDormRules,
   updateDormRules,
+  getDormRuleFiles,
+  uploadDormRuleFile,
+  featureDormRuleFile,
+  deleteDormRuleFile,
 };
