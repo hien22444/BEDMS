@@ -1,3 +1,4 @@
+const { Readable } = require('stream');
 const cloudinary = require('cloudinary').v2;
 
 cloudinary.config({
@@ -22,4 +23,15 @@ const uploadBase64Image = async (base64Data, options = {}) => {
   return result.secure_url;
 };
 
-module.exports = { cloudinary, uploadBase64Image };
+const uploadBuffer = async (buffer, options = {}) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(options, (error, result) => {
+      if (error) return reject(error);
+      return resolve(result);
+    });
+
+    Readable.from([buffer]).pipe(uploadStream);
+  });
+};
+
+module.exports = { cloudinary, uploadBase64Image, uploadBuffer };
