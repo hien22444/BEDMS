@@ -1723,20 +1723,28 @@ const getRoommates = async (userId, bookingId) => {
 
   // Fallback to booking snapshot for historical records.
   if (!roommates.length) {
-    roommates = await BookingRequest.find({
+    const candidates = await BookingRequest.find({
       room: booking.room,
       semester: booking.semester,
       status: 'approved',
+      checkout_date: null,
     })
       .populate('student', 'student_code full_name phone')
       .populate('bed', 'bed_number')
+      .populate({ path: 'bed_transfer', select: 'bed_number room' })
       .lean();
+
+    const roomId = booking.room.toString();
+    roommates = candidates.filter((r) => {
+      if (!r.bed_transfer) return true;
+      return r.bed_transfer.room?.toString() === roomId;
+    });
   }
 
   return roommates.map((r) => ({
     student_code: r.student?.student_code ?? '—',
     full_name: r.student?.full_name ?? '—',
-    bed_number: r.bed?.bed_number ?? '—',
+    bed_number: (r.bed_transfer?.bed_number ?? r.bed?.bed_number) ?? '—',
     phone: r.student?.phone ?? '—',
   }));
 };
