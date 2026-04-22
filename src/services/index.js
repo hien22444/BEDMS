@@ -12,6 +12,7 @@ module.exports.chatService = require('./chat.service');
 module.exports.newsService = require('./news.service');
 module.exports.bookingService = require('./booking.service');
 module.exports.dormRulesService = require('./dormRules.service');
+module.exports.dormRuleFileService = require('./dormRuleFile.service');
 module.exports.faceRecognitionService = require('./faceRecognition.service');
 module.exports.internalAuthService = require('./internalAuth.service');
 module.exports.accessLogService = require('./accessLog.service');
