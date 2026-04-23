@@ -61,6 +61,12 @@ const getDormRuleFiles = catchAsync(async (_req, res) => {
   res.success({ items }, status.OK);
 });
 
+const getDormRuleFileAccessUrl = catchAsync(async (req, res) => {
+  const attachment = ['true', '1', 'yes'].includes(String(req.query.attachment || '').toLowerCase());
+  const url = await dormRuleFileService.getDormRuleFileAccessUrl(req.params.id, attachment);
+  res.success({ url }, status.OK);
+});
+
 const uploadDormRuleFile = catchAsync(async (req, res) => {
   if (!req.file) {
     throw new AppError('Dorm rule file is required', 400);
@@ -85,6 +91,7 @@ module.exports = {
   getDormRules,
   updateDormRules,
   getDormRuleFiles,
+  getDormRuleFileAccessUrl,
   uploadDormRuleFile,
   featureDormRuleFile,
   deleteDormRuleFile,
