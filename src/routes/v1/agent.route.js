@@ -18,6 +18,9 @@ router
     agentController.uploadDormRuleFile
   );
 router
+  .route('/dorm-rules/files/:id/access-url')
+  .get(authenticate, authorize('student', 'admin'), agentController.getDormRuleFileAccessUrl);
+router
   .route('/dorm-rules/files/:id/feature')
   .patch(authenticate, authorize('admin'), agentController.featureDormRuleFile);
 router
