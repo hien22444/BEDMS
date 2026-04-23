@@ -13,8 +13,8 @@ const createManualLog = async (data, userId) => {
   if (!idCard) {
     throw new AppError('ID card is required for manual override', 400);
   }
-  if (!reason || !['visitor', 'other'].includes(reason)) {
-    throw new AppError('reason must be visitor or other', 400);
+  if (!reason || !['camera_failed', 'other'].includes(reason)) {
+    throw new AppError('reason must be camera_failed or other', 400);
   }
 
   const log = await StudentAccessLog.create({
