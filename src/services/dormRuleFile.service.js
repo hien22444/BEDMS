@@ -88,6 +88,10 @@ const listDormRuleFiles = async () => {
   return DormRuleFile.find().sort({ is_featured: -1, createdAt: -1 });
 };
 
+const getDormRuleFileById = async (id) => {
+  return DormRuleFile.findById(id);
+};
+
 const getDormRuleFileAccessUrl = async (id, attachment = false) => {
   const file = await DormRuleFile.findById(id);
   if (!file) {
@@ -190,6 +194,7 @@ const deleteDormRuleFile = async (id) => {
 module.exports = {
   MAX_DORM_RULE_FILE_SIZE,
   listDormRuleFiles,
+  getDormRuleFileById,
   getDormRuleFileAccessUrl,
   uploadDormRuleFile,
   setDormRuleFileFeatured,

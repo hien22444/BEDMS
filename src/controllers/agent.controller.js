@@ -2,6 +2,8 @@ const { status } = require('http-status');
 const { agentService, dormRulesService, dormRuleFileService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/AppError');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 
 const answer = catchAsync(async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -67,6 +69,35 @@ const getDormRuleFileAccessUrl = catchAsync(async (req, res) => {
   res.success({ url }, status.OK);
 });
 
+const downloadDormRuleFile = catchAsync(async (req, res) => {
+  const file = await dormRuleFileService.getDormRuleFileById(req.params.id);
+  if (!file) {
+    throw new AppError('Dorm rule file not found', 404);
+  }
+
+  const url = await dormRuleFileService.getDormRuleFileAccessUrl(req.params.id, false);
+  const upstream = await fetch(url);
+
+  if (!upstream.ok || !upstream.body) {
+    throw new AppError('Failed to download dorm rule file', upstream.status || 500);
+  }
+
+  const contentType = upstream.headers.get('content-type') || file.mime_type || 'application/octet-stream';
+  const contentLength = upstream.headers.get('content-length');
+  const fileName = String(file.original_name || 'dorm-rule-file').replace(/"/g, '\\"');
+  const disposition = `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(file.original_name || 'dorm-rule-file')}`;
+
+  res.status(status.OK);
+  res.setHeader('Content-Type', contentType);
+  if (contentLength) {
+    res.setHeader('Content-Length', contentLength);
+  }
+  res.setHeader('Content-Disposition', disposition);
+  res.setHeader('Cache-Control', 'no-store');
+
+  await pipeline(Readable.fromWeb(upstream.body), res);
+});
+
 const uploadDormRuleFile = catchAsync(async (req, res) => {
   if (!req.file) {
     throw new AppError('Dorm rule file is required', 400);
@@ -92,6 +123,7 @@ module.exports = {
   updateDormRules,
   getDormRuleFiles,
   getDormRuleFileAccessUrl,
+  downloadDormRuleFile,
   uploadDormRuleFile,
   featureDormRuleFile,
   deleteDormRuleFile,
