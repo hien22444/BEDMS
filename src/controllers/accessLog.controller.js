@@ -50,6 +50,7 @@ const exportExcel = catchAsync(async (req, res) => {
     'Camera',
     'Logged By',
     'Notes',
+    'Snapshot URL',
   ];
 
   const rows = logs.map((log) => [
@@ -63,6 +64,7 @@ const exportExcel = catchAsync(async (req, res) => {
     log.camera_id || '—',
     log.logged_by?.fullname || log.logged_by?.email || '—',
     log.notes || '',
+    log.face_snapshot_url || '—',
   ]);
 
   const wsData = [header, ...rows];
@@ -80,6 +82,7 @@ const exportExcel = catchAsync(async (req, res) => {
     { wch: 14 }, // Camera
     { wch: 20 }, // Logged By
     { wch: 30 }, // Notes
+    { wch: 80 }, // Snapshot URL
   ];
 
   const wb = XLSX.utils.book_new();

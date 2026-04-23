@@ -55,10 +55,10 @@ const handleCallback = catchAsync(async (req, res) => {
     });
   }
 
-  const result = await faceRecognitionService.handleDetectionCallback(req.body);
+  const io = req.app.get('io');
+  const result = await faceRecognitionService.handleDetectionCallback(req.body, io);
 
   // Emit Socket.io event to security cameras room
-  const io = req.app.get('io');
   if (io) {
     io.to('security_cameras').emit('face_detection_result', result);
     // Emit each new access log (matched + unknown) for real-time activity & notifications
