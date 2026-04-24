@@ -322,12 +322,46 @@ const contractActiveOnSnapshotDate = (contract, snapshotDate) => {
   return occupancyStart <= snapshotEnd && occupancyEnd >= snapshotStart;
 };
 
+const pickCanonicalStudentContractAtSnapshot = (current, next) => {
+  if (!current) return next;
+  if (!next) return current;
+
+  const currentPriority = getContractPriority(current);
+  const nextPriority = getContractPriority(next);
+  if (nextPriority > currentPriority) return next;
+  if (nextPriority < currentPriority) return current;
+
+  const currentStart = new Date(current.start_date || 0).getTime();
+  const nextStart = new Date(next.start_date || 0).getTime();
+  if (nextStart > currentStart) return next;
+  if (nextStart < currentStart) return current;
+
+  const currentUpdatedAt = new Date(current.updatedAt || current.createdAt || 0).getTime();
+  const nextUpdatedAt = new Date(next.updatedAt || next.createdAt || 0).getTime();
+  if (nextUpdatedAt >= currentUpdatedAt) return next;
+  return current;
+};
+
+const dedupeContractsByStudentAtSnapshot = (contracts) => {
+  const byStudent = new Map();
+
+  contracts.forEach((contract) => {
+    const studentId = contract.student?.toString?.() || String(contract.student);
+    const current = byStudent.get(studentId);
+    byStudent.set(studentId, pickCanonicalStudentContractAtSnapshot(current, contract));
+  });
+
+  return [...byStudent.values()];
+};
+
 const sortContractsForAllocation = (contracts) =>
   [...contracts].sort((left, right) => left.student.toString().localeCompare(right.student.toString()));
 
 const getActiveContractsAtDate = (contracts, snapshotDate) =>
   sortContractsForAllocation(
-    contracts.filter((contract) => contractActiveOnSnapshotDate(contract, snapshotDate))
+    dedupeContractsByStudentAtSnapshot(
+      contracts.filter((contract) => contractActiveOnSnapshotDate(contract, snapshotDate))
+    )
   );
 
 const allocateAmountToContracts = (totalAmount, contracts) => {

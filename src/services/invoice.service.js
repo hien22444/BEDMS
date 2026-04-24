@@ -33,7 +33,7 @@ const buildInvoiceResponse = (invoice) => ({
   id: invoice._id,
 });
 
-const emitInvoiceRealtime = (io, invoice, action = 'updated') => {
+const emitInvoiceRealtime = async (io, invoice, action = 'updated') => {
   if (!io || !invoice) return;
   const payload = {
     action,
@@ -47,6 +47,12 @@ const emitInvoiceRealtime = (io, invoice, action = 'updated') => {
   };
 
   io.to('managers').emit('invoice_updated', payload);
+  if (invoice.student) {
+    const student = await Student.findById(invoice.student).select('user').lean().catch(() => null);
+    if (student?.user) {
+      io.to(`user_${student.user}`).emit('invoice_updated', payload);
+    }
+  }
 };
 
 const emitInvoiceNotification = (io, userId, { title, message, relatedId, notificationType = 'info' }) => {
