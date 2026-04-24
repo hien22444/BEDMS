@@ -60,6 +60,14 @@ const cmpTime = (a, b) => {
   return ah * 60 + am - (bh * 60 + bm);
 };
 
+const isSameLocalDate = (a, b) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+const toCurrentTimeString = (date) =>
+  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
 /**
  * Generate unique request code: VR-YYYYMMDD-XXXX
  * Uses retry loop to handle race conditions (concurrent requests)
@@ -446,6 +454,19 @@ const checkinVisitor = async (requestId, visitorId, userId, io = null) => {
     throw new Error('Request must be approved before check-in');
   }
 
+  const now = new Date();
+  const visitDate = new Date(request.visit_date);
+  if (!isSameLocalDate(now, visitDate)) {
+    throw new Error('Visitor check-in is only allowed on the approved visit date');
+  }
+
+  const currentTime = toCurrentTimeString(now);
+  if (cmpTime(currentTime, request.visit_time_from) < 0 || cmpTime(currentTime, request.visit_time_to) > 0) {
+    throw new Error(
+      `Check-in is only allowed between ${request.visit_time_from} and ${request.visit_time_to}`
+    );
+  }
+
   const visitor = await Visitor.findOne({
     _id: visitorId,
     request: requestId,
@@ -488,12 +509,31 @@ const checkoutVisitor = async (checkinId, userId, io = null) => {
   checkin.check_out_time = new Date();
   checkin.checked_out_by = userId;
   await checkin.save();
+
+  const remainingActiveCheckins = await VisitorCheckin.countDocuments({
+    request: checkin.request,
+    check_out_time: null,
+  });
+
+  let completedRequest = null;
+  if (remainingActiveCheckins === 0) {
+    const request = await VisitorRequest.findById(checkin.request);
+    if (request && request.status === 'approved') {
+      request.status = 'completed';
+      await request.save();
+      completedRequest = request;
+    }
+  }
+
   emitVisitorCheckinRealtime(io, {
     action: 'checkout',
     requestId: String(checkin.request),
     visitorId: String(checkin.visitor),
     checkinId: String(checkin._id),
   });
+  if (completedRequest) {
+    emitVisitorRequestRealtime(io, completedRequest, 'completed');
+  }
 
   return checkin;
 };
