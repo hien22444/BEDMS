@@ -22,6 +22,23 @@ const normalizeName = (value = '') =>
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '') || 'dorm-rule';
 
+const getCloudinaryApiKey = () => cloudinary.config().api_key;
+
+const buildDormRuleAccessUrl = (file, attachment = false) => {
+  const apiKey = getCloudinaryApiKey();
+  if (!apiKey) {
+    throw new AppError('Cloudinary API key is not configured', 500);
+  }
+
+  return cloudinary.utils.private_download_url(file.cloudinary_public_id, file.file_extension, {
+    resource_type: 'raw',
+    type: 'upload',
+    attachment,
+    expires_at: Math.floor(Date.now() / 1000) + 60 * 60,
+    api_key: apiKey,
+  });
+};
+
 const getFileExtension = (filename = '') => {
   return path.extname(filename || '').toLowerCase();
 };
@@ -69,6 +86,19 @@ const buildPublicId = (originalName = '', mimeType = '') => {
 
 const listDormRuleFiles = async () => {
   return DormRuleFile.find().sort({ is_featured: -1, createdAt: -1 });
+};
+
+const getDormRuleFileById = async (id) => {
+  return DormRuleFile.findById(id);
+};
+
+const getDormRuleFileAccessUrl = async (id, attachment = false) => {
+  const file = await DormRuleFile.findById(id);
+  if (!file) {
+    throw new AppError('Dorm rule file not found', 404);
+  }
+
+  return buildDormRuleAccessUrl(file, attachment);
 };
 
 const uploadDormRuleFile = async (adminId, file) => {
@@ -164,6 +194,8 @@ const deleteDormRuleFile = async (id) => {
 module.exports = {
   MAX_DORM_RULE_FILE_SIZE,
   listDormRuleFiles,
+  getDormRuleFileById,
+  getDormRuleFileAccessUrl,
   uploadDormRuleFile,
   setDormRuleFileFeatured,
   deleteDormRuleFile,

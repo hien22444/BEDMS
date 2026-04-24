@@ -18,7 +18,7 @@ let cacheLoadPromise = null; // Prevents concurrent cache reloads
 // Deduplication: prevent duplicate access logs from rapid frame processing.
 // Maps "studentId:logType" → timestamp of last log creation.
 // ---------------------------------------------------------------------------
-const LOG_DEDUP_WINDOW_MS = 30_000; // 30 seconds
+const LOG_DEDUP_WINDOW_MS = 5_000; // 5-second burst lock (race-condition guard only)
 const recentLogTimestamps = new Map(); // key: "studentId:check_in" → Date.now()
 
 // Unknown face tracking: grace period before logging strangers.
@@ -213,7 +213,7 @@ const getStudentFaceDetail = async (studentId) => {
  * Handle detection callback from FaceService.
  * Matches embeddings, creates access logs, returns enriched detections.
  */
-const handleDetectionCallback = async (payload) => {
+const handleDetectionCallback = async (payload, io = null) => {
   if (!cacheLoaded) {
     await loadEmbeddingCache();
   }
@@ -255,13 +255,29 @@ const handleDetectionCallback = async (payload) => {
       access_log_id: null,
     };
 
-    // Auto-create access log for matched faces (with deduplication)
+    // Auto-create access log for matched faces (with state-based dedup)
     if (match) {
       const dedupKey = `${match.studentId}:${logType}`;
       const lastLogged = recentLogTimestamps.get(dedupKey) || 0;
       const now = Date.now();
 
-      if (now - lastLogged > LOG_DEDUP_WINDOW_MS) {
+      // Burst lock: prevents race conditions from rapid frames
+      if (now - lastLogged <= LOG_DEDUP_WINDOW_MS) {
+        enriched.status_unchanged = true;
+        enrichedDetections.push(enriched);
+        continue;
+      }
+
+      // State check: if student's last log is the same type, don't create a new one
+      const latestLog = await StudentAccessLog.findOne({ student: match.studentId })
+        .sort({ createdAt: -1 })
+        .select('type')
+        .lean();
+
+      if (latestLog && latestLog.type === logType) {
+        // Already in this state — no new log, just flag for UI feedback
+        enriched.status_unchanged = true;
+      } else {
         recentLogTimestamps.set(dedupKey, now);
         const log = await StudentAccessLog.create({
           student: match.studentId,
@@ -276,11 +292,19 @@ const handleDetectionCallback = async (payload) => {
         // Upload annotated frame to Cloudinary (non-blocking)
         if (frame_base64) {
           const logId = log._id;
+          const logIdStr = log._id.toString();
           uploadBase64Image(frame_base64, {
             public_id: `${logType}_${match.studentCode}_${Date.now()}`,
           })
             .then((url) => {
               StudentAccessLog.findByIdAndUpdate(logId, { face_snapshot_url: url }).catch(() => {});
+              // Notify clients the snapshot URL is now available
+              if (io) {
+                io.to('security_cameras').emit('access_log_updated', {
+                  _id: logIdStr,
+                  face_snapshot_url: url,
+                });
+              }
             })
             .catch((err) => {
               console.error('[Cloudinary] Snapshot upload failed:', err.message);
@@ -337,6 +361,7 @@ const handleDetectionCallback = async (payload) => {
           // Non-blocking Cloudinary upload with the latest frame
           if (pending.frame_base64) {
             const logId = log._id;
+            const logIdStr = log._id.toString();
             uploadBase64Image(pending.frame_base64, {
               public_id: `unknown_${camera_id}_${Date.now()}`,
             })
@@ -344,6 +369,12 @@ const handleDetectionCallback = async (payload) => {
                 StudentAccessLog.findByIdAndUpdate(logId, { face_snapshot_url: url }).catch(
                   () => {}
                 );
+                if (io) {
+                  io.to('security_cameras').emit('access_log_updated', {
+                    _id: logIdStr,
+                    face_snapshot_url: url,
+                  });
+                }
               })
               .catch((err) => {
                 console.error('[Cloudinary] Unknown snapshot upload failed:', err.message);
