@@ -320,11 +320,16 @@ const exchangeOAuthCode = (code) => {
  */
 const loginAsStudent = async (studentCode) => {
   const AppError = require('../utils/AppError');
+  const normalizedStudentCode = String(studentCode || '').trim();
 
-  const student = await Student.findOne({ student_code: studentCode }).populate('user');
-  if (!student) throw new AppError(404, 'Student not found');
-  if (!student.user) throw new AppError(404, 'User account not found for this student');
-  if (!student.user.is_active) throw new AppError(403, 'Student account is inactive');
+  if (!normalizedStudentCode) throw new AppError('Student code is required', 400);
+
+  const student = await Student.findOne({
+    student_code: { $regex: new RegExp(`^${normalizedStudentCode}$`, 'i') },
+  }).populate('user');
+  if (!student) throw new AppError('Student not found', 404);
+  if (!student.user) throw new AppError('User account not found for this student', 404);
+  if (!student.user.is_active) throw new AppError('Student account is inactive', 403);
 
   const token = generateToken({ id: student.user._id, role: 'student' });
 

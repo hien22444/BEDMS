@@ -13,7 +13,8 @@ const createPayosLinkForInvoice = catchAsync(async (req, res) => {
 });
 
 const getInvoicePaymentStatus = catchAsync(async (req, res) => {
-  const data = await invoiceService.getInvoicePaymentStatus(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.getInvoicePaymentStatus(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
@@ -30,37 +31,44 @@ const getInvoiceDetail = catchAsync(async (req, res) => {
 });
 
 const createInvoiceForStudent = catchAsync(async (req, res) => {
-  const data = await invoiceService.createInvoiceForStudent(req.body, req.user.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.createInvoiceForStudent(req.body, req.user.id, io);
   res.success(data, status.CREATED);
 });
 
 const createEWInvoiceForStudent = catchAsync(async (req, res) => {
-  const data = await invoiceService.createEWInvoiceForStudent(req.body, req.user.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.createEWInvoiceForStudent(req.body, io);
   res.success(data, status.CREATED);
 });
 
 const createInvoicesForRoom = catchAsync(async (req, res) => {
-  const data = await invoiceService.createInvoicesForRoom(req.params.roomId, req.body, req.user.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.createInvoicesForRoom(req.params.roomId, req.body, req.user.id, io);
   res.success(data, status.CREATED);
 });
 
 const createInvoicesForBlock = catchAsync(async (req, res) => {
-  const data = await invoiceService.createInvoicesForBlock(req.params.blockId, req.body, req.user.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.createInvoicesForBlock(req.params.blockId, req.body, req.user.id, io);
   res.success(data, status.CREATED);
 });
 
 const createEWInvoicesForAllBlocks = catchAsync(async (req, res) => {
-  const data = await invoiceService.createEWInvoicesForAllBlocks(req.body, req.user.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.createEWInvoicesForAllBlocks(req.body, io);
   res.success(data, status.CREATED);
 });
 
 const cancelInvoice = catchAsync(async (req, res) => {
-  const data = await invoiceService.cancelInvoice(req.params.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.cancelInvoice(req.params.id, io);
   res.success(data, status.OK);
 });
 
 const deleteInvoice = catchAsync(async (req, res) => {
-  const data = await invoiceService.deleteInvoice(req.params.id);
+  const io = req.app.get('io');
+  const data = await invoiceService.deleteInvoice(req.params.id, io);
   res.success(data, status.OK);
 });
 
