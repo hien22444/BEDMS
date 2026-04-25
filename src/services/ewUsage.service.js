@@ -61,6 +61,38 @@ const getDayBounds = (date) => {
   };
 };
 
+const addDays = (date, days) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+const getBillingIntervalBounds = (currentDate, previousDate = null) => {
+  const current = new Date(currentDate);
+  const end = new Date(current.getFullYear(), current.getMonth(), current.getDate(), ...DAY_END);
+
+  if (!previousDate) {
+    return {
+      start: new Date(current.getFullYear(), current.getMonth(), 1),
+      end,
+    };
+  }
+
+  const previous = new Date(previousDate);
+  return {
+    start: new Date(previous.getFullYear(), previous.getMonth(), previous.getDate() + 1),
+    end,
+  };
+};
+
+const getInclusiveDayCount = (start, end) => {
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const diff = endDay.getTime() - startDay.getTime();
+  if (diff < 0) return 0;
+  return Math.floor(diff / (24 * 60 * 60 * 1000)) + 1;
+};
+
 const getGroupKey = (blockId, date) => `${blockId.toString()}_${getMonthKey(date)}`;
 
 const buildEWLineItems = (invoiceId, monthKey, electricFee, waterFee) => {
@@ -386,6 +418,107 @@ const allocateAmountToContracts = (totalAmount, contracts) => {
   return allocations;
 };
 
+const allocateAmountByWeights = (totalAmount, weightedEntries) => {
+  const allocations = new Map();
+  const normalizedEntries = weightedEntries
+    .filter((entry) => Number(entry.weight || 0) > 0)
+    .map((entry) => ({
+      studentId: entry.studentId,
+      roomId: entry.roomId,
+      weight: Number(entry.weight),
+    }));
+
+  if (!normalizedEntries.length || totalAmount <= 0) return allocations;
+
+  const totalWeight = normalizedEntries.reduce((sum, entry) => sum + entry.weight, 0);
+  if (totalWeight <= 0) return allocations;
+
+  const ordered = [...normalizedEntries].sort((left, right) =>
+    String(left.studentId).localeCompare(String(right.studentId))
+  );
+
+  let assigned = 0;
+  const computed = ordered.map((entry) => {
+    const rawShare = (totalAmount * entry.weight) / totalWeight;
+    const baseShare = Math.floor(rawShare);
+    assigned += baseShare;
+    return {
+      ...entry,
+      share: baseShare,
+      fraction: rawShare - baseShare,
+    };
+  });
+
+  let remainder = totalAmount - assigned;
+  if (remainder > 0) {
+    computed
+      .sort((left, right) => {
+        if (right.fraction !== left.fraction) return right.fraction - left.fraction;
+        return String(left.studentId).localeCompare(String(right.studentId));
+      })
+      .forEach((entry) => {
+        if (remainder <= 0) return;
+        entry.share += 1;
+        remainder -= 1;
+      });
+  }
+
+  computed.forEach((entry) => {
+    allocations.set(String(entry.studentId), {
+      studentId: String(entry.studentId),
+      roomId: entry.roomId,
+      share: entry.share,
+      weight: entry.weight,
+    });
+  });
+
+  return allocations;
+};
+
+const buildIntervalOccupancyAllocation = (contracts, startDate, endDate, totalAmount) => {
+  const allocationsByStudent = new Map();
+  const dailyOccupiedCounts = [];
+
+  for (
+    let cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    cursor <= endDate;
+    cursor = addDays(cursor, 1)
+  ) {
+    const activeContracts = getActiveContractsAtDate(contracts, cursor);
+    dailyOccupiedCounts.push(activeContracts.length);
+
+    activeContracts.forEach((contract) => {
+      const studentId = contract.student.toString();
+      const current = allocationsByStudent.get(studentId) || {
+        studentId,
+        roomId: contract.room?._id ? contract.room._id.toString() : contract.room.toString(),
+        weight: 0,
+      };
+      current.roomId =
+        contract.room?._id ? contract.room._id.toString() : contract.room.toString();
+      current.weight += 1;
+      allocationsByStudent.set(studentId, current);
+    });
+  }
+
+  const weightedAllocations = allocateAmountByWeights(
+    totalAmount,
+    Array.from(allocationsByStudent.values())
+  );
+
+  const totalOccupiedBedDays = dailyOccupiedCounts.reduce((sum, count) => sum + count, 0);
+  const intervalDays = dailyOccupiedCounts.length;
+  const averageOccupiedBeds =
+    intervalDays > 0 ? Math.round(totalOccupiedBedDays / intervalDays) : 0;
+
+  return {
+    allocations: weightedAllocations,
+    averageOccupiedBeds,
+    totalOccupiedBedDays,
+    intervalDays,
+  };
+};
+
 const getTypeChainsForGroup = async (blockId, monthKey) => {
   const [year, month] = monthKey.split('-').map(Number);
   const monthEnd = new Date(year, month, 0, ...DAY_END);
@@ -414,13 +547,20 @@ const buildGroupComputation = async (blockId, monthKey) => {
 
   for (const type of ['electric', 'water']) {
     const chain = typeChains[type];
-    const monthRecords = chain.filter((record) => getMonthKey(record.date) === monthKey);
+    chain.forEach((record, index) => {
+      if (getMonthKey(record.date) !== monthKey) return;
 
-    monthRecords.forEach((record) => {
-      const activeContracts = getActiveContractsAtDate(contracts, record.date);
-      const allocations = allocateAmountToContracts(record.amount || 0, activeContracts);
-      const occupiedBeds = activeContracts.length;
-      const amountPerBed = occupiedBeds > 0 && record.amount > 0 ? Math.round(record.amount / occupiedBeds) : 0;
+      const previousRecord = index > 0 ? chain[index - 1] : null;
+      const { start, end } = getBillingIntervalBounds(record.date, previousRecord?.date || null);
+      const intervalAllocation = buildIntervalOccupancyAllocation(
+        contracts,
+        start,
+        end,
+        Number(record.amount || 0)
+      );
+      const occupiedBeds = intervalAllocation.averageOccupiedBeds;
+      const amountPerBed =
+        occupiedBeds > 0 && record.amount > 0 ? Math.round(record.amount / occupiedBeds) : 0;
 
       recordSummaries.push({
         recordId: record._id.toString(),
@@ -428,7 +568,7 @@ const buildGroupComputation = async (blockId, monthKey) => {
         amountPerBed,
       });
 
-      allocations.forEach((allocation) => {
+      intervalAllocation.allocations.forEach((allocation) => {
         const current = studentMonthShares.get(allocation.studentId) || {
           studentId: allocation.studentId,
           roomId: allocation.roomId,
@@ -521,6 +661,8 @@ const getEWInvoiceQuery = (studentId, monthKey) => ({
   invoice_code: { $regex: EW_INVOICE_REGEX },
 });
 
+const buildGroupIdentifier = (blockId, monthKey) => `${blockId.toString()}_${monthKey}`;
+
 const createInvoicesForGroups = async (
   groups,
   { studentId = null, roomId = null, dueDate: overrideDueDate = null, io = null } = {}
@@ -542,8 +684,13 @@ const createInvoicesForGroups = async (
   let invoicesCreated = 0;
   let invoicesUpdated = 0;
   let invoicesCancelled = 0;
+  let skippedConflicts = 0;
+  const groupMeta = new Map();
+  const aggregatedPlans = new Map();
+  const scopeRoomIds = new Set();
 
   for (const group of groups) {
+    const groupKey = buildGroupIdentifier(group.blockId, group.monthKey);
     const computation = await buildGroupComputation(group.blockId, group.monthKey);
     await updateRecordSummaries(computation.recordSummaries);
 
@@ -552,139 +699,217 @@ const createInvoicesForGroups = async (
       .filter((plan) => !roomId || plan.roomId?.toString() === roomId.toString())
       .map((plan) => ({ ...plan, totalAmount: plan.electricityFee + plan.waterFee }));
 
-    const roomIds = [...new Set(studentPlans.map((plan) => plan.roomId))];
-    const existingGroupInvoices = roomIds.length
-      ? await Invoice.find({
-          room: { $in: roomIds },
-          invoice_month: group.monthKey,
-          invoice_code: { $regex: EW_INVOICE_REGEX },
-        })
-          .sort({ createdAt: -1 })
-          .lean()
+    const expectedInvoiceStudentIds = new Set(
+      studentPlans.filter((plan) => plan.totalAmount > 0).map((plan) => plan.studentId)
+    );
+
+    const groupTotalAmount = computation.records.reduce(
+      (sum, record) => sum + Number(record.amount || 0),
+      0
+    );
+
+    groupMeta.set(groupKey, {
+      group,
+      expectedInvoiceStudentIds,
+      processedStudentIds: new Set(),
+      conflict: false,
+      groupTotalAmount,
+    });
+
+    studentPlans.forEach((plan) => {
+      if (plan.roomId) scopeRoomIds.add(plan.roomId.toString());
+      const current = aggregatedPlans.get(plan.studentId) || {
+        studentId: plan.studentId,
+        roomId: plan.roomId,
+        electricityFee: 0,
+        waterFee: 0,
+        totalAmount: 0,
+        groupKeys: new Set(),
+      };
+      current.roomId = plan.roomId || current.roomId;
+      current.electricityFee += Number(plan.electricityFee || 0);
+      current.waterFee += Number(plan.waterFee || 0);
+      current.totalAmount += Number(plan.totalAmount || 0);
+      current.groupKeys.add(groupKey);
+      aggregatedPlans.set(plan.studentId, current);
+    });
+  }
+
+  for (const plan of aggregatedPlans.values()) {
+    studentsSeen.add(plan.studentId);
+
+    const existingInvoices = await Invoice.find(
+      getEWInvoiceQuery(plan.studentId, groups[0].monthKey)
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const canonical = existingInvoices[0] || null;
+    const extras = canonical
+      ? existingInvoices.filter((invoice) => invoice._id.toString() !== canonical._id.toString())
       : [];
 
-    const expectedStudentIds = new Set(studentPlans.map((plan) => plan.studentId));
+    if (extras.some((invoice) => invoice.payment_status === 'paid')) {
+      skippedConflicts++;
+      plan.groupKeys.forEach((groupKey) => {
+        const meta = groupMeta.get(groupKey);
+        if (meta) meta.conflict = true;
+      });
+      continue;
+    }
 
-    for (const plan of studentPlans) {
-      studentsSeen.add(plan.studentId);
+    if (extras.length) {
+      await Promise.all(
+        extras.map(async (invoice) => {
+          await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+          await Invoice.deleteOne({ _id: invoice._id });
+          await emitInvoiceRealtime(io, invoice, 'deleted');
+        })
+      );
+      invoicesCancelled += extras.length;
+    }
 
-      const existingInvoices = await Invoice.find(getEWInvoiceQuery(plan.studentId, group.monthKey))
-        .sort({ createdAt: -1 })
-        .lean();
-
-      let canonical = existingInvoices[0] || null;
-      const extras = canonical
-        ? existingInvoices.filter((invoice) => invoice._id.toString() !== canonical._id.toString())
-        : [];
-
-      if (extras.some((invoice) => invoice.payment_status === 'paid')) {
-        throw new AppError(
-          `Multiple paid EW invoices found for student ${plan.studentId} in ${group.monthKey}`,
-          400
-        );
-      }
-
-      if (extras.length) {
-        await Promise.all(
-          extras.map(async (invoice) => {
-            await InvoiceLineItem.deleteMany({ invoice: invoice._id });
-            await Invoice.deleteOne({ _id: invoice._id });
-            await emitInvoiceRealtime(io, invoice, 'deleted');
-          })
-        );
-        invoicesCancelled += extras.length;
-      }
-
-      if (canonical && canonical.payment_status === 'paid') {
-        if (canonical.total_amount !== plan.totalAmount) {
-          throw new AppError(
-            `EW invoice ${canonical.invoice_code} is already paid and no longer matches recalculated usage`,
-            400
-          );
-        }
+    if (canonical && canonical.payment_status === 'paid') {
+      if (
+        canonical.total_amount !== plan.totalAmount ||
+        canonical.electricity_fee !== plan.electricityFee ||
+        canonical.water_fee !== plan.waterFee
+      ) {
+        skippedConflicts++;
+        plan.groupKeys.forEach((groupKey) => {
+          const meta = groupMeta.get(groupKey);
+          if (meta) meta.conflict = true;
+        });
         continue;
       }
 
-      if (canonical) {
-        const invoice = await Invoice.findById(canonical._id);
-        if (!invoice) throw new AppError('Invoice not found during EW invoice creation', 404);
+      plan.groupKeys.forEach((groupKey) => {
+        const meta = groupMeta.get(groupKey);
+        if (meta) meta.processedStudentIds.add(plan.studentId);
+      });
+      continue;
+    }
 
-        if (plan.totalAmount <= 0) {
-          const deletedSnapshot = invoice.toObject();
-          await InvoiceLineItem.deleteMany({ invoice: invoice._id });
-          await invoice.deleteOne();
-          await emitInvoiceRealtime(io, deletedSnapshot, 'deleted');
-          invoicesCancelled++;
-          continue;
-        }
+    if (canonical) {
+      const invoice = await Invoice.findById(canonical._id);
+      if (!invoice) throw new AppError('Invoice not found during EW invoice creation', 404);
 
+      if (plan.totalAmount <= 0) {
+        const deletedSnapshot = invoice.toObject();
+        await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+        await invoice.deleteOne();
+        await emitInvoiceRealtime(io, deletedSnapshot, 'deleted');
+        invoicesCancelled++;
+      } else {
         invoice.room = plan.roomId;
         invoice.electricity_fee = plan.electricityFee;
         invoice.water_fee = plan.waterFee;
         invoice.total_amount = plan.totalAmount;
         invoice.due_date = dueDate;
         await invoice.save();
-        await syncInvoiceLineItems(invoice._id, group.monthKey, plan.electricityFee, plan.waterFee);
+        await syncInvoiceLineItems(invoice._id, groups[0].monthKey, plan.electricityFee, plan.waterFee);
         await emitInvoiceRealtime(io, invoice, 'updated');
         invoicesUpdated++;
-        continue;
       }
 
-      if (plan.totalAmount <= 0) continue;
-
-      const invoice = await Invoice.create({
-        invoice_code: await generateEWInvoiceCode(),
-        student: plan.studentId,
-        room: plan.roomId,
-        invoice_month: group.monthKey,
-        room_fee: 0,
-        electricity_fee: plan.electricityFee,
-        water_fee: plan.waterFee,
-        service_fee: 0,
-        total_amount: plan.totalAmount,
-        payment_status: 'unpaid',
-        due_date: dueDate,
+      plan.groupKeys.forEach((groupKey) => {
+        const meta = groupMeta.get(groupKey);
+        if (meta) meta.processedStudentIds.add(plan.studentId);
       });
-      await syncInvoiceLineItems(invoice._id, group.monthKey, plan.electricityFee, plan.waterFee);
-      await emitInvoiceRealtime(io, invoice, 'created');
-      invoicesCreated++;
+      continue;
     }
 
-    if (!studentId && !roomId) {
-      const staleInvoices = existingGroupInvoices.filter(
-        (invoice) =>
-          !expectedStudentIds.has(invoice.student.toString()) && invoice.payment_status !== 'paid'
-      );
+    if (plan.totalAmount <= 0) continue;
 
-      if (staleInvoices.length) {
-        await Promise.all(
-          staleInvoices.map(async (invoice) => {
-            await InvoiceLineItem.deleteMany({ invoice: invoice._id });
-            await Invoice.deleteOne({ _id: invoice._id });
-            await emitInvoiceRealtime(io, invoice, 'deleted');
-          })
-        );
-        invoicesCancelled += staleInvoices.length;
-      }
+    const invoice = await Invoice.create({
+      invoice_code: await generateEWInvoiceCode(),
+      student: plan.studentId,
+      room: plan.roomId,
+      invoice_month: groups[0].monthKey,
+      room_fee: 0,
+      electricity_fee: plan.electricityFee,
+      water_fee: plan.waterFee,
+      service_fee: 0,
+      total_amount: plan.totalAmount,
+      payment_status: 'unpaid',
+      due_date: dueDate,
+    });
+    await syncInvoiceLineItems(invoice._id, groups[0].monthKey, plan.electricityFee, plan.waterFee);
+    await emitInvoiceRealtime(io, invoice, 'created');
+    invoicesCreated++;
+    plan.groupKeys.forEach((groupKey) => {
+      const meta = groupMeta.get(groupKey);
+      if (meta) meta.processedStudentIds.add(plan.studentId);
+    });
+  }
+
+  if (!studentId && !roomId && scopeRoomIds.size) {
+    const existingScopedInvoices = await Invoice.find({
+      room: { $in: [...scopeRoomIds] },
+      invoice_month: groups[0].monthKey,
+      invoice_code: { $regex: EW_INVOICE_REGEX },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const expectedStudentIds = new Set(
+      [...aggregatedPlans.values()]
+        .filter((plan) => plan.totalAmount > 0)
+        .map((plan) => plan.studentId.toString())
+    );
+
+    const staleInvoices = existingScopedInvoices.filter(
+      (invoice) =>
+        !expectedStudentIds.has(invoice.student.toString()) && invoice.payment_status !== 'paid'
+    );
+
+    if (staleInvoices.length) {
+      await Promise.all(
+        staleInvoices.map(async (invoice) => {
+          await InvoiceLineItem.deleteMany({ invoice: invoice._id });
+          await Invoice.deleteOne({ _id: invoice._id });
+          await emitInvoiceRealtime(io, invoice, 'deleted');
+        })
+      );
+      invoicesCancelled += staleInvoices.length;
     }
   }
 
+  const groupsReadyToMarkBilled = [];
+  const groupsToKeepUnbilled = [];
+  for (const meta of groupMeta.values()) {
+    const expectedIds = [...meta.expectedInvoiceStudentIds];
+    const allExpectedProcessed = expectedIds.every((id) => meta.processedStudentIds.has(id));
+    const canMarkBilled =
+      !meta.conflict &&
+      (meta.groupTotalAmount <= 0 ||
+        (meta.expectedInvoiceStudentIds.size > 0 && allExpectedProcessed));
+
+    if (canMarkBilled) groupsReadyToMarkBilled.push(meta.group);
+    else groupsToKeepUnbilled.push(meta.group);
+  }
+
   if (!studentId && !roomId) {
-    await markGroupsBilled(groups, true);
+    if (groupsReadyToMarkBilled.length) await markGroupsBilled(groupsReadyToMarkBilled, true);
+    if (groupsToKeepUnbilled.length) await markGroupsBilled(groupsToKeepUnbilled, false);
   }
 
   return {
     invoicesCreated,
     invoicesUpdated,
     invoicesCancelled,
+    skippedConflicts,
     totalStudents: studentsSeen.size,
-    message: `Created or updated EW invoices for ${studentsSeen.size} student(s)`,
+    message: `Created or updated EW invoices for ${studentsSeen.size} student(s)${
+      skippedConflicts > 0 ? `. ${skippedConflicts} conflict(s) were skipped and left unbilled.` : ''
+    }`,
   };
 };
 
-const countOccupiedBeds = async (blockId, billingDate = new Date(), _previousBoundary = null) => {
+const countOccupiedBeds = async (blockId, billingDate = new Date(), previousBoundary = null) => {
   const contracts = await getContractsForBlock(blockId, { populateRoom: false });
-  return getActiveContractsAtDate(contracts, billingDate).length;
+  const { start, end } = getBillingIntervalBounds(billingDate, previousBoundary);
+  return buildIntervalOccupancyAllocation(contracts, start, end, 0).averageOccupiedBeds;
 };
 
 const getEWUsages = async (query) => {
