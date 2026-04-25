@@ -6,7 +6,8 @@ const catchAsync = require('../utils/catchAsync');
  * POST /v1/dorms
  */
 const createDorm = catchAsync(async (req, res) => {
-  const dorm = await dormService.createDorm(req.body);
+  const io = req.app.get('io');
+  const dorm = await dormService.createDorm(req.body, io);
   res.success(dorm, httpStatus.CREATED);
 });
 
@@ -30,7 +31,8 @@ const getDormById = catchAsync(async (req, res) => {
  * PATCH /v1/dorms/:id
  */
 const updateDorm = catchAsync(async (req, res) => {
-  const dorm = await dormService.updateDorm(req.params.id, req.body);
+  const io = req.app.get('io');
+  const dorm = await dormService.updateDorm(req.params.id, req.body, io);
   res.success(dorm, httpStatus.OK);
 });
 
@@ -38,7 +40,8 @@ const updateDorm = catchAsync(async (req, res) => {
  * DELETE /v1/dorms/:id
  */
 const deleteDorm = catchAsync(async (req, res) => {
-  const result = await dormService.deleteDorm(req.params.id);
+  const io = req.app.get('io');
+  const result = await dormService.deleteDorm(req.params.id, io);
   res.success(result, httpStatus.OK);
 });
 

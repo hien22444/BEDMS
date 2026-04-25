@@ -15,19 +15,22 @@ const getRoomById = catchAsync(async (req, res) => {
 });
 
 const createRoom = catchAsync(async (req, res) => {
-  const data = await roomService.createRoom(req.body);
+  const io = req.app.get('io');
+  const data = await roomService.createRoom(req.body, io);
 
   res.success(data, status.CREATED);
 });
 
 const updateRoom = catchAsync(async (req, res) => {
-  const data = await roomService.updateRoom(req.params.id, req.body);
+  const io = req.app.get('io');
+  const data = await roomService.updateRoom(req.params.id, req.body, io);
 
   res.success(data, status.OK);
 });
 
 const deleteRoom = catchAsync(async (req, res) => {
-  const data = await roomService.deleteRoom(req.params.id);
+  const io = req.app.get('io');
+  const data = await roomService.deleteRoom(req.params.id, io);
 
   res.success(data, status.OK);
 });

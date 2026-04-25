@@ -6,7 +6,8 @@ const catchAsync = require('../utils/catchAsync');
  * Create a new news item
  */
 const createNews = catchAsync(async (req, res) => {
-  const data = await newsService.createNews(req.body);
+  const io = req.app.get('io');
+  const data = await newsService.createNews(req.body, io);
   res.success(data, status.CREATED);
 });
 
@@ -38,7 +39,8 @@ const getNewsById = catchAsync(async (req, res) => {
  * Update a news item
  */
 const updateNews = catchAsync(async (req, res) => {
-  const data = await newsService.updateNews(req.params.id, req.body);
+  const io = req.app.get('io');
+  const data = await newsService.updateNews(req.params.id, req.body, io);
   res.success(data, status.OK);
 });
 
@@ -46,7 +48,8 @@ const updateNews = catchAsync(async (req, res) => {
  * Delete a news item
  */
 const deleteNews = catchAsync(async (req, res) => {
-  await newsService.deleteNews(req.params.id);
+  const io = req.app.get('io');
+  await newsService.deleteNews(req.params.id, io);
   res.success({ message: 'News deleted successfully' }, status.OK);
 });
 

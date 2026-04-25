@@ -19,6 +19,16 @@ router
   .route('/student/:studentCode/penalties')
   .get(authenticate, authorize('manager', 'security'), violationController.getStudentPenalties);
 
+// Upload evidence image
+router
+  .route('/upload-evidence')
+  .post(
+    authenticate,
+    authorize('manager', 'security', 'student'),
+    require('../../middleware/upload').uploadImage,
+    violationController.uploadEvidenceImage
+  );
+
 // Create violation — manager, security, and student
 router
   .route('/')

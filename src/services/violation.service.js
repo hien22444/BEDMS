@@ -165,7 +165,12 @@ const syncStudentBehavioralSnapshot = async (studentId) => {
 /**
  * Create a new violation report
  */
-const createViolationReport = async (body) => {
+/**
+ * Create a new violation report
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const createViolationReport = async (body, io) => {
   let student;
   let reporterCode = null;
 
@@ -251,10 +256,27 @@ const createViolationReport = async (body) => {
   }
 
   const populated = await violationReport.populate([
-    { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reported_student', select: 'student_code full_name user' },
     { path: 'reporter', select: 'fullname email' },
   ]);
   await enrichReporterStudentCode(populated);
+
+  if (io) {
+    io.to('managers').emit('new_violation_report', populated);
+    // If student is reported, notify them in real-time
+    if (populated.reported_student?.user) {
+      const studentUserId = populated.reported_student.user._id || populated.reported_student.user;
+      io.to(`user_${studentUserId}`).emit('violation_updated', populated);
+
+      if (body.initial_penalty) {
+        io.to(`user_${studentUserId}`).emit('cfd_updated', {
+          score: populated.reported_student.behavioral_score,
+          report_code: populated.report_code,
+        });
+      }
+    }
+  }
+
   return populated;
 };
 
@@ -351,7 +373,14 @@ const getViolationReportById = async (id) => {
 /**
  * Update violation report status (review)
  */
-const reviewViolationReport = async (id, body, staffId) => {
+/**
+ * Update violation report status (review)
+ * @param {string} id
+ * @param {Object} body
+ * @param {string} staffId
+ * @param {import('socket.io').Server} io
+ */
+const reviewViolationReport = async (id, body, staffId, io) => {
   const report = await ViolationReport.findById(id);
   if (!report) {
     throw new Error('Violation report not found');
@@ -382,11 +411,28 @@ const reviewViolationReport = async (id, body, staffId) => {
   }
 
   const populated = await report.populate([
-    { path: 'reported_student', select: 'student_code full_name' },
+    { path: 'reported_student', select: 'student_code full_name user' },
     { path: 'reporter', select: 'fullname email' },
     { path: 'reviewed_by', select: 'full_name' },
   ]);
   await enrichReporterStudentCode(populated);
+
+  if (io) {
+    io.to('managers').emit('violation_updated', populated);
+    // If student is reported, notify them
+    if (populated.reported_student?.user) {
+      const studentUserId = populated.reported_student.user._id || populated.reported_student.user;
+      io.to(`user_${studentUserId}`).emit('violation_updated', populated);
+
+      if (body.status === 'resolved_penalized') {
+        io.to(`user_${studentUserId}`).emit('cfd_updated', {
+          score: populated.reported_student.behavioral_score,
+          report_code: populated.report_code,
+        });
+      }
+    }
+  }
+
   return populated;
 };
 
@@ -592,7 +638,12 @@ const getMyViolationReports = async (reporterId) => {
 /**
  * Delete violation report (only new reports can be deleted)
  */
-const deleteViolationReport = async (id) => {
+/**
+ * Delete violation report (only new reports can be deleted)
+ * @param {string} id
+ * @param {import('socket.io').Server} io
+ */
+const deleteViolationReport = async (id, io) => {
   const report = await ViolationReport.findById(id);
   if (!report) {
     throw new Error('Violation report not found');
@@ -603,6 +654,11 @@ const deleteViolationReport = async (id) => {
   }
 
   await ViolationReport.findByIdAndDelete(id);
+
+  if (io) {
+    io.to('managers').emit('violation_deleted', id);
+  }
+
   return { message: 'Violation report deleted successfully' };
 };
 

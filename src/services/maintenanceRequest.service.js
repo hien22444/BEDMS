@@ -81,7 +81,13 @@ const populateBedPath = {
 /**
  * Student: report damaged equipment / facility issue in assigned room
  */
-const createMaintenanceRequest = async (userId, body) => {
+/**
+ * Student: report damaged equipment / facility issue in assigned room
+ * @param {string} userId
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const createMaintenanceRequest = async (userId, body, io) => {
   const student = await resolveStudent(userId);
   const { roomId, bedId } = await getActiveContractRoomId(student._id);
 
@@ -150,6 +156,7 @@ const createMaintenanceRequest = async (userId, body) => {
   }
 
   const request_code = await generateRequestCode();
+  console.log(`[MaintenanceService] Creating request ${request_code} with evidence_urls:`, evidence_urls);
   const doc = await MaintenanceRequest.create({
     request_code,
     student: student._id,
@@ -187,7 +194,15 @@ const createMaintenanceRequest = async (userId, body) => {
       populate: { path: 'template', select: 'equipment_name brand model' },
     })
     .lean();
-  return { ...populated, id: populated._id };
+
+  const response = { ...populated, id: populated._id };
+
+  if (io) {
+    io.to('managers').emit('new_maintenance_request', response);
+    io.to(`user_${userId}`).emit('maintenance_updated', response);
+  }
+
+  return response;
 };
 
 /** Student: equipment rows in assigned room (for optional picker on report form) */
@@ -298,7 +313,14 @@ const notifyStudentMaintenanceUpdate = async (reqDoc, message) => {
 /**
  * Manager: update status (and optional fields)
  */
-const reviewMaintenanceRequest = async (requestId, managerUserId, body) => {
+/**
+ * Manager: update status (and optional fields)
+ * @param {string} requestId
+ * @param {string} managerUserId
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const reviewMaintenanceRequest = async (requestId, managerUserId, body, io) => {
   const req = await MaintenanceRequest.findById(requestId);
   if (!req) throw new AppError('Maintenance request not found', 404);
 
@@ -371,7 +393,7 @@ const reviewMaintenanceRequest = async (requestId, managerUserId, body) => {
   const populated = await MaintenanceRequest.findById(req._id)
     .populate({
       path: 'student',
-      select: 'full_name student_code',
+      select: 'full_name student_code user',
     })
     .populate(populateRoomPath)
     .populate(populateBedPath)
@@ -382,7 +404,19 @@ const reviewMaintenanceRequest = async (requestId, managerUserId, body) => {
     })
     .lean();
 
-  return { ...populated, id: populated._id };
+  const response = { ...populated, id: populated._id };
+
+  if (io) {
+    // Notify all managers to sync their dashboard
+    io.to('managers').emit('maintenance_updated', response);
+    // Notify the specific student
+    if (populated.student?.user?._id || populated.student?.user) {
+      const studentUserId = populated.student.user._id || populated.student.user;
+      io.to(`user_${studentUserId}`).emit('maintenance_updated', response);
+    }
+  }
+
+  return response;
 };
 
 module.exports = {

@@ -5,7 +5,8 @@ const catchAsync = require('../utils/catchAsync');
 // ─── Student endpoints ───
 
 const createVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.createVisitorRequest(req.user.id, req.body);
+  const io = req.app.get('io');
+  const data = await visitorService.createVisitorRequest(req.user.id, req.body, io);
   res.success(data, status.CREATED);
 });
 
@@ -15,7 +16,8 @@ const getMyVisitorRequests = catchAsync(async (req, res) => {
 });
 
 const cancelVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.cancelVisitorRequest(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await visitorService.cancelVisitorRequest(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
@@ -32,31 +34,37 @@ const getVisitorRequestDetail = catchAsync(async (req, res) => {
 });
 
 const approveVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.approveVisitorRequest(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await visitorService.approveVisitorRequest(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
 const rejectVisitorRequest = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
   const data = await visitorService.rejectVisitorRequest(
     req.params.id,
     req.user.id,
-    req.body.reason
+    req.body.reason,
+    io
   );
   res.success(data, status.OK);
 });
 
 const completeVisitorRequest = catchAsync(async (req, res) => {
-  const data = await visitorService.completeVisitorRequest(req.params.id, req.user.id);
+  const io = req.app.get('io');
+  const data = await visitorService.completeVisitorRequest(req.params.id, req.user.id, io);
   res.success(data, status.OK);
 });
 
 const checkinVisitor = catchAsync(async (req, res) => {
-  const data = await visitorService.checkinVisitor(req.params.id, req.body.visitorId, req.user.id);
+  const io = req.app.get('io');
+  const data = await visitorService.checkinVisitor(req.params.id, req.body.visitorId, req.user.id, io);
   res.success(data, status.OK);
 });
 
 const checkoutVisitor = catchAsync(async (req, res) => {
-  const data = await visitorService.checkoutVisitor(req.params.checkinId, req.user.id);
+  const io = req.app.get('io');
+  const data = await visitorService.checkoutVisitor(req.params.checkinId, req.user.id, io);
   res.success(data, status.OK);
 });
 

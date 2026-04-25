@@ -51,7 +51,8 @@ const recalculate = catchAsync(async (req, res) => {
 });
 
 const createEWInvoices = catchAsync(async (req, res) => {
-  const result = await ewUsageService.createEWInvoices(req.body || {});
+  const io = req.app.get('io');
+  const result = await ewUsageService.createEWInvoices(req.body || {}, io);
   res.success(result, status.OK);
 });
 

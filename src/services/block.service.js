@@ -51,7 +51,12 @@ const getBlockById = async (id) => {
   return block;
 };
 
-const createBlock = async (body) => {
+/**
+ * Create new block
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const createBlock = async (body, io) => {
   if (String(body.gender_type).toLowerCase() === 'mixed') {
     throw new Error("gender_type 'mixed' is not allowed");
   }
@@ -97,7 +102,13 @@ const createBlock = async (body) => {
     $inc: { total_blocks: 1 },
   });
 
-  return await Block.findById(block._id).populate('dorm', 'dorm_name dorm_code total_floors');
+  const created = await Block.findById(block._id).populate('dorm', 'dorm_name dorm_code total_floors');
+
+  if (io) {
+    io.emit('block_updated', { action: 'create', data: created });
+  }
+
+  return created;
 };
 
 const validateBlockFloor = (floor, dorm) => {
@@ -113,7 +124,13 @@ const validateBlockFloor = (floor, dorm) => {
   }
 };
 
-const updateBlock = async (id, body) => {
+/**
+ * Update block
+ * @param {string} id
+ * @param {Object} body
+ * @param {import('socket.io').Server} io
+ */
+const updateBlock = async (id, body, io) => {
   const block = await Block.findById(id);
 
   if (!block) {
@@ -203,10 +220,21 @@ const updateBlock = async (id, body) => {
   }
   await block.save();
 
-  return await Block.findById(id).populate('dorm', 'dorm_name dorm_code total_floors');
+  const updated = await Block.findById(id).populate('dorm', 'dorm_name dorm_code total_floors');
+
+  if (io) {
+    io.emit('block_updated', { action: 'update', data: updated });
+  }
+
+  return updated;
 };
 
-const deleteBlock = async (id) => {
+/**
+ * Delete block
+ * @param {string} id
+ * @param {import('socket.io').Server} io
+ */
+const deleteBlock = async (id, io) => {
   const block = await Block.findById(id);
 
   if (!block) {
@@ -228,6 +256,9 @@ const deleteBlock = async (id) => {
     $inc: { total_blocks: -1 },
   });
 
+  if (io) {
+    io.emit('block_updated', { action: 'delete', id });
+  }
   return { message: 'Block deleted successfully' };
 };
 
