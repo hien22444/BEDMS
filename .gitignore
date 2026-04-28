@@ -66,4 +66,11 @@ build/
 *.xls
 generate-test-excel.js
 
+# Local utility scripts no longer maintained
+scripts/cleanup-orphan-bookings.js
+scripts/delete-cancelled.js
+scripts/fix-bed-status.js
+scripts/fix-keepbed-DE180775.js
+scripts/sync-active-contracts.js
+
  
