@@ -15,6 +15,7 @@ router.get('/history', authenticate, authorize('security'), checkoutRequestContr
 router.patch('/:id/inspect', authenticate, authorize('security'), checkoutRequestController.inspectCheckoutRequest);
 
 // ── Manager routes ────────────────────────────────────────────────────────────
+router.post('/cfd/initiate', authenticate, authorize('manager'), checkoutRequestController.createCfdExpelRequest);
 router.get('/', authenticate, authorize('manager'), checkoutRequestController.getAllCheckoutRequests);
 router.get('/:id', authenticate, authorize('manager'), checkoutRequestController.getCheckoutRequestById);
 router.patch('/:id/review', authenticate, authorize('manager'), checkoutRequestController.reviewCheckoutRequest);

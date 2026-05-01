@@ -46,6 +46,9 @@ const resolveStudent = async (userId) => {
   if (!student) {
     throw new AppError('Only registered students can submit maintenance requests.', 403);
   }
+  if (student.dorm_booking_suspended) {
+    throw new AppError('Dormitory services have been suspended for your account.', 403);
+  }
   return student;
 };
 

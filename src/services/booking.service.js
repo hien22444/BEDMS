@@ -135,7 +135,7 @@ const findStudent = async (userId) => {
 };
 
 const DORM_BOOKING_SUSPENDED_MSG =
-  'The dormitory has suspended booking services for your account due to a prior rules violation. Please contact dormitory management if you need assistance.';
+  'Dormitory services have been suspended for your account.';
 
 const assertStudentMayUseBooking = (student) => {
   if (student.dorm_booking_suspended) {
@@ -1586,7 +1586,7 @@ const checkoutStudent = async (studentCode, managerId, settlementInput = {}) => 
 
 // ─── 15. listCfdAtRiskStudents (manager) ──────────────────
 const listCfdAtRiskStudents = async () => {
-  const students = await Student.find({ behavioral_score: { $lte: 2 } })
+  const students = await Student.find({ behavioral_score: { $lte: 0 } })
     .select('full_name student_code behavioral_score dorm_booking_suspended user')
     .populate({ path: 'user', select: 'email' })
     .sort({ behavioral_score: 1, student_code: 1 })
@@ -1637,66 +1637,11 @@ const listCfdAtRiskStudents = async () => {
 };
 
 // ─── 16. cfdDormExpelStudent (manager) ────────────────────
-const cfdDormExpelStudent = async (studentCode) => {
-  if (!studentCode) throw new AppError('student_code is required', 400);
-
-  const student = await Student.findOne({
-    student_code: { $regex: new RegExp(`^${String(studentCode).trim()}$`, 'i') },
-  });
-  if (!student) throw new AppError('Student not found', 404);
-
-  if (Number(student.behavioral_score) > 2) {
-    throw new AppError('This action is only allowed for students with a CFD score of 2 or below.', 400);
-  }
-
-  const contract = await Contract.findOne({
-    student: student._id,
-    status: { $in: ['active', 'extended'] },
-  });
-
-  const now = new Date();
-
-  if (contract) {
-    await Contract.findByIdAndUpdate(contract._id, {
-      $set: { status: 'terminated', terminated_at: now },
-    });
-    await Bed.findByIdAndUpdate(contract.bed, { $set: { status: 'available' } });
-    await Room.findByIdAndUpdate(contract.room, {
-      $inc: { available_beds: 1 },
-      $set: { status: 'available' },
-    });
-    await BookingRequest.findOneAndUpdate(
-      { student: student._id, semester: contract.semester, status: 'approved', checkout_date: null },
-      { $set: { checkout_date: now } },
-      { sort: { requested_at: -1 } }
-    );
-  }
-
-  student.dorm_booking_suspended = true;
-  await student.save();
-
-  const user = await User.findById(student.user).select('_id').lean();
-  if (user) {
-    const message = contract
-      ? 'You have been removed from your room due to a CFD score of 2 or below and a dormitory rules violation. Your bed has been released. Dormitory booking is no longer available to you. Please contact management.'
-      : 'Dormitory booking has been suspended for your account due to a CFD score of 2 or below and a prior rules violation. Please contact management.';
-
-    await Notification.create({
-      user: user._id,
-      title: 'Dormitory notice',
-      message,
-      notification_type: 'warning',
-      category: 'general',
-    });
-  }
-
-  return {
-    message: 'Updated: booking suspended for this student; bed released if they had an active stay.',
-    student_code: student.student_code,
-    full_name: student.full_name,
-    had_active_contract: !!contract,
-    dorm_booking_suspended: true,
-  };
+const cfdDormExpelStudent = async (studentCode, managerUserId, io) => {
+  throw new AppError(
+    'Manual CFD ban is disabled. The system now automatically suspends students when their CFD score reaches 0.',
+    400
+  );
 };
 
 // ─── 15. getRoommates (student) ───────────────────────────
