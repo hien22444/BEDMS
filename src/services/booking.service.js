@@ -21,7 +21,6 @@ const {
 } = require('./payos.service');
 const { sendPaymentSuccessEmail, sendMail } = require('./email.service');
 const { createCheckoutSettlement } = require('./ewUsage.service');
-const checkoutRequestService = require('./checkoutRequest.service');
 
 const invoiceCodeToOrderCode = (invoiceCode) => {
   // BOOK-YYYYMMDD-0005 => 202603060005 (safe integer)
@@ -1639,7 +1638,10 @@ const listCfdAtRiskStudents = async () => {
 
 // ─── 16. cfdDormExpelStudent (manager) ────────────────────
 const cfdDormExpelStudent = async (studentCode, managerUserId, io) => {
-  return checkoutRequestService.createCfdExpelRequest(managerUserId, studentCode, io);
+  throw new AppError(
+    'Manual CFD ban is disabled. The system now automatically suspends students when their CFD score reaches 0.',
+    400
+  );
 };
 
 // ─── 15. getRoommates (student) ───────────────────────────
