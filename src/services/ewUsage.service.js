@@ -1298,15 +1298,30 @@ const importEWUsages = async (fileBuffer) => {
 
 const exportEWUsages = async (query) => {
   const { block_name, type, month, year } = query;
+  if (!month || !year) {
+    throw new AppError('month and year are required to export EW usages', 400);
+  }
+
+  const parsedMonth = parseInt(month, 10);
+  const parsedYear = parseInt(year, 10);
+  if (
+    Number.isNaN(parsedMonth) ||
+    Number.isNaN(parsedYear) ||
+    parsedMonth < 1 ||
+    parsedMonth > 12
+  ) {
+    throw new AppError('month or year is invalid for EW export', 400);
+  }
+
   const filter = {};
   if (block_name) filter.block_name = { $regex: block_name, $options: 'i' };
   if (type && ['electric', 'water'].includes(type)) filter.type = type;
-  if (month || year) {
-    const conditions = [];
-    if (month) conditions.push({ $eq: [{ $month: '$date' }, parseInt(month, 10)] });
-    if (year) conditions.push({ $eq: [{ $year: '$date' }, parseInt(year, 10)] });
-    filter.$expr = conditions.length > 1 ? { $and: conditions } : conditions[0];
-  }
+  filter.$expr = {
+    $and: [
+      { $eq: [{ $month: '$date' }, parsedMonth] },
+      { $eq: [{ $year: '$date' }, parsedYear] },
+    ],
+  };
   const [records, blocks] = await Promise.all([
     EWUsage.find(filter).sort({ block_name: 1, type: 1, date: 1 }).lean(),
     Block.find({
