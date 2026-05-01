@@ -503,7 +503,7 @@ const getBedsForBooking = async (userId, roomId) => {
   let takenBedIdSet = new Set();
   if (allBedIds.length > 0) {
     const nextSem = await getTargetSemester();
-    const [takenByBooking, takenByContract, checkedOutBookings] = await Promise.all([
+    const [takenByBooking, takenByContract] = await Promise.all([
       BookingRequest.find({
         bed: { $in: allBedIds },
         semester: nextSem.semester,
@@ -519,22 +519,9 @@ const getBedsForBooking = async (userId, roomId) => {
       })
         .select('bed')
         .lean(),
-      BookingRequest.find({
-        student: student._id,
-        semester: nextSem.semester,
-        status: 'approved',
-        checkout_date: { $ne: null },
-        $or: [{ bed: { $in: allBedIds } }, { bed_transfer: { $in: allBedIds } }],
-      })
-        .select('bed bed_transfer')
-        .lean(),
     ]);
     for (const r of [...takenByBooking, ...takenByContract]) {
       takenBedIdSet.add(String(r.bed));
-    }
-    for (const booking of checkedOutBookings) {
-      const checkedOutBedId = booking.bed_transfer || booking.bed;
-      if (checkedOutBedId) takenBedIdSet.add(String(checkedOutBedId));
     }
   }
 
