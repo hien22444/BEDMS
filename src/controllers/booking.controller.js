@@ -127,7 +127,8 @@ const listCfdAtRiskStudents = catchAsync(async (req, res) => {
 });
 
 const cfdDormExpelStudent = catchAsync(async (req, res) => {
-  const data = await bookingService.cfdDormExpelStudent(req.body.student_code);
+  const io = req.app.get('io');
+  const data = await bookingService.cfdDormExpelStudent(req.body.student_code, req.user.id, io);
   res.success(data, status.OK);
 });
 

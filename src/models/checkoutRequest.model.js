@@ -36,6 +36,25 @@ const CheckoutRequestSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    request_type: {
+      type: String,
+      enum: ['student_checkout', 'cfd_expel'],
+      default: 'student_checkout',
+    },
+    initiated_by_manager: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.STAFF,
+      default: null,
+    },
+    cfd_snapshot_score: {
+      type: Number,
+      default: null,
+    },
+    penalty_invoice: {
+      type: mongoose.Types.ObjectId,
+      ref: DBCollections.INVOICE,
+      default: null,
+    },
     status: {
       type: String,
       default: 'pending',
