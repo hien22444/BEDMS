@@ -14,6 +14,15 @@ const ViolationReportSchema = new mongoose.Schema(
       ref: DBCollections.STUDENT,
       default: null,
     },
+    reported_students: {
+      type: [
+        {
+          type: mongoose.Types.ObjectId,
+          ref: DBCollections.STUDENT,
+        },
+      ],
+      default: [],
+    },
     reporter: {
       type: mongoose.Types.ObjectId,
       required: true,

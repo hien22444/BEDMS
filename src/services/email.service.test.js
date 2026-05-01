@@ -211,6 +211,8 @@ describe('email.service (Brevo)', () => {
       });
 
       const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.subject).toBe('[Dormitory] Payment Successful - Hold Bed Confirmed');
+      expect(body.htmlContent).toContain('Payment Successful - Hold Bed Confirmed');
       expect(body.htmlContent).not.toContain('face registration');
     });
   });

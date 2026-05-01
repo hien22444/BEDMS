@@ -110,8 +110,9 @@ const sendBookingPaymentSuccessEmail = async ({
     : '-';
   const paidAtStr = formatDateTimeVi(paidAt || new Date());
   const shouldShowFaceNotice = bookingSource === 'new_booking';
+  const confirmationLabel = bookingSource === 'hold' ? 'Hold Bed Confirmed' : 'Booking Confirmed';
 
-  const subject = '[Dormitory] Payment Successful - Booking Confirmed';
+  const subject = `[Dormitory] Payment Successful - ${confirmationLabel}`;
 
   const html = `
     <div style="margin:0;padding:0;background:#eef2ff;font-family:Inter,Arial,sans-serif;color:#0f172a;">
@@ -129,7 +130,7 @@ const sendBookingPaymentSuccessEmail = async ({
                     </tr>
                     <tr>
                       <td style="padding:0 28px 24px 28px;color:#ffffff;">
-                        <div style="font-size:28px;line-height:1.25;font-weight:800;">Payment Successful - Booking Confirmed</div>
+                        <div style="font-size:28px;line-height:1.25;font-weight:800;">Payment Successful - ${confirmationLabel}</div>
                         <div style="margin-top:8px;font-size:14px;opacity:.95;">
                           Your payment has been recorded and your accommodation booking is now confirmed.
                         </div>
