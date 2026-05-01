@@ -155,8 +155,8 @@ const syncStudentBehavioralSnapshot = async (studentId) => {
 
   student.behavioral_score = recalculatedScore;
   student.violations_current_semester = violationsCount;
-  student.ban_until_semester =
-    recalculatedScore < 4 || violationsCount >= 3 ? getNextSemester() : null;
+  // Booking restriction by CFD threshold is removed.
+  student.ban_until_semester = null;
 
   await student.save();
   return student;

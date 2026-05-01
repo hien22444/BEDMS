@@ -28,6 +28,16 @@ const getCheckoutRequestById = catchAsync(async (req, res) => {
   res.success(data, status.OK);
 });
 
+const createCfdExpelRequest = catchAsync(async (req, res) => {
+  const io = req.app.get('io');
+  const data = await checkoutRequestService.createCfdExpelRequest(
+    req.user.id,
+    req.body.student_code,
+    io
+  );
+  res.success(data, status.CREATED);
+});
+
 const reviewCheckoutRequest = catchAsync(async (req, res) => {
   const io = req.app.get('io');
   const data = await checkoutRequestService.reviewCheckoutRequest(
@@ -41,7 +51,7 @@ const reviewCheckoutRequest = catchAsync(async (req, res) => {
 
 const completeCheckoutRequest = catchAsync(async (req, res) => {
   const io = req.app.get('io');
-  const data = await checkoutRequestService.completeCheckoutRequest(req.params.id, req.user.id, io);
+  const data = await checkoutRequestService.completeCheckoutRequest(req.params.id, req.user.id, req.body, io);
   res.success(data, status.OK);
 });
 
@@ -72,6 +82,7 @@ module.exports = {
   cancelCheckoutRequest,
   getAllCheckoutRequests,
   getCheckoutRequestById,
+  createCfdExpelRequest,
   reviewCheckoutRequest,
   completeCheckoutRequest,
   inspectCheckoutRequest,
