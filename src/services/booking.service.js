@@ -19,7 +19,7 @@ const {
   getPayosPaymentInfo,
   cancelPayosPaymentLink,
 } = require('./payos.service');
-const { sendPaymentSuccessEmail, sendMail } = require('./email.service');
+const { sendBookingPaymentSuccessEmail, sendMail } = require('./email.service');
 const { createCheckoutSettlement } = require('./ewUsage.service');
 
 const invoiceCodeToOrderCode = (invoiceCode) => {
@@ -135,7 +135,7 @@ const findStudent = async (userId) => {
 };
 
 const DORM_BOOKING_SUSPENDED_MSG =
-  'The dormitory has suspended booking services for your account due to a prior rules violation. Please contact dormitory management if you need assistance.';
+  'Dormitory services have been suspended for your account.';
 
 const assertStudentMayUseBooking = (student) => {
   if (student.dorm_booking_suspended) {
@@ -503,7 +503,7 @@ const getBedsForBooking = async (userId, roomId) => {
   let takenBedIdSet = new Set();
   if (allBedIds.length > 0) {
     const nextSem = await getTargetSemester();
-    const [takenByBooking, takenByContract, checkedOutBookings] = await Promise.all([
+    const [takenByBooking, takenByContract] = await Promise.all([
       BookingRequest.find({
         bed: { $in: allBedIds },
         semester: nextSem.semester,
@@ -519,22 +519,9 @@ const getBedsForBooking = async (userId, roomId) => {
       })
         .select('bed')
         .lean(),
-      BookingRequest.find({
-        student: student._id,
-        semester: nextSem.semester,
-        status: 'approved',
-        checkout_date: { $ne: null },
-        $or: [{ bed: { $in: allBedIds } }, { bed_transfer: { $in: allBedIds } }],
-      })
-        .select('bed bed_transfer')
-        .lean(),
     ]);
     for (const r of [...takenByBooking, ...takenByContract]) {
       takenBedIdSet.add(String(r.bed));
-    }
-    for (const booking of checkedOutBookings) {
-      const checkedOutBedId = booking.bed_transfer || booking.bed;
-      if (checkedOutBedId) takenBedIdSet.add(String(checkedOutBedId));
     }
   }
 
@@ -629,13 +616,6 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
   });
   if (existingBooking) {
     throw new AppError('You already have an active booking for this semester', 409);
-  }
-
-  if (await hasCheckedOutFromBedInSemester(student._id, nextSem.semester, bed._id)) {
-    throw new AppError(
-      'You cannot book this bed again in the same semester after checking out from it',
-      409
-    );
   }
 
   // Check if this specific bed is already booked/contracted for next semester
@@ -990,6 +970,8 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
     });
   }
 
+  const populatedBooking = await populateBookingForStudent(bookingId);
+
   // Notify student + email
   const user = await User.findById(student.user).lean();
   if (user) {
@@ -1004,18 +986,29 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
 
     // Email is best-effort
     try {
-      await sendPaymentSuccessEmail({
+      const roomLabelParts = [
+        populatedBooking?.room?.block?.dorm?.dorm_code || populatedBooking?.room?.block?.dorm?.dorm_name,
+        populatedBooking?.room?.block?.block_code || populatedBooking?.room?.block?.block_name,
+        populatedBooking?.room?.room_number ? `Room ${populatedBooking.room.room_number}` : null,
+        populatedBooking?.bed?.bed_number ? `Bed ${populatedBooking.bed.bed_number}` : null,
+      ].filter(Boolean);
+
+      await sendBookingPaymentSuccessEmail({
         to: user.email,
         studentName: student.full_name,
-        invoiceCode: invoice.invoice_code,
+        studentCode: student.student_code,
+        roomLabel: roomLabelParts.join(' · '),
+        semester: booking.semester,
+        startDate: booking.start_date,
+        transactionCode: payment.transaction_code,
         amountVnd: invoice.total_amount,
+        paidAt: payment.paid_at,
+        bookingSource: booking.source,
       });
     } catch (e) {
-      console.error('[Email] sendPaymentSuccessEmail failed:', e.message);
+      console.error('[Email] sendBookingPaymentSuccessEmail failed:', e.message);
     }
   }
-
-  const populatedBooking = await populateBookingForStudent(bookingId);
   return { status: 'paid', paid: true, booking: populatedBooking, invoice, payment, contract };
 };
 
@@ -1586,7 +1579,7 @@ const checkoutStudent = async (studentCode, managerId, settlementInput = {}) => 
 
 // ─── 15. listCfdAtRiskStudents (manager) ──────────────────
 const listCfdAtRiskStudents = async () => {
-  const students = await Student.find({ behavioral_score: { $lte: 2 } })
+  const students = await Student.find({ behavioral_score: { $lte: 0 } })
     .select('full_name student_code behavioral_score dorm_booking_suspended user')
     .populate({ path: 'user', select: 'email' })
     .sort({ behavioral_score: 1, student_code: 1 })
@@ -1637,66 +1630,11 @@ const listCfdAtRiskStudents = async () => {
 };
 
 // ─── 16. cfdDormExpelStudent (manager) ────────────────────
-const cfdDormExpelStudent = async (studentCode) => {
-  if (!studentCode) throw new AppError('student_code is required', 400);
-
-  const student = await Student.findOne({
-    student_code: { $regex: new RegExp(`^${String(studentCode).trim()}$`, 'i') },
-  });
-  if (!student) throw new AppError('Student not found', 404);
-
-  if (Number(student.behavioral_score) > 2) {
-    throw new AppError('This action is only allowed for students with a CFD score of 2 or below.', 400);
-  }
-
-  const contract = await Contract.findOne({
-    student: student._id,
-    status: { $in: ['active', 'extended'] },
-  });
-
-  const now = new Date();
-
-  if (contract) {
-    await Contract.findByIdAndUpdate(contract._id, {
-      $set: { status: 'terminated', terminated_at: now },
-    });
-    await Bed.findByIdAndUpdate(contract.bed, { $set: { status: 'available' } });
-    await Room.findByIdAndUpdate(contract.room, {
-      $inc: { available_beds: 1 },
-      $set: { status: 'available' },
-    });
-    await BookingRequest.findOneAndUpdate(
-      { student: student._id, semester: contract.semester, status: 'approved', checkout_date: null },
-      { $set: { checkout_date: now } },
-      { sort: { requested_at: -1 } }
-    );
-  }
-
-  student.dorm_booking_suspended = true;
-  await student.save();
-
-  const user = await User.findById(student.user).select('_id').lean();
-  if (user) {
-    const message = contract
-      ? 'You have been removed from your room due to a CFD score of 2 or below and a dormitory rules violation. Your bed has been released. Dormitory booking is no longer available to you. Please contact management.'
-      : 'Dormitory booking has been suspended for your account due to a CFD score of 2 or below and a prior rules violation. Please contact management.';
-
-    await Notification.create({
-      user: user._id,
-      title: 'Dormitory notice',
-      message,
-      notification_type: 'warning',
-      category: 'general',
-    });
-  }
-
-  return {
-    message: 'Updated: booking suspended for this student; bed released if they had an active stay.',
-    student_code: student.student_code,
-    full_name: student.full_name,
-    had_active_contract: !!contract,
-    dorm_booking_suspended: true,
-  };
+const cfdDormExpelStudent = async (studentCode, managerUserId, io) => {
+  throw new AppError(
+    'Manual CFD ban is disabled. The system now automatically suspends students when their CFD score reaches 0.',
+    400
+  );
 };
 
 // ─── 15. getRoommates (student) ───────────────────────────

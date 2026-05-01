@@ -1,4 +1,4 @@
-const { ViolationReport, Penalty, Student, Staff, Contract } = require('../models');
+const { ViolationReport, Penalty, Student, Staff, Contract, Bed, Room, BookingRequest } = require('../models');
 const AppError = require('../utils/AppError');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -140,6 +140,56 @@ const ensureStudentInDorm = async (studentId, notAllowedMessage) => {
   }
 };
 
+const enforceAutoDormSuspension = async (studentId) => {
+  const activeContract = await Contract.findOne({
+    student: studentId,
+    status: { $in: ['active', 'extended'] },
+    room: { $ne: null },
+    bed: { $ne: null },
+  }).lean();
+
+  if (!activeContract) return false;
+
+  const now = new Date();
+
+  await Contract.findByIdAndUpdate(activeContract._id, {
+    $set: { status: 'terminated', terminated_at: now },
+  });
+
+  const upcomingForBed = await Contract.findOne({
+    bed: activeContract.bed,
+    status: 'upcoming',
+  }).lean();
+
+  await Bed.findByIdAndUpdate(activeContract.bed, {
+    $set: { status: upcomingForBed ? 'reserved' : 'available' },
+  });
+
+  const room = await Room.findById(activeContract.room).select('total_beds');
+  if (room) {
+    const availableCount = await Bed.countDocuments({
+      room: activeContract.room,
+      status: 'available',
+    });
+    room.available_beds = availableCount;
+    room.status = availableCount > 0 ? 'available' : 'full';
+    await room.save();
+  }
+
+  await BookingRequest.findOneAndUpdate(
+    {
+      student: studentId,
+      semester: activeContract.semester,
+      status: 'approved',
+      checkout_date: null,
+    },
+    { $set: { checkout_date: now } },
+    { sort: { requested_at: -1 } }
+  );
+
+  return true;
+};
+
 /**
  * Recalculate and persist a student's behavioral snapshot based on existing penalties.
  * This keeps Student.behavioral_score in sync even if penalties are edited/deleted manually in DB.
@@ -152,13 +202,20 @@ const syncStudentBehavioralSnapshot = async (studentId) => {
   const totalDeducted = penalties.reduce((sum, p) => sum + (Number(p.points_deducted) || 0), 0);
   const violationsCount = penalties.length;
   const recalculatedScore = Math.max(0, 10 - totalDeducted);
+  const shouldSuspendDormService = recalculatedScore <= 0;
 
   student.behavioral_score = recalculatedScore;
   student.violations_current_semester = violationsCount;
-  student.ban_until_semester =
-    recalculatedScore < 4 || violationsCount >= 3 ? getNextSemester() : null;
+  student.dorm_booking_suspended = shouldSuspendDormService;
+  student.is_banned_permanently = shouldSuspendDormService;
+  student.ban_until_semester = null;
 
   await student.save();
+
+  if (shouldSuspendDormService) {
+    await enforceAutoDormSuspension(student._id);
+  }
+
   return student;
 };
 
@@ -463,11 +520,33 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
     'Only students currently staying in the dormitory can be penalized.'
   );
 
+  const studentBeforePenalty = await syncStudentBehavioralSnapshot(studentId);
+  const currentScore = Number(studentBeforePenalty?.behavioral_score) || 0;
+  const requestedPoints = Number(penaltyData.points_deducted);
+
+  if (!(requestedPoints > 0)) {
+    throw new AppError('points_deducted must be greater than 0.', 400);
+  }
+
+  if (currentScore <= 0) {
+    throw new AppError(
+      `Student ${studentBeforePenalty?.student_code || ''} already has 0 CFD score and cannot be deducted further.`,
+      400
+    );
+  }
+
+  if (requestedPoints > currentScore) {
+    throw new AppError(
+      `Points to deduct cannot exceed current CFD score (${currentScore}).`,
+      400
+    );
+  }
+
   const penalty = new Penalty({
     student: studentId,
     report: report._id,
     penalty_type: penaltyData.penalty_type,
-    points_deducted: penaltyData.points_deducted,
+    points_deducted: requestedPoints,
     reason: penaltyData.reason || report.description,
     semester: getCurrentSemester(),
     issued_by: staffId,

@@ -28,11 +28,18 @@ const generateRequestCode = async (maxRetries = 3) => {
   return `${prefix}${Date.now().toString().slice(-6)}`;
 };
 
+const assertStudentMaySendRequest = (student) => {
+  if (student?.dorm_booking_suspended) {
+    throw new AppError('Dormitory services have been suspended for your account.', 403);
+  }
+};
+
 const createOtherRequest = async (userId, body) => {
-  const student = await Student.findOne({ user: userId }).select('_id').lean();
+  const student = await Student.findOne({ user: userId }).select('_id dorm_booking_suspended').lean();
   if (!student) {
     throw new AppError('Only registered students can create other requests.', 403);
   }
+  assertStudentMaySendRequest(student);
 
   const activeContract = await Contract.findOne({
     student: student._id,

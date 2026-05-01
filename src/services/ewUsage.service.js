@@ -1,6 +1,7 @@
 const xlsx = require('xlsx');
 const AppError = require('../utils/AppError');
 const { EWUsage, Block, Room, Dorm, Invoice, InvoiceLineItem, Contract, Student } = require('../models');
+const { normalizeDateOnlyToDormNoonUtc } = require('../utils/dateOnly');
 
 const PRICE_MAP = { electric: 3000, water: 9000 };
 const EW_INVOICE_REGEX = /^EW-/;
@@ -684,9 +685,12 @@ const createInvoicesForGroups = async (
     };
   }
 
-  const dueDate = overrideDueDate
-    ? new Date(overrideDueDate)
-    : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+  const dueDate = normalizeDateOnlyToDormNoonUtc(
+    overrideDueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)
+  );
+  if (Number.isNaN(dueDate.getTime())) {
+    throw new AppError('due_date is invalid', 400);
+  }
   const studentsSeen = new Set();
   let invoicesCreated = 0;
   let invoicesUpdated = 0;

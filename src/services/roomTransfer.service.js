@@ -190,6 +190,9 @@ const generateRequestCode = async (maxRetries = 5) => {
 const getStudentByUser = async (userId) => {
   const student = await Student.findOne({ user: userId });
   if (!student) throw new AppError('Only students can create bed transfer requests', 403);
+  if (student.dorm_booking_suspended) {
+    throw new AppError('Dormitory services have been suspended for your account.', 403);
+  }
   return student;
 };
 

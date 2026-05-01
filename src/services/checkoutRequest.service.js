@@ -1,4 +1,17 @@
-const { CheckoutRequest, Student, Contract, Staff, User, Notification, RoomInspection, Bed, BookingRequest } = require('../models');
+const {
+  CheckoutRequest,
+  Student,
+  Contract,
+  Staff,
+  User,
+  Notification,
+  RoomInspection,
+  Bed,
+  BookingRequest,
+  Invoice,
+  InvoiceLineItem,
+  Room,
+} = require('../models');
 const AppError = require('../utils/AppError');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -42,6 +55,49 @@ const getActiveContract = async (studentId) => {
     .lean();
   if (!contract) throw new AppError('You do not have an active contract.', 400);
   return contract;
+};
+
+const generateCfdPenaltyInvoiceCode = async () => {
+  const today = new Date();
+  const dateStr =
+    today.getFullYear().toString() +
+    String(today.getMonth() + 1).padStart(2, '0') +
+    String(today.getDate()).padStart(2, '0');
+  const prefix = `CFDP-${dateStr}-`;
+
+  const last = await Invoice.findOne({
+    invoice_code: { $regex: `^${prefix}` },
+  })
+    .sort({ invoice_code: -1 })
+    .lean();
+
+  let seq = 1;
+  if (last?.invoice_code) {
+    const lastSeq = parseInt(String(last.invoice_code).split('-').pop(), 10);
+    seq = Number.isNaN(lastSeq) ? 1 : lastSeq + 1;
+  }
+  return `${prefix}${String(seq).padStart(4, '0')}`;
+};
+
+const markBedAvailableWithUpcomingGuard = async (bedId, roomId, studentId) => {
+  const hasUpcoming = await Contract.exists({
+    student: studentId,
+    bed: bedId,
+    room: roomId,
+    status: 'upcoming',
+  });
+  await Bed.findByIdAndUpdate(bedId, {
+    status: hasUpcoming ? 'reserved' : 'available',
+  });
+  if (roomId) {
+    const availableCount = await Bed.countDocuments({ room: roomId, status: 'available' });
+    const room = await Room.findById(roomId).select('total_beds status');
+    if (room) {
+      room.available_beds = availableCount;
+      room.status = availableCount === 0 ? 'full' : 'available';
+      await room.save();
+    }
+  }
 };
 
 const populateRoomPath = {
@@ -240,6 +296,91 @@ const getCheckoutRequestById = async (requestId) => {
   return { ...req, id: req._id };
 };
 
+const createCfdExpelRequest = async (managerUserId, studentCode, io) => {
+  const normalizedCode = String(studentCode || '').trim();
+  if (!normalizedCode) throw new AppError('student_code is required.', 400);
+
+  const student = await Student.findOne({
+    student_code: { $regex: new RegExp(`^${normalizedCode}$`, 'i') },
+  }).lean();
+  if (!student) throw new AppError('Student not found.', 404);
+  if (Number(student.behavioral_score) > 0) {
+    throw new AppError('This action is only allowed for students with CFD score <= 0.', 400);
+  }
+
+  const contract = await Contract.findOne({ student: student._id, status: 'active' })
+    .select('_id room bed semester')
+    .lean();
+  if (!contract?.room || !contract?.bed) {
+    throw new AppError('Student does not have an active dorm stay to inspect.', 409);
+  }
+
+  const existing = await CheckoutRequest.findOne({
+    student: student._id,
+    request_type: 'cfd_expel',
+    status: { $in: ['approved', 'inspected'] },
+  }).lean();
+  if (existing) {
+    throw new AppError(
+      `A CFD expulsion inspection request is already in progress (${existing.request_code}).`,
+      409
+    );
+  }
+
+  const managerStaff = await Staff.findOne({ user: managerUserId }).select('_id').lean();
+  const request_code = await generateRequestCode();
+  const expected_checkout_date = new Date();
+
+  const doc = await CheckoutRequest.create({
+    request_code,
+    student: student._id,
+    contract: contract._id,
+    room: contract.room,
+    bed: contract.bed,
+    expected_checkout_date,
+    reason:
+      'CFD disciplinary expulsion flow. Security must inspect room and equipment before final expulsion decision.',
+    request_type: 'cfd_expel',
+    initiated_by_manager: managerStaff?._id || null,
+    cfd_snapshot_score: Number(student.behavioral_score) || 0,
+    status: 'approved',
+    reviewed_at: new Date(),
+    reviewed_by: managerStaff?._id || null,
+  });
+
+  const populated = await CheckoutRequest.findById(doc._id)
+    .populate(populateStudentPath)
+    .populate(populateRoomPath)
+    .populate({ path: 'bed', select: 'bed_number' })
+    .lean();
+  const result = { ...populated, id: populated._id };
+
+  if (io) {
+    io.to('security_cameras').emit('checkout_approved', result);
+    io.to('managers').emit('checkout_status_updated', result);
+  }
+
+  await User.find({ role: 'security', is_active: true })
+    .select('_id')
+    .lean()
+    .then((securities) => {
+      if (!securities.length) return;
+      return Notification.insertMany(
+        securities.map((u) => ({
+          user: u._id,
+          title: 'CFD expulsion inspection required',
+          message: `${request_code}: inspect room and report damage status.`,
+          notification_type: 'warning',
+          category: 'checkout',
+          related_id: doc._id.toString(),
+        }))
+      );
+    })
+    .catch((err) => console.error('[checkout] notify security CFD failed:', err.message));
+
+  return result;
+};
+
 /**
  * Manager duyệt hoặc từ chối.
  * Body: { status: 'approved' | 'rejected', rejection_reason? }
@@ -312,7 +453,7 @@ const reviewCheckoutRequest = async (requestId, managerUserId, body, io) => {
  * - Frees bed
  * - Marks checkout request as completed
  */
-const completeCheckoutRequest = async (requestId, managerUserId, io) => {
+const completeCheckoutRequest = async (requestId, managerUserId, body, io) => {
   const req = await CheckoutRequest.findById(requestId);
   if (!req) throw new AppError('Checkout request not found.', 404);
 
@@ -331,8 +472,8 @@ const completeCheckoutRequest = async (requestId, managerUserId, io) => {
     { new: true }
   ).lean();
 
-  // Free bed
-  await Bed.findByIdAndUpdate(req.bed, { status: 'available' });
+  // Free bed (or keep reserved if this student already has upcoming contract on same bed)
+  await markBedAvailableWithUpcomingGuard(req.bed, req.room, req.student);
 
   // Set checkout_date on the approved booking (same as manual checkout flow)
   if (contract?.semester) {
@@ -343,9 +484,58 @@ const completeCheckoutRequest = async (requestId, managerUserId, io) => {
     );
   }
 
+  let penaltyInvoiceId = null;
+  if (req.request_type === 'cfd_expel') {
+    const damageFound = Boolean(body?.damage_found);
+    const penaltyAmount = Number(body?.penalty_amount || 0);
+    const penaltyNote = String(body?.penalty_note || '').trim();
+
+    if (damageFound) {
+      if (!(penaltyAmount > 0)) {
+        throw new AppError('penalty_amount must be > 0 when damage_found is true.', 400);
+      }
+      const invoiceCode = await generateCfdPenaltyInvoiceCode();
+      const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const invoiceMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const invoice = await Invoice.create({
+        invoice_code: invoiceCode,
+        student: req.student,
+        room: req.room,
+        invoice_month: invoiceMonth,
+        room_fee: 0,
+        electricity_fee: 0,
+        water_fee: 0,
+        service_fee: 0,
+        other_fees: penaltyAmount,
+        total_amount: penaltyAmount,
+        payment_status: 'unpaid',
+        due_date: dueDate,
+        created_by: staff?._id || null,
+      });
+      await InvoiceLineItem.create({
+        invoice: invoice._id,
+        item_type: 'other',
+        description: penaltyNote || 'Penalty for damaged equipment after CFD expulsion room inspection',
+        quantity: 1,
+        unit_price: penaltyAmount,
+      });
+      penaltyInvoiceId = invoice._id;
+      req.penalty_invoice = invoice._id;
+    }
+  }
+
   // Complete checkout request
   req.status = 'completed';
   await req.save();
+
+  if (req.request_type === 'cfd_expel') {
+    await Student.findByIdAndUpdate(req.student, {
+      $set: {
+        dorm_booking_suspended: true,
+        is_banned_permanently: true,
+      },
+    });
+  }
 
   const studentDoc = await Student.findById(req.student).select('user').lean();
 
@@ -358,6 +548,7 @@ const completeCheckoutRequest = async (requestId, managerUserId, io) => {
       select: 'cleanliness_status equipment_status equipment_notes maintenance_needed inspected_by inspected_at',
       populate: { path: 'inspected_by', select: 'full_name staff_code' },
     })
+    .populate({ path: 'penalty_invoice', select: 'invoice_code total_amount payment_status due_date' })
     .lean();
 
   const result = { ...populated, id: populated._id };
@@ -374,9 +565,12 @@ const completeCheckoutRequest = async (requestId, managerUserId, io) => {
   if (studentDoc?.user) {
     Notification.create({
       user: studentDoc.user,
-      title: 'Checkout completed',
-      message: `Your checkout request ${req.request_code} has been completed. Your contract has been terminated. Thank you for staying with us.`,
-      notification_type: 'success',
+      title: req.request_type === 'cfd_expel' ? 'Dorm service suspended' : 'Checkout completed',
+      message:
+        req.request_type === 'cfd_expel'
+          ? `Your room has been inspected and your CFD expulsion process (${req.request_code}) is finalized. Dormitory services are suspended for your account.${penaltyInvoiceId ? ' A penalty invoice was created and added to your payment list.' : ''}`
+          : `Your checkout request ${req.request_code} has been completed. Your contract has been terminated. Thank you for staying with us.`,
+      notification_type: req.request_type === 'cfd_expel' ? 'warning' : 'success',
       category: 'checkout',
       related_id: req._id.toString(),
     }).catch((err) => console.error('[checkout] notify completed failed:', err.message));
@@ -466,7 +660,7 @@ const inspectCheckoutRequest = async (requestId, securityUserId, body, io) => {
       return Notification.insertMany(
         managers.map((m) => ({
           user: m._id,
-          title: 'Room inspection completed',
+          title: req.request_type === 'cfd_expel' ? 'CFD expulsion inspection completed' : 'Room inspection completed',
           message: `${req.request_code}: Room inspected by security. ${hasIssue ? '⚠ Issues found — review required.' : 'No issues found.'}`,
           notification_type: hasIssue ? 'warning' : 'success',
           category: 'checkout',
@@ -548,6 +742,7 @@ module.exports = {
   cancelCheckoutRequest,
   getAllCheckoutRequests,
   getCheckoutRequestById,
+  createCfdExpelRequest,
   reviewCheckoutRequest,
   completeCheckoutRequest,
   inspectCheckoutRequest,

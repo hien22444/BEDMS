@@ -27,6 +27,7 @@ const ewUsageRoute = require('./ewUsage.route');
 const invoiceRoute = require('./invoice.route');
 const agentRoute = require('./agent.route');
 const emailCampaignRoute = require('./email-campaign.route');
+const contractExtensionRoute = require('./contractExtension.route');
 
 const express = require('express');
 
@@ -148,6 +149,10 @@ const defaultRoutes = [
   {
     path: '/emails',
     route: emailCampaignRoute,
+  },
+  {
+    path: '/contract-extensions',
+    route: contractExtensionRoute,
   },
 ];
 
