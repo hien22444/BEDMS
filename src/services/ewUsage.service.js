@@ -569,11 +569,15 @@ const buildGroupComputation = async (blockId, monthKey) => {
       const occupiedBeds = intervalAllocation.averageOccupiedBeds;
       const amountPerBed =
         occupiedBeds > 0 && record.amount > 0 ? Math.round(record.amount / occupiedBeds) : 0;
+      const billingStudents = intervalAllocation.allocations.size;
 
       recordSummaries.push({
         recordId: record._id.toString(),
         occupiedBeds,
         amountPerBed,
+        billingStudents,
+        totalStudentDays: intervalAllocation.totalOccupiedBedDays,
+        intervalDays: intervalAllocation.intervalDays,
       });
 
       intervalAllocation.allocations.forEach((allocation) => {
@@ -587,7 +591,13 @@ const buildGroupComputation = async (blockId, monthKey) => {
         if (type === 'electric') current.electricityFee += allocation.share;
         else current.waterFee += allocation.share;
         studentMonthShares.set(allocation.studentId, current);
-        perRecordStudentShare.set(`${record._id.toString()}_${allocation.studentId}`, allocation.share);
+        perRecordStudentShare.set(`${record._id.toString()}_${allocation.studentId}`, {
+          share: allocation.share,
+          studentDays: allocation.weight,
+          billingStudents,
+          totalStudentDays: intervalAllocation.totalOccupiedBedDays,
+          intervalDays: intervalAllocation.intervalDays,
+        });
       });
     });
   }
@@ -1413,13 +1423,21 @@ const getMyEWUsages = async (userId) => {
   const groups = getGroupsFromRecords(records);
   const shareByRecordId = new Map();
   const occupiedByRecordId = new Map();
+  const intervalMetaByRecordId = new Map();
 
   for (const group of groups) {
     const computation = await buildGroupComputation(group.blockId, group.monthKey);
-    computation.recordSummaries.forEach((summary) => occupiedByRecordId.set(summary.recordId, summary.occupiedBeds));
-    computation.perRecordStudentShare.forEach((share, key) => {
+    computation.recordSummaries.forEach((summary) => {
+      occupiedByRecordId.set(summary.recordId, summary.occupiedBeds);
+      intervalMetaByRecordId.set(summary.recordId, {
+        billingStudents: summary.billingStudents,
+        totalStudentDays: summary.totalStudentDays,
+        intervalDays: summary.intervalDays,
+      });
+    });
+    computation.perRecordStudentShare.forEach((allocation, key) => {
       const [recordId, studentId] = key.split('_');
-      if (studentId === student._id.toString()) shareByRecordId.set(recordId, share);
+      if (studentId === student._id.toString()) shareByRecordId.set(recordId, allocation);
     });
   }
 
@@ -1427,20 +1445,34 @@ const getMyEWUsages = async (userId) => {
     block_name: blockName,
     room_number: room.room_number,
     data: records
-      .map((record) => ({
-        id: record._id,
-        term: record.term,
-        date: record.date,
-        type: record.type,
-        meter_left: record.meter_left,
-        meter_right: record.meter_right,
-        consumption: record.consumption,
-        unit: record.unit,
-        price_per_unit: record.price_per_unit,
-        occupied_beds: occupiedByRecordId.get(record._id.toString()) ?? record.occupied_beds ?? 0,
-        total_amount: record.amount,
-        amount: shareByRecordId.get(record._id.toString()) ?? 0,
-      }))
+      .map((record) => {
+        const recordId = record._id.toString();
+        const allocation = shareByRecordId.get(recordId);
+        const intervalMeta = intervalMetaByRecordId.get(recordId) || {};
+        return {
+          id: record._id,
+          term: record.term,
+          date: record.date,
+          type: record.type,
+          meter_left: record.meter_left,
+          meter_right: record.meter_right,
+          consumption: record.consumption,
+          unit: record.unit,
+          price_per_unit: record.price_per_unit,
+          occupied_beds: occupiedByRecordId.get(recordId) ?? record.occupied_beds ?? 0,
+          billing_students: allocation?.billingStudents ?? intervalMeta.billingStudents ?? 0,
+          billing_days: allocation?.intervalDays ?? intervalMeta.intervalDays ?? 0,
+          total_student_days: allocation?.totalStudentDays ?? intervalMeta.totalStudentDays ?? 0,
+          student_days: allocation?.studentDays ?? 0,
+          is_prorated:
+            Boolean(allocation) &&
+            allocation.billingStudents > 0 &&
+            allocation.intervalDays > 0 &&
+            allocation.totalStudentDays !== allocation.billingStudents * allocation.intervalDays,
+          total_amount: record.amount,
+          amount: allocation?.share ?? 0,
+        };
+      })
       .filter((record) => record.amount > 0),
   };
 };

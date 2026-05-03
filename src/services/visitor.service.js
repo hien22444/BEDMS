@@ -18,6 +18,17 @@ const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 // Allowed visit window boundaries
 const VISIT_WINDOW_START = '07:00';
 const VISIT_WINDOW_END = '17:00';
+const DORM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const dormDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: DORM_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
 
 const buildVisitorRequestPayload = (request) => ({
   id: String(request._id || request.id),
@@ -42,7 +53,11 @@ const emitVisitorCheckinRealtime = (io, payload) => {
   io.to('security_cameras').emit('visitor_checkin_updated', payload);
 };
 
-const emitVisitorNotification = (io, userId, { title, message, relatedId, notificationType = 'info' }) => {
+const emitVisitorNotification = (
+  io,
+  userId,
+  { title, message, relatedId, notificationType = 'info' }
+) => {
   if (!io || !userId) return;
   io.to(`user_${userId}`).emit('new_notification', {
     title,
@@ -60,24 +75,33 @@ const cmpTime = (a, b) => {
   return ah * 60 + am - (bh * 60 + bm);
 };
 
-const isSameLocalDate = (a, b) =>
-  a.getFullYear() === b.getFullYear() &&
-  a.getMonth() === b.getMonth() &&
-  a.getDate() === b.getDate();
+const getDormDateTimeParts = (date) =>
+  dormDateTimeFormatter.formatToParts(date).reduce((parts, part) => {
+    if (part.type !== 'literal') parts[part.type] = part.value;
+    return parts;
+  }, {});
 
-const toCurrentTimeString = (date) =>
-  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+const toDormDateKey = (value) => {
+  if (typeof value === 'string' && DATE_ONLY_REGEX.test(value)) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = getDormDateTimeParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const toDormTimeString = (date) => {
+  const parts = getDormDateTimeParts(date);
+  return `${parts.hour}:${parts.minute}`;
+};
+
+const isSameDormDate = (a, b) => toDormDateKey(a) === toDormDateKey(b);
 
 /**
  * Generate unique request code: VR-YYYYMMDD-XXXX
  * Uses retry loop to handle race conditions (concurrent requests)
  */
 const generateRequestCode = async (maxRetries = 3) => {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
+  const dateStr = toDormDateKey(new Date()).replace(/-/g, '');
   const prefix = `VR-${dateStr}-`;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -131,7 +155,10 @@ const createVisitorRequest = async (userId, body, io = null) => {
     .select('_id')
     .lean();
   if (!activeContract) {
-    throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
+    throw new AppError(
+      'You are not currently staying in the dormitory and cannot submit requests.',
+      403
+    );
   }
 
   // H2: Enforce ban status before allowing any further processing
@@ -148,12 +175,13 @@ const createVisitorRequest = async (userId, body, io = null) => {
     throw new Error('visit_date and purpose are required');
   }
 
-  // Validate visit_date is not in the past
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const visitDate = new Date(visit_date);
-  visitDate.setHours(0, 0, 0, 0);
-  if (visitDate < today) {
+  // Validate visit_date against the dormitory timezone, not the server timezone.
+  const todayKey = toDormDateKey(new Date());
+  const visitDateKey = toDormDateKey(visit_date);
+  if (!visitDateKey) {
+    throw new Error('visit_date must be a valid date');
+  }
+  if (visitDateKey < todayKey) {
     throw new Error('visit_date cannot be in the past');
   }
 
@@ -449,21 +477,24 @@ const completeVisitorRequest = async (requestId, _userId, io = null) => {
  */
 const checkinVisitor = async (requestId, visitorId, userId, io = null) => {
   const request = await VisitorRequest.findById(requestId);
-  if (!request) throw new Error('Request not found');
+  if (!request) throw new AppError('Request not found', 404);
   if (request.status !== 'approved') {
-    throw new Error('Request must be approved before check-in');
+    throw new AppError('Request must be approved before check-in', 400);
   }
 
   const now = new Date();
-  const visitDate = new Date(request.visit_date);
-  if (!isSameLocalDate(now, visitDate)) {
-    throw new Error('Visitor check-in is only allowed on the approved visit date');
+  if (!isSameDormDate(now, request.visit_date)) {
+    throw new AppError('Visitor check-in is only allowed on the approved visit date', 400);
   }
 
-  const currentTime = toCurrentTimeString(now);
-  if (cmpTime(currentTime, request.visit_time_from) < 0 || cmpTime(currentTime, request.visit_time_to) > 0) {
-    throw new Error(
-      `Check-in is only allowed between ${request.visit_time_from} and ${request.visit_time_to}`
+  const currentTime = toDormTimeString(now);
+  if (
+    cmpTime(currentTime, request.visit_time_from) < 0 ||
+    cmpTime(currentTime, request.visit_time_to) > 0
+  ) {
+    throw new AppError(
+      `Check-in is only allowed between ${request.visit_time_from} and ${request.visit_time_to}`,
+      400
     );
   }
 
@@ -471,7 +502,7 @@ const checkinVisitor = async (requestId, visitorId, userId, io = null) => {
     _id: visitorId,
     request: requestId,
   });
-  if (!visitor) throw new Error('Visitor not found in this request');
+  if (!visitor) throw new AppError('Visitor not found in this request', 404);
 
   // Check if already checked in
   const existing = await VisitorCheckin.findOne({
@@ -479,7 +510,7 @@ const checkinVisitor = async (requestId, visitorId, userId, io = null) => {
     visitor: visitorId,
     check_out_time: null,
   });
-  if (existing) throw new Error('Visitor is already checked in');
+  if (existing) throw new AppError('Visitor is already checked in', 400);
 
   const checkin = await VisitorCheckin.create({
     request: requestId,
