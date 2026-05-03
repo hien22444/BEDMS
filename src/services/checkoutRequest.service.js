@@ -13,15 +13,12 @@ const {
   Room,
 } = require('../models');
 const AppError = require('../utils/AppError');
+const { getDateCodeInDormTimezone, getMonthKeyInDormTimezone } = require('../utils/dateOnly');
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 const generateRequestCode = async (maxRetries = 3) => {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
+  const dateStr = getDateCodeInDormTimezone();
   const prefix = `COR-${dateStr}-`;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -58,11 +55,7 @@ const getActiveContract = async (studentId) => {
 };
 
 const generateCfdPenaltyInvoiceCode = async () => {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
+  const dateStr = getDateCodeInDormTimezone();
   const prefix = `CFDP-${dateStr}-`;
 
   const last = await Invoice.findOne({
@@ -496,7 +489,7 @@ const completeCheckoutRequest = async (requestId, managerUserId, body, io) => {
       }
       const invoiceCode = await generateCfdPenaltyInvoiceCode();
       const dueDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      const invoiceMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const invoiceMonth = getMonthKeyInDormTimezone(now);
       const invoice = await Invoice.create({
         invoice_code: invoiceCode,
         student: req.student,

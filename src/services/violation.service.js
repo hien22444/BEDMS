@@ -1,5 +1,11 @@
 const { ViolationReport, Penalty, Student, Staff, Contract, Bed, Room, BookingRequest } = require('../models');
 const AppError = require('../utils/AppError');
+const {
+  getDateCodeInDormTimezone,
+  getDatePartsInDormTimezone,
+  getEndOfDayInDormTimezone,
+  getStartOfDayInDormTimezone,
+} = require('../utils/dateOnly');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -77,11 +83,7 @@ const enrichReportsReporterStudentCode = async (reports) => {
  * Pattern: VRYYMMDDxxxx (e.g. VR2602220001)
  */
 const generateReportCode = async (maxRetries = 5) => {
-  const date = new Date();
-  const year = date.getFullYear().toString().slice(-2);
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const prefix = `VR${year}${month}${day}`;
+  const prefix = `VR${getDateCodeInDormTimezone().slice(2)}`;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const lastReport = await ViolationReport.findOne({
@@ -110,9 +112,7 @@ const generateReportCode = async (maxRetries = 5) => {
  * Get current semester (format: e.g., "Spring2026", "Fall2025")
  */
 const getCurrentSemester = () => {
-  const date = new Date();
-  const month = date.getMonth() + 1;
-  const year = date.getFullYear();
+  const { month, year } = getDatePartsInDormTimezone(new Date());
 
   if (month >= 1 && month <= 4) {
     return `Spring${year}`;
@@ -282,7 +282,6 @@ const createViolationReport = async (body, io) => {
       throw new AppError('You are not currently staying in the dormitory and cannot submit requests.', 403);
     }
     reporterCode = reporterStudent.student_code;
-    student = null;
   } else {
     students = await resolveReportedStudents(body);
     for (const student of students) {
@@ -424,10 +423,10 @@ const getAllViolationReports = async (query = {}) => {
   if (start_date || end_date) {
     filter.violation_date = {};
     if (start_date) {
-      filter.violation_date.$gte = new Date(start_date);
+      filter.violation_date.$gte = getStartOfDayInDormTimezone(start_date);
     }
     if (end_date) {
-      filter.violation_date.$lte = new Date(end_date);
+      filter.violation_date.$lte = getEndOfDayInDormTimezone(end_date);
     }
   }
 
@@ -675,9 +674,7 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
  * Get next semester for ban
  */
 const getNextSemester = () => {
-  const date = new Date();
-  const month = date.getMonth() + 1;
-  const year = date.getFullYear();
+  const { month, year } = getDatePartsInDormTimezone(new Date());
 
   if (month >= 1 && month <= 4) {
     return `Summer${year}`;

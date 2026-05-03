@@ -14,6 +14,7 @@ const {
   Notification,
 } = require('../models');
 const AppError = require('../utils/AppError');
+const { getDateCodeInDormTimezone } = require('../utils/dateOnly');
 const {
   createPayosPaymentLink,
   getPayosPaymentInfo,
@@ -90,11 +91,7 @@ const getRoomPrice = async (roomId) => {
 };
 
 const generateSupplementInvoiceCode = async () => {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
+  const dateStr = getDateCodeInDormTimezone();
   const prefix = `TRUP-${dateStr}-`;
   const lastInvoice = await Invoice.findOne({ invoice_code: { $regex: `^${prefix}` } })
     .sort({ invoice_code: -1 })
@@ -162,11 +159,7 @@ const notifyManagersBedTransferRefundOffice = async (reqDoc, refundDeadline) => 
 };
 
 const generateRequestCode = async (maxRetries = 5) => {
-  const now = new Date();
-  const dateStr =
-    now.getFullYear().toString() +
-    String(now.getMonth() + 1).padStart(2, '0') +
-    String(now.getDate()).padStart(2, '0');
+  const dateStr = getDateCodeInDormTimezone();
   const prefix = `TR-${dateStr}-`;
 
   for (let i = 0; i < maxRetries; i++) {

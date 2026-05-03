@@ -1,5 +1,11 @@
-const { StudentAccessLog, Student } = require('../models');
+const { StudentAccessLog } = require('../models');
 const AppError = require('../utils/AppError');
+const {
+  getDormDayRange,
+  getEndOfDayInDormTimezone,
+  getStartOfDayInDormTimezone,
+  getStartOfTodayInDormTimezone,
+} = require('../utils/dateOnly');
 
 const createManualLog = async (data, userId) => {
   const { name, idCard, type, reason, notes } = data;
@@ -36,8 +42,7 @@ const createManualLog = async (data, userId) => {
 };
 
 const getToday = async () => {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDay = getStartOfTodayInDormTimezone();
 
   const logs = await StudentAccessLog.find({
     createdAt: { $gte: startOfDay },
@@ -58,10 +63,7 @@ const getLogs = async (query) => {
   if (method) filter.method = method;
   if (studentId) filter.student = studentId;
   if (date) {
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(date);
-    end.setHours(23, 59, 59, 999);
+    const { start, end } = getDormDayRange(date);
     filter.createdAt = { $gte: start, $lte: end };
   }
 
@@ -89,8 +91,7 @@ const getLogs = async (query) => {
 };
 
 const getStats = async () => {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+  const startOfDay = getStartOfTodayInDormTimezone();
 
   const [checkIns, checkOuts] = await Promise.all([
     StudentAccessLog.countDocuments({
@@ -112,10 +113,7 @@ const getStats = async () => {
 
 const getReportStats = async (query) => {
   const { date } = query;
-  const start = date ? new Date(date) : new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setHours(23, 59, 59, 999);
+  const { start, end } = getDormDayRange(date || new Date());
 
   const dateFilter = { createdAt: { $gte: start, $lte: end } };
 
@@ -138,10 +136,8 @@ const getLogsForExport = async (query) => {
 
   const filter = {};
   if (startDate && endDate) {
-    const start = new Date(startDate);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    const start = getStartOfDayInDormTimezone(startDate);
+    const end = getEndOfDayInDormTimezone(endDate);
     filter.createdAt = { $gte: start, $lte: end };
   }
   if (type) filter.type = type;
