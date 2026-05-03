@@ -1,11 +1,22 @@
 const xlsx = require('xlsx');
 const AppError = require('../utils/AppError');
 const { EWUsage, Block, Room, Dorm, Invoice, InvoiceLineItem, Contract, Student } = require('../models');
-const { normalizeDateOnlyToDormNoonUtc } = require('../utils/dateOnly');
+const {
+  DORM_TIMEZONE,
+  getDateCodeInDormTimezone,
+  getDatePartsInDormTimezone,
+  getDormDayRange,
+  getEndOfDayInDormTimezone,
+  getMonthKeyInDormTimezone,
+  getMonthRangeInDormTimezone,
+  getStartOfDayInDormTimezone,
+  normalizeDateOnlyPartsToDormNoonUtc,
+  normalizeStrictDateOnlyPartsToDormNoonUtc,
+  normalizeDateOnlyToDormNoonUtc,
+} = require('../utils/dateOnly');
 
 const PRICE_MAP = { electric: 3000, water: 9000 };
 const EW_INVOICE_REGEX = /^EW-/;
-const DAY_END = [23, 59, 59, 999];
 
 const getPricePerUnit = (type) => PRICE_MAP[type] || 3000;
 const emitInvoiceRealtime = async (io, invoice, action = 'updated') => {
@@ -28,67 +39,60 @@ const emitInvoiceRealtime = async (io, invoice, action = 'updated') => {
 };
 
 const deriveTermFromDate = (date) => {
-  const d = new Date(date);
-  const month = d.getMonth() + 1;
-  const year = d.getFullYear();
+  const { month, year } = getDatePartsInDormTimezone(date);
   if (month <= 4) return `Spring-${year}`;
   if (month <= 8) return `Summer-${year}`;
   return `Fall-${year}`;
 };
 
 const normalizeRecordDate = (value) => {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return d;
-  // Keep EW usage as a date-only concept; noon avoids client timezone rollover.
-  d.setHours(12, 0, 0, 0);
-  return d;
+  return normalizeDateOnlyToDormNoonUtc(value);
 };
 
 const getNextUsageDate = (date) => {
-  const d = new Date(date);
-  return new Date(d.getFullYear(), d.getMonth() + 2, 0, ...DAY_END);
+  const parts = getDatePartsInDormTimezone(date);
+  if (!parts) return new Date(NaN);
+
+  return normalizeDateOnlyPartsToDormNoonUtc(parts.year, parts.month + 2, 0);
 };
 
-const getMonthKey = (date) => {
-  const d = new Date(date);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
+const getMonthKey = (date) => getMonthKeyInDormTimezone(date);
 
-const getDayBounds = (date) => {
-  const d = new Date(date);
-  return {
-    start: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
-    end: new Date(d.getFullYear(), d.getMonth(), d.getDate(), ...DAY_END),
-  };
-};
+const getDayBounds = (date) => getDormDayRange(date);
 
 const addDays = (date, days) => {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+  const parts = getDatePartsInDormTimezone(date);
+  if (!parts) return new Date(NaN);
+
+  return normalizeDateOnlyPartsToDormNoonUtc(parts.year, parts.month, parts.day + days);
 };
 
 const getBillingIntervalBounds = (currentDate, previousDate = null) => {
-  const current = new Date(currentDate);
-  const end = new Date(current.getFullYear(), current.getMonth(), current.getDate(), ...DAY_END);
+  const current = normalizeRecordDate(currentDate);
 
   if (!previousDate) {
+    const parts = getDatePartsInDormTimezone(current);
     return {
-      start: new Date(current.getFullYear(), current.getMonth(), 1),
-      end,
+      start: normalizeDateOnlyPartsToDormNoonUtc(parts.year, parts.month, 1),
+      end: current,
     };
   }
 
-  const previous = new Date(previousDate);
+  const previous = normalizeRecordDate(previousDate);
+  const previousParts = getDatePartsInDormTimezone(previous);
   return {
-    start: new Date(previous.getFullYear(), previous.getMonth(), previous.getDate() + 1),
-    end,
+    start: normalizeDateOnlyPartsToDormNoonUtc(
+      previousParts.year,
+      previousParts.month,
+      previousParts.day + 1
+    ),
+    end: current,
   };
 };
 
 const getInclusiveDayCount = (start, end) => {
-  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const startDay = getStartOfDayInDormTimezone(start);
+  const endDay = getStartOfDayInDormTimezone(end);
   const diff = endDay.getTime() - startDay.getTime();
   if (diff < 0) return 0;
   return Math.floor(diff / (24 * 60 * 60 * 1000)) + 1;
@@ -129,35 +133,56 @@ const findRecordOnSameDate = async (blockId, type, date, excludeId = null) => {
 };
 
 const getMonthDistance = (fromDate, toDate) =>
-  (toDate.getFullYear() - fromDate.getFullYear()) * 12 + (toDate.getMonth() - fromDate.getMonth());
+  (() => {
+    const from = getDatePartsInDormTimezone(fromDate);
+    const to = getDatePartsInDormTimezone(toDate);
+    return (to.year - from.year) * 12 + (to.month - from.month);
+  })();
 
 const isBillingClosingDay = (date) => {
-  const d = new Date(date);
-  const actualLastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const parts = getDatePartsInDormTimezone(date);
+  const lastDay = normalizeDateOnlyPartsToDormNoonUtc(parts.year, parts.month + 1, 0);
+  const actualLastDay = getDatePartsInDormTimezone(lastDay).day;
   const closingDay = actualLastDay > 30 ? 30 : actualLastDay;
-  return d.getDate() === closingDay;
+  return parts.day === closingDay;
 };
 
-const formatDateDMY = (date) => new Intl.DateTimeFormat('en-GB').format(new Date(date));
+const formatDateDMY = (date) =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: DORM_TIMEZONE }).format(new Date(date));
 const formatMonthYear = (date) =>
-  new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date(date));
+  new Intl.DateTimeFormat('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: DORM_TIMEZONE,
+  }).format(new Date(date));
 const assertNotFutureDate = (date, label = 'Date') => {
-  const currentDayEnd = new Date();
-  currentDayEnd.setHours(...DAY_END);
+  const currentDayEnd = getEndOfDayInDormTimezone();
   if (new Date(date).getTime() > currentDayEnd.getTime()) {
     throw new AppError(`${label} cannot be in the future`, 400);
   }
 };
 const buildStrictDate = (year, month, day) => {
-  const parsed = new Date(year, month - 1, day);
-  if (
-    parsed.getFullYear() !== year ||
-    parsed.getMonth() !== month - 1 ||
-    parsed.getDate() !== day
-  ) {
-    return null;
+  const parsed = normalizeStrictDateOnlyPartsToDormNoonUtc(year, month, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const applyMonthYearDateFilter = (query, month, year) => {
+  if (month && year) {
+    const { start, end } = getMonthRangeInDormTimezone(parseInt(year, 10), parseInt(month, 10));
+    query.date = { $gte: start, $lte: end };
+    return;
   }
-  return parsed;
+
+  if (year) {
+    const { start } = getMonthRangeInDormTimezone(parseInt(year, 10), 1);
+    const { end } = getMonthRangeInDormTimezone(parseInt(year, 10), 12);
+    query.date = { $gte: start, $lte: end };
+    return;
+  }
+
+  if (month) {
+    query.$expr = { $eq: [{ $month: '$date' }, parseInt(month, 10)] };
+  }
 };
 
 const assertDateFollowsLatestRecord = async (blockId, type, date, excludeId = null) => {
@@ -200,8 +225,14 @@ const assertDateFollowsLatestRecord = async (blockId, type, date, excludeId = nu
   }
 
   if (monthDistance > 1) {
+    const latestParts = getDatePartsInDormTimezone(latestDate);
+    const nextAllowedMonth = normalizeDateOnlyPartsToDormNoonUtc(
+      latestParts.year,
+      latestParts.month + 1,
+      1
+    );
     throw new AppError(
-      `Cannot skip months when creating ${type} usage. The next allowed month after ${formatDateDMY(latestDate)} is ${formatMonthYear(new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 1))}`,
+      `Cannot skip months when creating ${type} usage. The next allowed month after ${formatDateDMY(latestDate)} is ${formatMonthYear(nextAllowedMonth)}`,
       400
     );
   }
@@ -250,20 +281,17 @@ const getGroupsFromRecords = (records) => {
 
 const getRecordsForGroup = async (blockId, monthKey) => {
   const [year, month] = monthKey.split('-').map(Number);
+  const { start, end } = getMonthRangeInDormTimezone(year, month);
   return EWUsage.find({
     block: blockId,
-    date: { $gte: new Date(year, month - 1, 1), $lte: new Date(year, month, 0, ...DAY_END) },
+    date: { $gte: start, $lte: end },
   })
     .sort({ date: 1, createdAt: 1 })
     .lean();
 };
 
 const generateEWInvoiceCode = async () => {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
+  const dateStr = getDateCodeInDormTimezone();
   const prefix = `EW-${dateStr}-`;
   const lastInvoice = await Invoice.findOne({ invoice_code: { $regex: `^${prefix}` } }).sort({
     invoice_code: -1,
@@ -356,9 +384,7 @@ const getContractsForBlock = async (blockId, { populateRoom = false } = {}) => {
 const contractActiveOnSnapshotDate = (contract, snapshotDate) => {
   const occupancyStart = new Date(contract.start_date);
   const occupancyEnd = getContractEffectiveEnd(contract);
-  const snapshot = new Date(snapshotDate);
-  const snapshotStart = new Date(snapshot.getFullYear(), snapshot.getMonth(), snapshot.getDate());
-  const snapshotEnd = new Date(snapshot.getFullYear(), snapshot.getMonth(), snapshot.getDate(), ...DAY_END);
+  const { start: snapshotStart, end: snapshotEnd } = getDormDayRange(snapshotDate);
   return occupancyStart <= snapshotEnd && occupancyEnd >= snapshotStart;
 };
 
@@ -488,7 +514,7 @@ const buildIntervalOccupancyAllocation = (contracts, startDate, endDate, totalAm
   const dailyOccupiedCounts = [];
 
   for (
-    let cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    let cursor = normalizeRecordDate(startDate);
     cursor <= endDate;
     cursor = addDays(cursor, 1)
   ) {
@@ -529,7 +555,7 @@ const buildIntervalOccupancyAllocation = (contracts, startDate, endDate, totalAm
 
 const getTypeChainsForGroup = async (blockId, monthKey) => {
   const [year, month] = monthKey.split('-').map(Number);
-  const monthEnd = new Date(year, month, 0, ...DAY_END);
+  const { end: monthEnd } = getMonthRangeInDormTimezone(year, month);
   const [electric, water] = await Promise.all(
     ['electric', 'water'].map((type) =>
       EWUsage.find({ block: blockId, type, date: { $lte: monthEnd } })
@@ -569,11 +595,15 @@ const buildGroupComputation = async (blockId, monthKey) => {
       const occupiedBeds = intervalAllocation.averageOccupiedBeds;
       const amountPerBed =
         occupiedBeds > 0 && record.amount > 0 ? Math.round(record.amount / occupiedBeds) : 0;
+      const billingStudents = intervalAllocation.allocations.size;
 
       recordSummaries.push({
         recordId: record._id.toString(),
         occupiedBeds,
         amountPerBed,
+        billingStudents,
+        totalStudentDays: intervalAllocation.totalOccupiedBedDays,
+        intervalDays: intervalAllocation.intervalDays,
       });
 
       intervalAllocation.allocations.forEach((allocation) => {
@@ -587,7 +617,13 @@ const buildGroupComputation = async (blockId, monthKey) => {
         if (type === 'electric') current.electricityFee += allocation.share;
         else current.waterFee += allocation.share;
         studentMonthShares.set(allocation.studentId, current);
-        perRecordStudentShare.set(`${record._id.toString()}_${allocation.studentId}`, allocation.share);
+        perRecordStudentShare.set(`${record._id.toString()}_${allocation.studentId}`, {
+          share: allocation.share,
+          studentDays: allocation.weight,
+          billingStudents,
+          totalStudentDays: intervalAllocation.totalOccupiedBedDays,
+          intervalDays: intervalAllocation.intervalDays,
+        });
       });
     });
   }
@@ -625,12 +661,7 @@ const collectGroupsFromFilters = async (filters = {}, { onlyUnbilled = false } =
   const query = {};
   if (filters.block) query.block = filters.block;
   if (onlyUnbilled) query.is_billed = false;
-  if (filters.month || filters.year) {
-    const conditions = [];
-    if (filters.month) conditions.push({ $eq: [{ $month: '$date' }, parseInt(filters.month, 10)] });
-    if (filters.year) conditions.push({ $eq: [{ $year: '$date' }, parseInt(filters.year, 10)] });
-    query.$expr = conditions.length > 1 ? { $and: conditions } : conditions[0];
-  }
+  applyMonthYearDateFilter(query, filters.month, filters.year);
   const records = await EWUsage.find(query).select('_id block date').lean();
   return getGroupsFromRecords(records);
 };
@@ -929,17 +960,7 @@ const getEWUsages = async (query) => {
 
   if (block_name) filter.block_name = { $regex: block_name, $options: 'i' };
   if (type && ['electric', 'water'].includes(type)) filter.type = type;
-  if (month) {
-    const m = parseInt(month, 10);
-    filter.$expr = {
-      $and: [
-        { $eq: [{ $month: '$date' }, m] },
-        ...(year ? [{ $eq: [{ $year: '$date' }, parseInt(year, 10)] }] : []),
-      ],
-    };
-  } else if (year) {
-    filter.$expr = { $eq: [{ $year: '$date' }, parseInt(year, 10)] };
-  }
+  applyMonthYearDateFilter(filter, month, year);
 
   const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
   const total = await EWUsage.countDocuments(filter);
@@ -1194,7 +1215,7 @@ const importEWUsages = async (fileBuffer) => {
       let parsedDate;
       if (typeof dateRaw === 'number') {
         const d = xlsx.SSF.parse_date_code(dateRaw);
-        parsedDate = new Date(d.y, d.m - 1, d.d);
+        parsedDate = buildStrictDate(d.y, d.m, d.d);
       } else {
         const str = String(dateRaw).trim();
         const dmyMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
@@ -1316,12 +1337,7 @@ const exportEWUsages = async (query) => {
   const filter = {};
   if (block_name) filter.block_name = { $regex: block_name, $options: 'i' };
   if (type && ['electric', 'water'].includes(type)) filter.type = type;
-  filter.$expr = {
-    $and: [
-      { $eq: [{ $month: '$date' }, parsedMonth] },
-      { $eq: [{ $year: '$date' }, parsedYear] },
-    ],
-  };
+  applyMonthYearDateFilter(filter, parsedMonth, parsedYear);
   const [records, blocks] = await Promise.all([
     EWUsage.find(filter).sort({ block_name: 1, type: 1, date: 1 }).lean(),
     Block.find({
@@ -1413,13 +1429,21 @@ const getMyEWUsages = async (userId) => {
   const groups = getGroupsFromRecords(records);
   const shareByRecordId = new Map();
   const occupiedByRecordId = new Map();
+  const intervalMetaByRecordId = new Map();
 
   for (const group of groups) {
     const computation = await buildGroupComputation(group.blockId, group.monthKey);
-    computation.recordSummaries.forEach((summary) => occupiedByRecordId.set(summary.recordId, summary.occupiedBeds));
-    computation.perRecordStudentShare.forEach((share, key) => {
+    computation.recordSummaries.forEach((summary) => {
+      occupiedByRecordId.set(summary.recordId, summary.occupiedBeds);
+      intervalMetaByRecordId.set(summary.recordId, {
+        billingStudents: summary.billingStudents,
+        totalStudentDays: summary.totalStudentDays,
+        intervalDays: summary.intervalDays,
+      });
+    });
+    computation.perRecordStudentShare.forEach((allocation, key) => {
       const [recordId, studentId] = key.split('_');
-      if (studentId === student._id.toString()) shareByRecordId.set(recordId, share);
+      if (studentId === student._id.toString()) shareByRecordId.set(recordId, allocation);
     });
   }
 
@@ -1427,20 +1451,34 @@ const getMyEWUsages = async (userId) => {
     block_name: blockName,
     room_number: room.room_number,
     data: records
-      .map((record) => ({
-        id: record._id,
-        term: record.term,
-        date: record.date,
-        type: record.type,
-        meter_left: record.meter_left,
-        meter_right: record.meter_right,
-        consumption: record.consumption,
-        unit: record.unit,
-        price_per_unit: record.price_per_unit,
-        occupied_beds: occupiedByRecordId.get(record._id.toString()) ?? record.occupied_beds ?? 0,
-        total_amount: record.amount,
-        amount: shareByRecordId.get(record._id.toString()) ?? 0,
-      }))
+      .map((record) => {
+        const recordId = record._id.toString();
+        const allocation = shareByRecordId.get(recordId);
+        const intervalMeta = intervalMetaByRecordId.get(recordId) || {};
+        return {
+          id: record._id,
+          term: record.term,
+          date: record.date,
+          type: record.type,
+          meter_left: record.meter_left,
+          meter_right: record.meter_right,
+          consumption: record.consumption,
+          unit: record.unit,
+          price_per_unit: record.price_per_unit,
+          occupied_beds: occupiedByRecordId.get(recordId) ?? record.occupied_beds ?? 0,
+          billing_students: allocation?.billingStudents ?? intervalMeta.billingStudents ?? 0,
+          billing_days: allocation?.intervalDays ?? intervalMeta.intervalDays ?? 0,
+          total_student_days: allocation?.totalStudentDays ?? intervalMeta.totalStudentDays ?? 0,
+          student_days: allocation?.studentDays ?? 0,
+          is_prorated:
+            Boolean(allocation) &&
+            allocation.billingStudents > 0 &&
+            allocation.intervalDays > 0 &&
+            allocation.totalStudentDays !== allocation.billingStudents * allocation.intervalDays,
+          total_amount: record.amount,
+          amount: allocation?.share ?? 0,
+        };
+      })
       .filter((record) => record.amount > 0),
   };
 };
@@ -1458,9 +1496,13 @@ const createEWInvoices = async (body = {}, io = null) => {
 
   const targetMonth = Number(month);
   const targetYear = Number(year);
-  const now = new Date();
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const targetMonthStart = new Date(targetYear, targetMonth - 1, 1);
+  const currentParts = getDatePartsInDormTimezone(new Date());
+  const currentMonthStart = normalizeDateOnlyPartsToDormNoonUtc(
+    currentParts.year,
+    currentParts.month,
+    1
+  );
+  const targetMonthStart = normalizeDateOnlyPartsToDormNoonUtc(targetYear, targetMonth, 1);
   if (targetMonthStart > currentMonthStart) {
     throw new AppError('Cannot create EW invoices for a future month', 400);
   }
@@ -1524,10 +1566,11 @@ const createCheckoutSettlement = async ({
     );
   }
 
+  const normalizedParts = getDatePartsInDormTimezone(normalizedDate);
   const invoiceResult = await createEWInvoices({
     block: blockId,
-    month: normalizedDate.getMonth() + 1,
-    year: normalizedDate.getFullYear(),
+    month: normalizedParts.month,
+    year: normalizedParts.year,
     student_id: studentId,
   });
 

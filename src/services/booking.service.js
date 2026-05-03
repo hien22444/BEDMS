@@ -21,6 +21,13 @@ const {
 } = require('./payos.service');
 const { sendBookingPaymentSuccessEmail, sendMail } = require('./email.service');
 const { createCheckoutSettlement } = require('./ewUsage.service');
+const {
+  buildDormLocalDate,
+  getDateCodeInDormTimezone,
+  getDatePartsInDormTimezone,
+  getEndOfDayInDormTimezone,
+  getStartOfDayInDormTimezone,
+} = require('../utils/dateOnly');
 
 const invoiceCodeToOrderCode = (invoiceCode) => {
   // BOOK-YYYYMMDD-0005 => 202603060005 (safe integer)
@@ -56,9 +63,8 @@ const BOOKING_CONFIG_KEYS = {
 
 const isWithinWindow = (now, startStr, endStr) => {
   if (!startStr || !endStr) return false;
-  const start = new Date(startStr);
-  const end = new Date(endStr);
-  end.setHours(23, 59, 59, 999);
+  const start = getStartOfDayInDormTimezone(startStr);
+  const end = getEndOfDayInDormTimezone(endStr);
   return now >= start && now <= end;
 };
 
@@ -75,15 +81,22 @@ const semesterRank = (semesterStr) => {
 };
 
 const SEMESTER_DATES = {
-  Spring: (year) => ({ start_date: new Date(year, 0, 1), end_date: new Date(year, 3, 30) }),
-  Summer: (year) => ({ start_date: new Date(year, 4, 1), end_date: new Date(year, 7, 31) }),
-  Fall: (year) => ({ start_date: new Date(year, 8, 1), end_date: new Date(year, 11, 31) }),
+  Spring: (year) => ({
+    start_date: buildDormLocalDate(year, 1, 1),
+    end_date: buildDormLocalDate(year, 4, 30),
+  }),
+  Summer: (year) => ({
+    start_date: buildDormLocalDate(year, 5, 1),
+    end_date: buildDormLocalDate(year, 8, 31),
+  }),
+  Fall: (year) => ({
+    start_date: buildDormLocalDate(year, 9, 1),
+    end_date: buildDormLocalDate(year, 12, 31),
+  }),
 };
 
 const getNextSemesterAuto = () => {
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
+  const { month, year } = getDatePartsInDormTimezone(new Date());
 
   if (month <= 4) {
     return { semester: `Summer-${year}`, ...SEMESTER_DATES.Summer(year) };
@@ -145,11 +158,7 @@ const assertStudentMayUseBooking = (student) => {
 
 // ─── Generate Invoice Code ────────────────────────────────
 const generateInvoiceCode = async () => {
-  const today = new Date();
-  const dateStr =
-    today.getFullYear().toString() +
-    String(today.getMonth() + 1).padStart(2, '0') +
-    String(today.getDate()).padStart(2, '0');
+  const dateStr = getDateCodeInDormTimezone();
   const prefix = `BOOK-${dateStr}-`;
 
   const lastInvoice = await Invoice.findOne({
