@@ -26,3 +26,4 @@ module.exports.invoiceService = require('./invoice.service');
 module.exports.checkoutRequestService = require('./checkoutRequest.service');
 module.exports.openaiService = require('./openai.service');
 module.exports.agentService = require('./agent.service');
+module.exports.contractExtensionService = require('./contractExtension.service');

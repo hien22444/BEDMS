@@ -140,6 +140,39 @@ const ensureStudentInDorm = async (studentId, notAllowedMessage) => {
   }
 };
 
+const resolveReportedStudents = async (body) => {
+  const rawCodes = Array.isArray(body.student_codes) ? body.student_codes : [];
+  const normalizedCodes = [
+    ...new Set(
+      rawCodes
+        .map((code) => String(code || '').trim().toUpperCase())
+        .filter(Boolean)
+    ),
+  ];
+
+  if (normalizedCodes.length > 0) {
+    const students = await Student.find({
+      student_code: { $in: normalizedCodes },
+    });
+    if (students.length !== normalizedCodes.length) {
+      const found = new Set(students.map((s) => String(s.student_code).toUpperCase()));
+      const missing = normalizedCodes.filter((code) => !found.has(code));
+      throw new AppError(`Student code(s) not found: ${missing.join(', ')}`, 404);
+    }
+    return students;
+  }
+
+  if (!body.student_code) {
+    throw new Error('student_code or student_codes is required for manager/security reports');
+  }
+
+  const student = await Student.findOne({ student_code: body.student_code });
+  if (!student) {
+    throw new Error(`Student with code ${body.student_code} not found`);
+  }
+  return [student];
+};
+
 const enforceAutoDormSuspension = async (studentId) => {
   const activeContract = await Contract.findOne({
     student: studentId,
@@ -228,7 +261,7 @@ const syncStudentBehavioralSnapshot = async (studentId) => {
  * @param {import('socket.io').Server} io
  */
 const createViolationReport = async (body, io) => {
-  let student;
+  let students = [];
   let reporterCode = null;
 
   // If reporter is a student, only set reporter code; reported_student stays null until manager penalizes
@@ -251,18 +284,13 @@ const createViolationReport = async (body, io) => {
     reporterCode = reporterStudent.student_code;
     student = null;
   } else {
-    // Manager / security must specify student_code explicitly
-    if (!body.student_code) {
-      throw new Error('student_code is required for manager/security reports');
+    students = await resolveReportedStudents(body);
+    for (const student of students) {
+      await ensureStudentInDorm(
+        student._id,
+        'Managers/Security can only create violation reports for students currently staying in the dormitory.'
+      );
     }
-    student = await Student.findOne({ student_code: body.student_code });
-    if (!student) {
-      throw new Error(`Student with code ${body.student_code} not found`);
-    }
-    await ensureStudentInDorm(
-      student._id,
-      'Managers/Security can only create violation reports for students currently staying in the dormitory.'
-    );
 
     // Manager / security reporter — try to resolve staff_code
     const staff = await Staff.findOne({ user: body.reporter_id }).select('staff_code');
@@ -279,7 +307,8 @@ const createViolationReport = async (body, io) => {
 
   const violationReport = new ViolationReport({
     report_code: reportCode,
-    ...(student ? { reported_student: student._id } : {}),
+    ...(students.length ? { reported_student: students[0]._id } : {}),
+    ...(students.length ? { reported_students: students.map((s) => s._id) } : {}),
     reporter: body.reporter_id,
     reporter_type: body.reporter_type,
     reporter_code: reporterCode,
@@ -308,12 +337,25 @@ const createViolationReport = async (body, io) => {
     violationReport.reviewed_by = body.reporter_id;
     violationReport.reviewed_at = new Date();
     await violationReport.save();
-
-    await createPenaltyFromReport(violationReport, body.initial_penalty, body.reporter_id);
+    if (students.length > 0) {
+      for (const student of students) {
+        await createPenaltyFromReport(
+          violationReport,
+          {
+            ...body.initial_penalty,
+            student_code: student.student_code,
+          },
+          body.reporter_id
+        );
+      }
+    } else {
+      await createPenaltyFromReport(violationReport, body.initial_penalty, body.reporter_id);
+    }
   }
 
   const populated = await violationReport.populate([
     { path: 'reported_student', select: 'student_code full_name user' },
+    { path: 'reported_students', select: 'student_code full_name phone behavioral_score user' },
     { path: 'reporter', select: 'fullname email' },
   ]);
   await enrichReporterStudentCode(populated);
@@ -321,17 +363,28 @@ const createViolationReport = async (body, io) => {
   if (io) {
     io.to('managers').emit('new_violation_report', populated);
     // If student is reported, notify them in real-time
+    const notifiedUserIds = new Set();
+    const studentUsers = [];
     if (populated.reported_student?.user) {
-      const studentUserId = populated.reported_student.user._id || populated.reported_student.user;
+      studentUsers.push(populated.reported_student.user);
+    }
+    if (Array.isArray(populated.reported_students)) {
+      populated.reported_students.forEach((s) => {
+        if (s?.user) studentUsers.push(s.user);
+      });
+    }
+    studentUsers.forEach((userObj) => {
+      const studentUserId = userObj._id || userObj;
+      const key = String(studentUserId);
+      if (notifiedUserIds.has(key)) return;
+      notifiedUserIds.add(key);
       io.to(`user_${studentUserId}`).emit('violation_updated', populated);
-
       if (body.initial_penalty) {
         io.to(`user_${studentUserId}`).emit('cfd_updated', {
-          score: populated.reported_student.behavioral_score,
           report_code: populated.report_code,
         });
       }
-    }
+    });
   }
 
   return populated;
@@ -364,7 +417,7 @@ const getAllViolationReports = async (query = {}) => {
   if (student_code) {
     const student = await Student.findOne({ student_code });
     if (student) {
-      filter.reported_student = student._id;
+      filter.$or = [{ reported_student: student._id }, { reported_students: student._id }];
     }
   }
 
@@ -384,6 +437,7 @@ const getAllViolationReports = async (query = {}) => {
     ViolationReport.find(filter)
       .populate([
         { path: 'reported_student', select: 'student_code full_name phone behavioral_score' },
+        { path: 'reported_students', select: 'student_code full_name phone behavioral_score' },
         { path: 'reporter', select: 'fullname email' },
         { path: 'reviewed_by', select: 'full_name' },
       ])
@@ -413,6 +467,10 @@ const getViolationReportById = async (id) => {
   const report = await ViolationReport.findById(id).populate([
     {
       path: 'reported_student',
+      select: 'student_code full_name phone behavioral_score violations_current_semester',
+    },
+    {
+      path: 'reported_students',
       select: 'student_code full_name phone behavioral_score violations_current_semester',
     },
     { path: 'reporter', select: 'fullname email' },
@@ -448,15 +506,33 @@ const reviewViolationReport = async (id, body, staffId, io) => {
   report.reviewed_by = staffId;
   report.reviewed_at = new Date();
 
-  // When penalizing, set reported_student to the student being penalized (so details show correctly)
-  if (body.status === 'resolved_penalized' && body.penalty?.student_code) {
-    const penalizedStudent = await Student.findOne({
-      student_code: {
-        $regex: new RegExp(`^${escapeRegex(body.penalty.student_code.trim())}$`, 'i'),
-      },
-    }).select('_id');
-    if (penalizedStudent) {
-      report.reported_student = penalizedStudent._id;
+  let penaltyStudentCodes = [];
+  if (body.status === 'resolved_penalized' && body.penalty) {
+    const rawCodes = Array.isArray(body.penalty.student_codes) ? body.penalty.student_codes : [];
+    penaltyStudentCodes = [
+      ...new Set(
+        rawCodes
+          .map((code) => String(code || '').trim().toUpperCase())
+          .filter(Boolean)
+      ),
+    ];
+
+    // Backward compatibility: allow single student_code payload.
+    if (!penaltyStudentCodes.length && body.penalty.student_code) {
+      penaltyStudentCodes = [String(body.penalty.student_code).trim().toUpperCase()];
+    }
+
+    if (penaltyStudentCodes.length) {
+      const penalizedStudents = await Student.find({
+        student_code: { $in: penaltyStudentCodes },
+      }).select('_id student_code');
+      if (penalizedStudents.length !== penaltyStudentCodes.length) {
+        const foundCodes = new Set(penalizedStudents.map((s) => String(s.student_code).toUpperCase()));
+        const missingCodes = penaltyStudentCodes.filter((code) => !foundCodes.has(code));
+        throw new AppError(`Student code(s) not found: ${missingCodes.join(', ')}`, 404);
+      }
+      report.reported_students = penalizedStudents.map((s) => s._id);
+      report.reported_student = penalizedStudents[0]._id;
     }
   }
 
@@ -464,11 +540,25 @@ const reviewViolationReport = async (id, body, staffId, io) => {
 
   // If penalized, create penalty and update student score
   if (body.status === 'resolved_penalized' && body.penalty) {
-    await createPenaltyFromReport(report, body.penalty, staffId);
+    if (penaltyStudentCodes.length > 0) {
+      for (const studentCode of penaltyStudentCodes) {
+        await createPenaltyFromReport(
+          report,
+          {
+            ...body.penalty,
+            student_code: studentCode,
+          },
+          staffId
+        );
+      }
+    } else {
+      await createPenaltyFromReport(report, body.penalty, staffId);
+    }
   }
 
   const populated = await report.populate([
     { path: 'reported_student', select: 'student_code full_name user' },
+    { path: 'reported_students', select: 'student_code full_name phone behavioral_score user' },
     { path: 'reporter', select: 'fullname email' },
     { path: 'reviewed_by', select: 'full_name' },
   ]);
@@ -476,18 +566,27 @@ const reviewViolationReport = async (id, body, staffId, io) => {
 
   if (io) {
     io.to('managers').emit('violation_updated', populated);
-    // If student is reported, notify them
+    // Notify all affected students (single or batch), deduplicated.
+    const usersToNotify = new Set();
     if (populated.reported_student?.user) {
-      const studentUserId = populated.reported_student.user._id || populated.reported_student.user;
-      io.to(`user_${studentUserId}`).emit('violation_updated', populated);
+      usersToNotify.add(String(populated.reported_student.user._id || populated.reported_student.user));
+    }
+    if (Array.isArray(populated.reported_students)) {
+      populated.reported_students.forEach((student) => {
+        if (student?.user) {
+          usersToNotify.add(String(student.user._id || student.user));
+        }
+      });
+    }
 
+    usersToNotify.forEach((studentUserId) => {
+      io.to(`user_${studentUserId}`).emit('violation_updated', populated);
       if (body.status === 'resolved_penalized') {
         io.to(`user_${studentUserId}`).emit('cfd_updated', {
-          score: populated.reported_student.behavioral_score,
           report_code: populated.report_code,
         });
       }
-    }
+    });
   }
 
   return populated;
@@ -523,9 +622,14 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
   const studentBeforePenalty = await syncStudentBehavioralSnapshot(studentId);
   const currentScore = Number(studentBeforePenalty?.behavioral_score) || 0;
   const requestedPoints = Number(penaltyData.points_deducted);
+  const maxIntegerDeduction = Math.floor(currentScore);
 
   if (!(requestedPoints > 0)) {
     throw new AppError('points_deducted must be greater than 0.', 400);
+  }
+
+  if (!Number.isInteger(requestedPoints)) {
+    throw new AppError('points_deducted must be an integer value.', 400);
   }
 
   if (currentScore <= 0) {
@@ -535,9 +639,16 @@ const createPenaltyFromReport = async (report, penaltyData, staffId) => {
     );
   }
 
-  if (requestedPoints > currentScore) {
+  if (maxIntegerDeduction < 1) {
     throw new AppError(
-      `Points to deduct cannot exceed current CFD score (${currentScore}).`,
+      `Student ${studentBeforePenalty?.student_code || ''} does not have enough score for an integer deduction.`,
+      400
+    );
+  }
+
+  if (requestedPoints > maxIntegerDeduction) {
+    throw new AppError(
+      `Points to deduct cannot exceed current CFD score (${maxIntegerDeduction}).`,
       400
     );
   }
@@ -707,7 +818,10 @@ const getViolationStatistics = async () => {
  */
 const getMyViolationReports = async (reporterId) => {
   const reports = await ViolationReport.find({ reporter: reporterId })
-    .populate([{ path: 'reported_student', select: 'student_code full_name' }])
+    .populate([
+      { path: 'reported_student', select: 'student_code full_name' },
+      { path: 'reported_students', select: 'student_code full_name' },
+    ])
     .sort({ createdAt: -1 })
     .limit(100);
 

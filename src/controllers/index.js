@@ -24,3 +24,4 @@ module.exports.ewUsageController = require('./ewUsage.controller');
 module.exports.invoiceController = require('./invoice.controller');
 module.exports.checkoutRequestController = require('./checkoutRequest.controller');
 module.exports.agentController = require('./agent.controller');
+module.exports.contractExtensionController = require('./contractExtension.controller');

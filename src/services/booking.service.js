@@ -19,7 +19,7 @@ const {
   getPayosPaymentInfo,
   cancelPayosPaymentLink,
 } = require('./payos.service');
-const { sendPaymentSuccessEmail, sendMail } = require('./email.service');
+const { sendBookingPaymentSuccessEmail, sendMail } = require('./email.service');
 const { createCheckoutSettlement } = require('./ewUsage.service');
 
 const invoiceCodeToOrderCode = (invoiceCode) => {
@@ -503,7 +503,7 @@ const getBedsForBooking = async (userId, roomId) => {
   let takenBedIdSet = new Set();
   if (allBedIds.length > 0) {
     const nextSem = await getTargetSemester();
-    const [takenByBooking, takenByContract, checkedOutBookings] = await Promise.all([
+    const [takenByBooking, takenByContract] = await Promise.all([
       BookingRequest.find({
         bed: { $in: allBedIds },
         semester: nextSem.semester,
@@ -519,22 +519,9 @@ const getBedsForBooking = async (userId, roomId) => {
       })
         .select('bed')
         .lean(),
-      BookingRequest.find({
-        student: student._id,
-        semester: nextSem.semester,
-        status: 'approved',
-        checkout_date: { $ne: null },
-        $or: [{ bed: { $in: allBedIds } }, { bed_transfer: { $in: allBedIds } }],
-      })
-        .select('bed bed_transfer')
-        .lean(),
     ]);
     for (const r of [...takenByBooking, ...takenByContract]) {
       takenBedIdSet.add(String(r.bed));
-    }
-    for (const booking of checkedOutBookings) {
-      const checkedOutBedId = booking.bed_transfer || booking.bed;
-      if (checkedOutBedId) takenBedIdSet.add(String(checkedOutBedId));
     }
   }
 
@@ -629,13 +616,6 @@ const submitBooking = async (userId, { bed_id, note }, io = null) => {
   });
   if (existingBooking) {
     throw new AppError('You already have an active booking for this semester', 409);
-  }
-
-  if (await hasCheckedOutFromBedInSemester(student._id, nextSem.semester, bed._id)) {
-    throw new AppError(
-      'You cannot book this bed again in the same semester after checking out from it',
-      409
-    );
   }
 
   // Check if this specific bed is already booked/contracted for next semester
@@ -990,6 +970,8 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
     });
   }
 
+  const populatedBooking = await populateBookingForStudent(bookingId);
+
   // Notify student + email
   const user = await User.findById(student.user).lean();
   if (user) {
@@ -1004,18 +986,29 @@ const checkPaymentStatus = async (bookingId, userId, io) => {
 
     // Email is best-effort
     try {
-      await sendPaymentSuccessEmail({
+      const roomLabelParts = [
+        populatedBooking?.room?.block?.dorm?.dorm_code || populatedBooking?.room?.block?.dorm?.dorm_name,
+        populatedBooking?.room?.block?.block_code || populatedBooking?.room?.block?.block_name,
+        populatedBooking?.room?.room_number ? `Room ${populatedBooking.room.room_number}` : null,
+        populatedBooking?.bed?.bed_number ? `Bed ${populatedBooking.bed.bed_number}` : null,
+      ].filter(Boolean);
+
+      await sendBookingPaymentSuccessEmail({
         to: user.email,
         studentName: student.full_name,
-        invoiceCode: invoice.invoice_code,
+        studentCode: student.student_code,
+        roomLabel: roomLabelParts.join(' · '),
+        semester: booking.semester,
+        startDate: booking.start_date,
+        transactionCode: payment.transaction_code,
         amountVnd: invoice.total_amount,
+        paidAt: payment.paid_at,
+        bookingSource: booking.source,
       });
     } catch (e) {
-      console.error('[Email] sendPaymentSuccessEmail failed:', e.message);
+      console.error('[Email] sendBookingPaymentSuccessEmail failed:', e.message);
     }
   }
-
-  const populatedBooking = await populateBookingForStudent(bookingId);
   return { status: 'paid', paid: true, booking: populatedBooking, invoice, payment, contract };
 };
 

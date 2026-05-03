@@ -13,6 +13,10 @@ const {
 const { createPayosPaymentLink, getPayosPaymentInfo } = require('./payos.service');
 const { sendPaymentSuccessEmail } = require('./email.service');
 const { createEWInvoices } = require('./ewUsage.service');
+const {
+  getStartOfTodayInDormTimezone,
+  normalizeDateOnlyToDormNoonUtc,
+} = require('../utils/dateOnly');
 
 const EW_INVOICE_REGEX = /^EW-/;
 const isSameAmount = (left, right) => Number(left || 0) === Number(right || 0);
@@ -511,7 +515,13 @@ const getInvoices = async (query = {}) => {
 
   // Manager list never shows cancelled invoices
   if (payment_status) {
-    filter.payment_status = payment_status;
+    if (payment_status === 'overdue') {
+      const todayStart = getStartOfTodayInDormTimezone();
+      filter.payment_status = 'unpaid';
+      filter.due_date = { $lt: todayStart };
+    } else {
+      filter.payment_status = payment_status;
+    }
   } else {
     filter.payment_status = { $ne: 'cancelled' };
   }
@@ -572,6 +582,11 @@ const createSingleInvoice = async ({ student, roomId, body, staffId, io = null }
     Number(body.water_fee || 0) +
     Number(body.service_fee || 0) +
     Number(body.other_fees || 0);
+  const normalizedDueDate = normalizeDateOnlyToDormNoonUtc(body.due_date);
+
+  if (Number.isNaN(normalizedDueDate.getTime())) {
+    throw new AppError('due_date is invalid', 400);
+  }
 
   const invoice = await Invoice.create({
     invoice_code: generateInvoiceCode(),
@@ -585,7 +600,7 @@ const createSingleInvoice = async ({ student, roomId, body, staffId, io = null }
     other_fees: Number(body.other_fees || 0),
     total_amount: total,
     payment_status: 'unpaid',
-    due_date: new Date(body.due_date),
+    due_date: normalizedDueDate,
     created_by: staffId || null,
   });
 

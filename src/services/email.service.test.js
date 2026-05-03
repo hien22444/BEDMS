@@ -174,4 +174,46 @@ describe('email.service (Brevo)', () => {
       expect(body.htmlContent).toContain('Hi Student');
     });
   });
+
+  describe('sendBookingPaymentSuccessEmail', () => {
+    it('sends booking success email and includes face-registration notice for new booking', async () => {
+      global.fetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      await emailService.sendBookingPaymentSuccessEmail({
+        to: 'student@example.com',
+        studentName: 'Lam',
+        studentCode: 'DE180775',
+        roomLabel: 'A101-1 Bed 1',
+        semester: 'Fall-2026',
+        startDate: '2026-09-01',
+        transactionCode: 'PAY-20260501-0001',
+        amountVnd: 4500000,
+        paidAt: '2026-05-01T11:18:00.000Z',
+        bookingSource: 'new_booking',
+      });
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.subject).toBe('[Dormitory] Payment Successful - Booking Confirmed');
+      expect(body.htmlContent).toContain('A101-1 Bed 1');
+      expect(body.htmlContent).toContain('PAY-20260501-0001');
+      expect(body.htmlContent).toContain('face registration');
+    });
+
+    it('does not include face-registration notice for hold booking', async () => {
+      global.fetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+
+      await emailService.sendBookingPaymentSuccessEmail({
+        to: 'student@example.com',
+        studentName: 'Lam',
+        roomLabel: 'A101-1 Bed 1',
+        amountVnd: 4500000,
+        bookingSource: 'hold',
+      });
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.subject).toBe('[Dormitory] Payment Successful - Hold Bed Confirmed');
+      expect(body.htmlContent).toContain('Payment Successful - Hold Bed Confirmed');
+      expect(body.htmlContent).not.toContain('face registration');
+    });
+  });
 });

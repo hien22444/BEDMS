@@ -1,6 +1,7 @@
 const xlsx = require('xlsx');
 const AppError = require('../utils/AppError');
 const { EWUsage, Block, Room, Dorm, Invoice, InvoiceLineItem, Contract, Student } = require('../models');
+const { normalizeDateOnlyToDormNoonUtc } = require('../utils/dateOnly');
 
 const PRICE_MAP = { electric: 3000, water: 9000 };
 const EW_INVOICE_REGEX = /^EW-/;
@@ -140,6 +141,13 @@ const isBillingClosingDay = (date) => {
 const formatDateDMY = (date) => new Intl.DateTimeFormat('en-GB').format(new Date(date));
 const formatMonthYear = (date) =>
   new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date(date));
+const assertNotFutureDate = (date, label = 'Date') => {
+  const currentDayEnd = new Date();
+  currentDayEnd.setHours(...DAY_END);
+  if (new Date(date).getTime() > currentDayEnd.getTime()) {
+    throw new AppError(`${label} cannot be in the future`, 400);
+  }
+};
 const buildStrictDate = (year, month, day) => {
   const parsed = new Date(year, month - 1, day);
   if (
@@ -677,9 +685,12 @@ const createInvoicesForGroups = async (
     };
   }
 
-  const dueDate = overrideDueDate
-    ? new Date(overrideDueDate)
-    : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+  const dueDate = normalizeDateOnlyToDormNoonUtc(
+    overrideDueDate || new Date(Date.now() + 15 * 24 * 60 * 60 * 1000)
+  );
+  if (Number.isNaN(dueDate.getTime())) {
+    throw new AppError('due_date is invalid', 400);
+  }
   const studentsSeen = new Set();
   let invoicesCreated = 0;
   let invoicesUpdated = 0;
@@ -954,6 +965,7 @@ const createEWUsage = async (body) => {
   const block = await Block.findById(blockId).populate('dorm').lean();
   if (!block) throw new AppError('Block not found', 404);
   if (Number.isNaN(recordDate.getTime())) throw new AppError('Invalid date', 400);
+  assertNotFutureDate(recordDate);
 
   await assertDateFollowsLatestRecord(block._id, type, recordDate);
   const existingOnDate = await findRecordOnSameDate(block._id, type, recordDate);
@@ -1102,6 +1114,7 @@ const resetMeter = async (body) => {
 
   const resetDate = normalizeRecordDate(date);
   if (Number.isNaN(resetDate.getTime())) throw new AppError('Invalid date', 400);
+  assertNotFutureDate(resetDate, 'Reset date');
 
   const latestRecord = await EWUsage.findOne({ block: blockId, type }).sort({ date: -1, createdAt: -1 }).lean();
   if (!latestRecord) throw new AppError('No record found for this block and type', 404);
@@ -1198,6 +1211,7 @@ const importEWUsages = async (fileBuffer) => {
       if (!parsedDate) throw new Error('Date (column D) is invalid. Use a real date in dd/MM/yyyy format');
       parsedDate = normalizeRecordDate(parsedDate);
       if (Number.isNaN(parsedDate.getTime())) throw new Error('Date (column D) is invalid');
+      assertNotFutureDate(parsedDate, 'Date (column D)');
       if (Date.now() - parsedDate.getTime() > TWO_YEARS_MS) throw new Error(`Date (column D) is too far in the past (${formatDateDMY(parsedDate)})`);
 
       const fileKey = `${String(dormCode).trim().toUpperCase()}|${String(blockCode).trim().toUpperCase()}|${type}|${parsedDate.toISOString().slice(0, 10)}`;
@@ -1284,28 +1298,93 @@ const importEWUsages = async (fileBuffer) => {
 
 const exportEWUsages = async (query) => {
   const { block_name, type, month, year } = query;
+  if (!month || !year) {
+    throw new AppError('month and year are required to export EW usages', 400);
+  }
+
+  const parsedMonth = parseInt(month, 10);
+  const parsedYear = parseInt(year, 10);
+  if (
+    Number.isNaN(parsedMonth) ||
+    Number.isNaN(parsedYear) ||
+    parsedMonth < 1 ||
+    parsedMonth > 12
+  ) {
+    throw new AppError('month or year is invalid for EW export', 400);
+  }
+
   const filter = {};
   if (block_name) filter.block_name = { $regex: block_name, $options: 'i' };
   if (type && ['electric', 'water'].includes(type)) filter.type = type;
-  if (month || year) {
-    const conditions = [];
-    if (month) conditions.push({ $eq: [{ $month: '$date' }, parseInt(month, 10)] });
-    if (year) conditions.push({ $eq: [{ $year: '$date' }, parseInt(year, 10)] });
-    filter.$expr = conditions.length > 1 ? { $and: conditions } : conditions[0];
-  }
-  const records = await EWUsage.find(filter).sort({ block_name: 1, date: 1 }).lean();
-  const sheetData = records.map((r, index) => ({
+  filter.$expr = {
+    $and: [
+      { $eq: [{ $month: '$date' }, parsedMonth] },
+      { $eq: [{ $year: '$date' }, parsedYear] },
+    ],
+  };
+  const [records, blocks] = await Promise.all([
+    EWUsage.find(filter).sort({ block_name: 1, type: 1, date: 1 }).lean(),
+    Block.find({
+      ...(block_name ? { block_name: { $regex: block_name, $options: 'i' } } : {}),
+      is_active: true,
+    })
+      .populate({ path: 'dorm', select: 'dorm_name dorm_code is_active' })
+      .sort({ block_name: 1, block_code: 1 })
+      .lean(),
+  ]);
+
+  const eligibleBlocks = blocks.filter((block) => block.dorm?.is_active);
+  const typesToExport = type && ['electric', 'water'].includes(type) ? [type] : ['electric', 'water'];
+  const rows = [];
+
+  eligibleBlocks.forEach((block) => {
+    typesToExport.forEach((usageType) => {
+      const blockRecords = records.filter(
+        (record) => record.block?.toString() === block._id.toString() && record.type === usageType
+      );
+
+      if (!blockRecords.length) {
+        rows.push({
+          'Dorm Code': block.dorm?.dorm_code || '',
+          'Dorm Name': block.dorm?.dorm_name || '',
+          'Block Code': block.block_code || '',
+          'Block Name': block.block_name || '',
+          'Usage Type': usageType === 'electric' ? 'Electric' : 'Water',
+          'Created Date': '',
+          'Meter Left': '',
+          'Meter Right': '',
+          Consumption: '',
+          Unit: usageType === 'electric' ? 'kW' : 'm3',
+          'Price Per Unit': getPricePerUnit(usageType),
+          Amount: '',
+          'Billed Status': 'No Data',
+        });
+        return;
+      }
+
+      blockRecords.forEach((record) => {
+        rows.push({
+          'Dorm Code': block.dorm?.dorm_code || '',
+          'Dorm Name': block.dorm?.dorm_name || '',
+          'Block Code': block.block_code || '',
+          'Block Name': block.block_name || '',
+          'Usage Type': record.type === 'electric' ? 'Electric' : 'Water',
+          'Created Date': record.date ? formatDateDMY(record.date) : '',
+          'Meter Left': record.meter_left,
+          'Meter Right': record.meter_right,
+          Consumption: record.consumption,
+          Unit: record.unit,
+          'Price Per Unit': record.price_per_unit,
+          Amount: record.amount,
+          'Billed Status': record.is_billed ? 'Completed' : 'Pending Invoice',
+        });
+      });
+    });
+  });
+
+  const sheetData = rows.map((row, index) => ({
     '#': index + 1,
-    'Block Name': r.block_name,
-    'Usage Type': r.type === 'electric' ? 'Electric' : 'Water',
-    'Created Date': r.date ? formatDateDMY(r.date) : '',
-    'Meter Left': r.meter_left,
-    'Meter Right': r.meter_right,
-    Consumption: r.consumption,
-    Unit: r.unit,
-    'Price Per Unit': r.price_per_unit,
-    Amount: r.amount,
-    'Billed Status': r.is_billed ? 'Completed' : 'Pending Invoice',
+    ...row,
   }));
   const ws = xlsx.utils.json_to_sheet(sheetData);
   const wb = xlsx.utils.book_new();
