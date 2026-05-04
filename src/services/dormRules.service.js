@@ -43,15 +43,70 @@ const RULE_SUMMARY_VI = {
 
 const tokenize = (text = '') => normalize(text).split(' ').filter(Boolean);
 
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
+const flattenTextValues = (value) => {
+  if (value === undefined || value === null) return [];
+  if (Array.isArray(value)) return value.flatMap(flattenTextValues);
+  if (typeof value === 'object') return Object.values(value).flatMap(flattenTextValues);
+  return [String(value)];
+};
+
+const pickLocalizedValue = (record = {}, baseKey, isVietnamese) => {
+  const preferredKey = isVietnamese ? `${baseKey}_vi` : `${baseKey}_en`;
+  const fallbackKey = isVietnamese ? `${baseKey}_en` : `${baseKey}_vi`;
+
+  return record[preferredKey] || record[baseKey] || record[fallbackKey] || '';
+};
+
+const pickLocalizedList = (record = {}, baseKey, isVietnamese) => {
+  const preferredKey = isVietnamese ? `${baseKey}_vi` : `${baseKey}_en`;
+  const fallbackKey = isVietnamese ? `${baseKey}_en` : `${baseKey}_vi`;
+
+  return asArray(record[preferredKey]).length
+    ? asArray(record[preferredKey])
+    : asArray(record[baseKey]).length
+      ? asArray(record[baseKey])
+      : asArray(record[fallbackKey]);
+};
+
+const getRuleTitle = (rule, isVietnamese) =>
+  pickLocalizedValue(rule, 'title', isVietnamese) || rule.id;
+
+const getRuleText = (rule, isVietnamese) =>
+  isVietnamese
+    ? rule.rule_vi || RULE_SUMMARY_VI[rule.id] || rule.rule || rule.rule_en || ''
+    : rule.rule_en || rule.rule || rule.rule_vi || '';
+
+const getRuleDetails = (rule, isVietnamese) => pickLocalizedValue(rule, 'details', isVietnamese);
+
+const collectRuleKeywords = (rule) => [
+  ...asArray(rule.keywords),
+  ...asArray(rule.keywords_vi),
+  ...asArray(rule.keywords_en),
+  ...(RULE_SYNONYMS_VI[rule.id] || []),
+];
+
 const buildRuleSearchText = (rule) => {
   const fields = [
     rule.title,
+    rule.title_vi,
+    rule.title_en,
     rule.rule,
+    rule.rule_vi,
+    rule.rule_en,
     rule.details,
-    ...(rule.keywords || []),
-    ...(rule.example_questions || []),
-    ...(rule.allowed_devices || []),
-    ...(RULE_SYNONYMS_VI[rule.id] || []),
+    rule.details_vi,
+    rule.details_en,
+    rule.source_ref,
+    ...collectRuleKeywords(rule),
+    ...asArray(rule.example_questions),
+    ...asArray(rule.example_questions_vi),
+    ...asArray(rule.example_questions_en),
+    ...asArray(rule.allowed_devices),
+    ...asArray(rule.allowed_devices_vi),
+    ...asArray(rule.allowed_devices_en),
+    ...flattenTextValues(rule.penalty),
   ];
 
   return normalize(fields.filter(Boolean).join(' '));
@@ -67,7 +122,7 @@ const scoreRule = (question, rule) => {
   let keywordHits = 0;
   let tokenHits = 0;
 
-  const keywords = [...(rule.keywords || []), ...(RULE_SYNONYMS_VI[rule.id] || [])];
+  const keywords = collectRuleKeywords(rule);
   for (const kw of keywords) {
     const keyword = normalize(kw);
     if (!keyword) continue;
@@ -84,7 +139,13 @@ const scoreRule = (question, rule) => {
     }
   }
 
-  for (const sample of rule.example_questions || []) {
+  const samples = [
+    ...asArray(rule.example_questions),
+    ...asArray(rule.example_questions_vi),
+    ...asArray(rule.example_questions_en),
+  ];
+
+  for (const sample of samples) {
     const sampleNormalized = normalize(sample);
     if (sampleNormalized && qNormalized.includes(sampleNormalized)) {
       score += 10;
@@ -167,6 +228,13 @@ const buildFollowUpAnswer = (isVietnamese) =>
     ? 'Đó là những nội quy hiện tại mà mình có trong cơ sở dữ liệu. Nếu bạn muốn, mình có thể tóm tắt theo chủ đề hoặc giải thích từng mục chi tiết hơn.'
     : 'Yes, those are the current dormitory rules I have on file. If you want, I can group them by topic or explain any rule in more detail.';
 
+const cleanSentencePart = (value) =>
+  String(value || '')
+    .trim()
+    .replace(/[.!?。]+$/u, '');
+
+const joinPenaltyParts = (parts) => parts.map(cleanSentencePart).filter(Boolean).join('. ');
+
 const formatPenalty = (penalty, isVietnamese) => {
   if (!penalty) return '';
 
@@ -175,31 +243,53 @@ const formatPenalty = (penalty, isVietnamese) => {
       ? `${new Intl.NumberFormat('vi-VN').format(penalty.fine_vnd)} VND`
       : null;
 
+  const localized = (key) => pickLocalizedValue(penalty, key, isVietnamese);
+
   if (isVietnamese) {
     const parts = [];
     if (fine) parts.push(`Mức phạt: ${fine}`);
-    if (penalty.description) parts.push(penalty.description);
-    if (penalty.repeat_penalty) parts.push(`Tái phạm: ${penalty.repeat_penalty}`);
-    return parts.join('. ');
+    if (localized('amount')) parts.push(`Mức xử lý: ${localized('amount')}`);
+    if (localized('description')) parts.push(localized('description'));
+    if (localized('first_violation')) parts.push(`Lần 1: ${localized('first_violation')}`);
+    if (localized('second_violation')) parts.push(`Lần 2: ${localized('second_violation')}`);
+    if (localized('third_violation')) parts.push(`Lần 3: ${localized('third_violation')}`);
+    if (localized('repeat_penalty')) parts.push(`Tái phạm: ${localized('repeat_penalty')}`);
+    if (localized('additional_action')) parts.push(localized('additional_action'));
+    if (localized('compensation')) parts.push(`Bồi thường: ${localized('compensation')}`);
+    if (localized('legal_action')) parts.push(`Xử lý pháp lý: ${localized('legal_action')}`);
+    if (localized('note')) parts.push(localized('note'));
+    return joinPenaltyParts(parts);
   }
 
   const parts = [];
   if (fine) parts.push(`Penalty: ${fine}`);
-  if (penalty.description) parts.push(penalty.description);
-  if (penalty.repeat_penalty) parts.push(`Repeat violation: ${penalty.repeat_penalty}`);
-  return parts.join('. ');
+  if (localized('amount')) parts.push(`Penalty amount: ${localized('amount')}`);
+  if (localized('description')) parts.push(localized('description'));
+  if (localized('first_violation')) parts.push(`First violation: ${localized('first_violation')}`);
+  if (localized('second_violation'))
+    parts.push(`Second violation: ${localized('second_violation')}`);
+  if (localized('third_violation')) parts.push(`Third violation: ${localized('third_violation')}`);
+  if (localized('repeat_penalty')) parts.push(`Repeat violation: ${localized('repeat_penalty')}`);
+  if (localized('additional_action')) parts.push(localized('additional_action'));
+  if (localized('compensation')) parts.push(`Compensation: ${localized('compensation')}`);
+  if (localized('legal_action')) parts.push(`Legal handling: ${localized('legal_action')}`);
+  if (localized('note')) parts.push(localized('note'));
+  return joinPenaltyParts(parts);
 };
 
 const buildGroundedFallbackAnswer = (rule, isVietnamese) => {
   if (!rule) return defaultUnknownAnswer(isVietnamese);
 
-  const answerParts = [isVietnamese ? RULE_SUMMARY_VI[rule.id] || rule.rule : rule.rule];
-  if (rule.details && !isVietnamese) answerParts.push(rule.details);
-  if (Array.isArray(rule.allowed_devices) && rule.allowed_devices.length > 0) {
+  const answerParts = [getRuleText(rule, isVietnamese)];
+  const details = getRuleDetails(rule, isVietnamese);
+  if (details && details !== answerParts[0]) answerParts.push(details);
+
+  const allowedDevices = pickLocalizedList(rule, 'allowed_devices', isVietnamese);
+  if (allowedDevices.length > 0) {
     answerParts.push(
       isVietnamese
-        ? `Thiết bị được phép: ${rule.allowed_devices.join(', ')}.`
-        : `Allowed devices: ${rule.allowed_devices.join(', ')}.`
+        ? `Thiết bị được phép: ${allowedDevices.join(', ')}.`
+        : `Allowed devices: ${allowedDevices.join(', ')}.`
     );
   }
 
@@ -212,8 +302,8 @@ const buildGroundedFallbackAnswer = (rule, isVietnamese) => {
 const buildOverviewFallbackAnswer = (isVietnamese, rules = []) => {
   const highlights = rules
     .map((rule) => {
-      const summary = isVietnamese ? RULE_SUMMARY_VI[rule.id] || rule.rule : rule.rule;
-      return `- ${rule.title}: ${summary}`;
+      const summary = getRuleText(rule, isVietnamese);
+      return `- ${getRuleTitle(rule, isVietnamese)}: ${summary}`;
     })
     .join('\n');
 
@@ -300,11 +390,20 @@ const queryRules = async (question) => {
       matched_rules: contextRules.map((rule) => ({
         id: rule.id,
         category: rule.category,
-        title: rule.title,
-        rule: rule.rule,
-        details: rule.details || null,
+        title: getRuleTitle(rule, isVietnamese),
+        title_en: rule.title_en || null,
+        title_vi: rule.title_vi || null,
+        rule: getRuleText(rule, isVietnamese),
+        rule_en: rule.rule_en || null,
+        rule_vi: rule.rule_vi || null,
+        details: getRuleDetails(rule, isVietnamese) || null,
+        details_en: rule.details_en || null,
+        details_vi: rule.details_vi || null,
         allowed_devices: rule.allowed_devices || null,
+        allowed_devices_en: rule.allowed_devices_en || null,
+        allowed_devices_vi: rule.allowed_devices_vi || null,
         penalty: rule.penalty || null,
+        source_ref: rule.source_ref || null,
         score: typeof rule.score === 'number' ? rule.score : 0,
       })),
       source: kb.knowledge_base || null,
@@ -328,11 +427,20 @@ const queryRules = async (question) => {
     matched_rules: contextRules.map((rule) => ({
       id: rule.id,
       category: rule.category,
-      title: rule.title,
-      rule: rule.rule,
-      details: rule.details || null,
+      title: getRuleTitle(rule, isVietnamese),
+      title_en: rule.title_en || null,
+      title_vi: rule.title_vi || null,
+      rule: getRuleText(rule, isVietnamese),
+      rule_en: rule.rule_en || null,
+      rule_vi: rule.rule_vi || null,
+      details: getRuleDetails(rule, isVietnamese) || null,
+      details_en: rule.details_en || null,
+      details_vi: rule.details_vi || null,
       allowed_devices: rule.allowed_devices || null,
+      allowed_devices_en: rule.allowed_devices_en || null,
+      allowed_devices_vi: rule.allowed_devices_vi || null,
       penalty: rule.penalty || null,
+      source_ref: rule.source_ref || null,
       score: typeof rule.score === 'number' ? rule.score : 0,
     })),
     source: kb.knowledge_base || null,
