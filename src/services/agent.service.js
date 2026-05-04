@@ -2,7 +2,8 @@ const { Observable } = require('rxjs');
 const openaiService = require('./openai.service');
 const bookingService = require('./booking.service');
 const dormRulesService = require('./dormRules.service');
-const { BookingRequest, Contract, Student, UtilityReading } = require('../models');
+const ewUsageService = require('./ewUsage.service');
+const { Student } = require('../models');
 const { detectPreferredLanguage, normalize } = require('../utils/lang');
 
 const GENERAL_SYSTEM_PROMPT = {
@@ -61,6 +62,23 @@ const UTILITY_MESSAGES = {
 const CONDUCT_MESSAGES = {
   en: { summary: 'Here is your current conduct summary.' },
   vi: { summary: 'Đây là thông tin điểm hạnh kiểm hiện tại của bạn.' },
+};
+
+const MANAGER_HANDOFF_MESSAGES = {
+  en: {
+    fallback:
+      'I do not have reliable information for that dormitory question. Please contact the Dorm manager directly for the most accurate answer.',
+    cfd: 'I can show your current conduct summary, but I do not have the official explanation for CFD scoring. Please contact the Dorm manager directly for the most accurate answer.',
+    utility:
+      'I can show your latest utility readings, but I do not have enough reliable context to explain billing calculations. Please contact the Dorm manager directly for the most accurate answer.',
+  },
+  vi: {
+    fallback:
+      'Mình chưa có thông tin đáng tin cậy cho câu hỏi này về KTX. Bạn vui lòng liên hệ trực tiếp Dorm manager để được trả lời chính xác nhất.',
+    cfd: 'Mình có thể hiển thị tóm tắt hạnh kiểm hiện tại, nhưng chưa có giải thích chính thức về cách tính điểm CFD. Bạn vui lòng liên hệ trực tiếp Dorm manager để được trả lời chính xác nhất.',
+    utility:
+      'Mình có thể hiển thị chỉ số điện nước mới nhất, nhưng chưa đủ ngữ cảnh đáng tin cậy để giải thích cách tính phí. Bạn vui lòng liên hệ trực tiếp Dorm manager để được trả lời chính xác nhất.',
+  },
 };
 
 const pickLangBucket = (bucket, lang) => bucket[lang] || bucket.en;
@@ -177,65 +195,6 @@ const getStudentProfile = async (userId) => {
   return student;
 };
 
-const getStudentRoomContext = async (userId) => {
-  const student = await getStudentProfile(userId);
-
-  const populateRoom = {
-    path: 'room',
-    populate: {
-      path: 'block',
-      select: 'block_name block_code gender_type dorm',
-      populate: {
-        path: 'dorm',
-        select: 'dorm_name dorm_code',
-      },
-    },
-  };
-
-  const activeContract = await Contract.findOne({
-    student: student._id,
-    status: 'active',
-  })
-    .populate(populateRoom)
-    .populate('bed', 'bed_number')
-    .lean();
-
-  if (activeContract?.room) {
-    return {
-      student,
-      room: activeContract.room,
-      bed: activeContract.bed || null,
-      source: 'active_contract',
-    };
-  }
-
-  const latestApprovedBooking = await BookingRequest.findOne({
-    student: student._id,
-    status: 'approved',
-    checkout_date: null,
-  })
-    .sort({ requested_at: -1 })
-    .populate(populateRoom)
-    .populate('bed', 'bed_number')
-    .lean();
-
-  if (latestApprovedBooking?.room) {
-    return {
-      student,
-      room: latestApprovedBooking.room,
-      bed: latestApprovedBooking.bed || null,
-      source: 'approved_booking',
-    };
-  }
-
-  return {
-    student,
-    room: null,
-    bed: null,
-    source: null,
-  };
-};
-
 const buildBookingSummary = (bookingState, semesterLabel, lang = 'en') => {
   const prompts = pickLangBucket(BOOKING_PROMPTS, lang);
   const labels =
@@ -298,6 +257,80 @@ const describeBedsAvailable = (count, lang = 'en') =>
 
 const describeTapToReview = (lang = 'en') =>
   lang === 'vi' ? 'Chạm để xem lại và xác nhận' : 'Tap to review and confirm';
+
+const getUtilityMonthKey = (date) => {
+  if (!date) return null;
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 7);
+};
+
+const formatUtilityMonth = (monthKey, lang = 'en') => {
+  if (!monthKey) return null;
+  const [year, month] = monthKey.split('-').map(Number);
+  if (!year || !month) return monthKey;
+
+  return new Intl.DateTimeFormat(lang === 'vi' ? 'vi-VN' : 'en-GB', {
+    timeZone: 'UTC',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+};
+
+const buildUtilityRoomLabel = (ewData, lang = 'en') => {
+  const roomPrefix = lang === 'vi' ? 'Phòng' : 'Room';
+  return [ewData.block_name, ewData.room_number ? `${roomPrefix} ${ewData.room_number}` : null]
+    .filter(Boolean)
+    .join(' · ');
+};
+
+const toUtilityMetaRecord = (record) => ({
+  id: record.id?.toString?.() || String(record.id || ''),
+  term: record.term || null,
+  date: record.date || null,
+  type: record.type,
+  meter_left: record.meter_left ?? null,
+  meter_right: record.meter_right ?? null,
+  consumption: record.consumption ?? null,
+  unit: record.unit || null,
+  price_per_unit: record.price_per_unit ?? null,
+  occupied_beds: record.occupied_beds ?? null,
+  billing_students: record.billing_students ?? null,
+  billing_days: record.billing_days ?? null,
+  total_student_days: record.total_student_days ?? null,
+  student_days: record.student_days ?? null,
+  is_prorated: Boolean(record.is_prorated),
+  total_amount: record.total_amount ?? 0,
+  amount: record.amount ?? 0,
+});
+
+const buildUtilitySummary = (ewData, lang = 'en') => {
+  const records = Array.isArray(ewData?.data) ? ewData.data : [];
+  const latest = records[0] || null;
+  const latestMonthKey = getUtilityMonthKey(latest?.date);
+
+  if (!latestMonthKey) {
+    return {
+      latest_month_key: null,
+      latest_month_label: null,
+      total_amount: 0,
+      records: [],
+      record_count: 0,
+    };
+  }
+
+  const latestMonthRecords = records
+    .filter((record) => getUtilityMonthKey(record.date) === latestMonthKey)
+    .map(toUtilityMetaRecord);
+
+  return {
+    latest_month_key: latestMonthKey,
+    latest_month_label: formatUtilityMonth(latestMonthKey, lang),
+    total_amount: latestMonthRecords.reduce((sum, record) => sum + Number(record.amount || 0), 0),
+    records: latestMonthRecords,
+    record_count: latestMonthRecords.length,
+  };
+};
 
 const resolveBookingFlow = async (userId, bookingState = {}, lang = 'en') => {
   const prompts = pickLangBucket(BOOKING_PROMPTS, lang);
@@ -511,50 +544,43 @@ const resolveBookingFlow = async (userId, bookingState = {}, lang = 'en') => {
 
 const resolveUtilityLookup = async (userId, lang = 'en') => {
   const msgs = pickLangBucket(UTILITY_MESSAGES, lang);
-  const { room, bed, source } = await getStudentRoomContext(userId);
+  const ewData = await ewUsageService.getMyEWUsages(userId);
+  const roomLabel = buildUtilityRoomLabel(ewData, lang);
 
-  if (!room) {
+  if (!ewData?.block_name) {
     return createStructuredStream({
       content: msgs.no_room,
       meta: {
         type: 'utility_summary',
         has_data: false,
         room: null,
+        utility: null,
         lang,
       },
     });
   }
 
-  const latestReading = await UtilityReading.findOne({ room: room._id })
-    .sort({ recorded_at: -1, createdAt: -1 })
-    .lean();
+  const utility = buildUtilitySummary(ewData, lang);
 
-  const roomPrefix = lang === 'vi' ? 'Phòng' : 'Room';
-  const bedPrefix = lang === 'vi' ? 'Giường' : 'Bed';
-  const roomLabel = [
-    room.block?.dorm?.dorm_name,
-    room.block?.block_code,
-    room.room_number ? `${roomPrefix} ${room.room_number}` : null,
-    bed?.bed_number != null ? `${bedPrefix} ${bed.bed_number}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  if (!latestReading) {
+  if (!utility.record_count) {
     return createStructuredStream({
       content: msgs.no_reading(roomLabel),
       meta: {
         type: 'utility_summary',
         has_data: false,
         room: {
-          id: room._id,
+          id: null,
           label: roomLabel,
-          source,
+          source: 'active_contract',
         },
+        utility,
         lang,
       },
     });
   }
+
+  const electricRecord = utility.records.find((record) => record.type === 'electric') || null;
+  const waterRecord = utility.records.find((record) => record.type === 'water') || null;
 
   return createStructuredStream({
     content: msgs.found(roomLabel),
@@ -562,19 +588,20 @@ const resolveUtilityLookup = async (userId, lang = 'en') => {
       type: 'utility_summary',
       has_data: true,
       room: {
-        id: room._id,
+        id: null,
         label: roomLabel,
-        source,
+        source: 'active_contract',
       },
+      utility,
       reading: {
-        month: latestReading.reading_month,
-        electricity_old_reading: latestReading.electricity_old_reading,
-        electricity_new_reading: latestReading.electricity_new_reading,
-        electricity_consumption: latestReading.electricity_consumption,
-        water_old_reading: latestReading.water_old_reading,
-        water_new_reading: latestReading.water_new_reading,
-        water_consumption: latestReading.water_consumption,
-        recorded_at: latestReading.recorded_at,
+        month: utility.latest_month_key,
+        electricity_old_reading: electricRecord?.meter_left ?? null,
+        electricity_new_reading: electricRecord?.meter_right ?? null,
+        electricity_consumption: electricRecord?.consumption ?? null,
+        water_old_reading: waterRecord?.meter_left ?? null,
+        water_new_reading: waterRecord?.meter_right ?? null,
+        water_consumption: waterRecord?.consumption ?? null,
+        recorded_at: electricRecord?.date || waterRecord?.date || null,
       },
       lang,
     },
@@ -596,6 +623,58 @@ const resolveConductLookup = async (userId, lang = 'en') => {
       },
       behavioral_score: student.behavioral_score,
       violations_current_semester: student.violations_current_semester,
+      lang,
+    },
+  });
+};
+
+const getManagerHandoffTopic = (question = '') => {
+  if (
+    hasAnyTerm(question, [
+      'cfd',
+      'behavioral',
+      'behavior score',
+      'conduct score',
+      'hạnh kiểm',
+      'điểm hạnh kiểm',
+      'điểm rèn luyện',
+    ])
+  ) {
+    return 'cfd';
+  }
+
+  if (
+    hasAnyTerm(question, [
+      'utility',
+      'utilities',
+      'electricity',
+      'water',
+      'bill',
+      'invoice',
+      'điện',
+      'nước',
+      'điện nước',
+      'hóa đơn',
+      'cách tính',
+      'tính phí',
+    ])
+  ) {
+    return 'utility';
+  }
+
+  return 'fallback';
+};
+
+const resolveManagerHandoff = (question = '', lang = 'en') => {
+  const topic = getManagerHandoffTopic(question);
+  const messages = pickLangBucket(MANAGER_HANDOFF_MESSAGES, lang);
+
+  return createStructuredStream({
+    content: messages[topic] || messages.fallback,
+    meta: {
+      type: 'manager_handoff',
+      topic,
+      chat_path: '/student/chat',
       lang,
     },
   });
@@ -778,6 +857,122 @@ const isConductIntent = (question) => {
   ]);
 };
 
+const isLookupStyleQuestion = (question) =>
+  hasAnyTerm(question, [
+    'show',
+    'view',
+    'check',
+    'see',
+    'my',
+    'current',
+    'summary',
+    'reading',
+    'readings',
+    'display',
+    'xem',
+    'hiển thị',
+    'hien thi',
+    'của em',
+    'cua em',
+    'của tôi',
+    'cua toi',
+    'hiện tại',
+    'hien tai',
+    'tóm tắt',
+    'tom tat',
+  ]);
+
+const isExplanationStyleQuestion = (question) =>
+  hasAnyTerm(question, [
+    'what does',
+    'what is',
+    'meaning',
+    'mean',
+    'explain',
+    'how is',
+    'how are',
+    'how do',
+    'how does',
+    'calculated',
+    'calculate',
+    'calculation',
+    'formula',
+    'why',
+    'nghĩa là gì',
+    'nghia la gi',
+    'là gì',
+    'la gi',
+    'giải thích',
+    'giai thich',
+    'tính như thế nào',
+    'tinh nhu the nao',
+    'cách tính',
+    'cach tinh',
+    'vì sao',
+    'vi sao',
+  ]);
+
+const isDormRelatedQuestion = (question) =>
+  hasAnyTerm(question, [
+    'dorm',
+    'dormitory',
+    'room',
+    'bed',
+    'manager',
+    'support',
+    'fee',
+    'invoice',
+    'payment',
+    'checkout',
+    'maintenance',
+    'request',
+    'utility',
+    'utilities',
+    'electricity',
+    'water',
+    'cfd',
+    'conduct',
+    'violation',
+    'facility',
+    'facilities',
+    'ktx',
+    'ký túc xá',
+    'ky tuc xa',
+    'phòng',
+    'phong',
+    'giường',
+    'giuong',
+    'quản lý',
+    'quan ly',
+    'điện',
+    'dien',
+    'nước',
+    'nuoc',
+    'hóa đơn',
+    'hoa don',
+    'hạnh kiểm',
+    'hanh kiem',
+    'vi phạm',
+    'vi pham',
+    'bảo trì',
+    'bao tri',
+  ]);
+
+const isManagerHandoffIntent = (question) => {
+  if (!isDormRelatedQuestion(question)) return false;
+
+  const topic = getManagerHandoffTopic(question);
+  if (
+    topic !== 'fallback' &&
+    isExplanationStyleQuestion(question) &&
+    !isLookupStyleQuestion(question)
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 const isSmallTalkIntent = (question) => {
   return hasAnyTerm(question, [
     'hello',
@@ -817,9 +1012,11 @@ const classifyIntent = (question, bookingState = {}, histories = []) => {
   ) {
     return 'regulation';
   }
+  if (isManagerHandoffIntent(question)) return 'manager_handoff';
   if (isUtilityIntent(question)) return 'utility';
   if (isConductIntent(question)) return 'conduct';
   if (isSmallTalkIntent(question)) return 'smalltalk';
+  if (isDormRelatedQuestion(question)) return 'manager_handoff';
   return 'unknown';
 };
 
@@ -859,6 +1056,10 @@ const answer = async (payload, userId) => {
 
   if (intent === 'conduct') {
     return resolveConductLookup(userId, lang);
+  }
+
+  if (intent === 'manager_handoff') {
+    return resolveManagerHandoff(question, lang);
   }
 
   const systemPrompt = pickLangBucket(GENERAL_SYSTEM_PROMPT, lang);
