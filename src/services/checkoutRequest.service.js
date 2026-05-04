@@ -158,8 +158,8 @@ const createCheckoutRequest = async (userId, body, io) => {
   }
 
   const reason = String(body?.reason || '').trim();
-  if (!reason || reason.length < 10) {
-    throw new AppError('reason is required (at least 10 characters).', 400);
+  if (!reason) {
+    throw new AppError('reason is required.', 400);
   }
 
   // Block nếu đã có request đang trong quá trình xử lý (pending / approved / inspected)
