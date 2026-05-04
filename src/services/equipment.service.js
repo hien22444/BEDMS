@@ -353,6 +353,21 @@ const getRoomEquipmentHistory = async (equipmentId, query = {}) => {
   }));
 
   const requestCodes = new Set(maintenanceRows.map((r) => r.request_code).filter(Boolean));
+  const normalizeText = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const getActorId = (actor) => actor?._id?.toString?.() || actor?.toString?.() || '';
+  const getTime = (value) => {
+    if (!value) return 0;
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  };
+  const maintenanceRepairMarkers = maintenanceRows.map((r) => ({
+    notes: normalizeText(
+      (r.completion_notes && String(r.completion_notes).trim()) ||
+        `Repaired via maintenance request ${r.request_code || ''}`.trim()
+    ),
+    performedBy: getActorId(r.reviewed_by),
+    performedAt: getTime(r.completed_at || r.reviewed_at),
+  }));
 
   // EquipmentHistory "repaired" rows: keep only if not already covered by a maintenance completion
   // (same completion creates both MR + EH; avoid duplicate rows in UI)
@@ -367,7 +382,21 @@ const getRoomEquipmentHistory = async (equipmentId, query = {}) => {
 
   const ehRepairedExtra = ehRepairedAll.filter((h) => {
     const note = String(h.notes || '');
-    return ![...requestCodes].some((code) => code && note.includes(code));
+    if ([...requestCodes].some((code) => code && note.includes(code))) return false;
+
+    const normalizedNote = normalizeText(h.notes);
+    const performedBy = getActorId(h.performed_by);
+    const performedAt = getTime(h.performed_at);
+
+    return !maintenanceRepairMarkers.some((marker) => {
+      if (!normalizedNote || normalizedNote !== marker.notes) return false;
+      const sameActor = !performedBy || !marker.performedBy || performedBy === marker.performedBy;
+      const sameTime =
+        !performedAt ||
+        !marker.performedAt ||
+        Math.abs(performedAt - marker.performedAt) <= 60 * 1000;
+      return sameActor && sameTime;
+    });
   });
 
   const mapEhToItem = (doc) => {

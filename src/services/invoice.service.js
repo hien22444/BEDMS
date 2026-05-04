@@ -72,6 +72,14 @@ const emitInvoiceNotification = (io, userId, { title, message, relatedId, notifi
 
 const generateInvoiceOrderCode = () => Number(`2${Date.now()}${Math.floor(Math.random() * 10)}`);
 const normalizeFrontendUrl = () => String(process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const findStudentByCode = (studentCode) => {
+  const code = String(studentCode || '').trim();
+  if (!code) return null;
+  return Student.findOne({
+    student_code: { $regex: `^${escapeRegex(code)}$`, $options: 'i' },
+  });
+};
 const isMissingPayosPaymentError = (error) => {
   const message = String(error?.message || error || '').toLowerCase();
   return message.includes('code: 101') || message.includes('mã thanh toán không tồn tại');
@@ -528,7 +536,7 @@ const getInvoices = async (query = {}) => {
   if (invoice_month) filter.invoice_month = { $regex: invoice_month, $options: 'i' };
 
   if (student_code) {
-    const student = await Student.findOne({ student_code: student_code.trim() }).lean();
+    const student = await findStudentByCode(student_code).lean();
     if (!student) return { data: [], total: 0, page: Number(page), totalPages: 0 };
     filter.student = student._id;
   }
@@ -639,7 +647,7 @@ const createInvoiceForStudent = async (body, staffId, io = null) => {
   const { student_code } = body;
   if (!student_code) throw new AppError('student_code is required', 400);
 
-  const student = await Student.findOne({ student_code: student_code.trim() }).lean();
+  const student = await findStudentByCode(student_code).lean();
   if (!student) throw new AppError(`Student ${student_code} not found`, 404);
 
   const contract = await Contract.findOne({ student: student._id, status: 'active' }).lean();
@@ -652,7 +660,7 @@ const createEWInvoiceForStudent = async (body, io = null) => {
   const { student_code, invoice_month, due_date } = body;
   if (!student_code) throw new AppError('student_code is required', 400);
 
-  const student = await Student.findOne({ student_code: student_code.trim() }).lean();
+  const student = await findStudentByCode(student_code).lean();
   if (!student) throw new AppError(`Student ${student_code} not found`, 404);
 
   const { year, month } = parseInvoiceMonth(invoice_month);

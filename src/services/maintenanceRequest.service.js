@@ -122,8 +122,8 @@ const createMaintenanceRequest = async (userId, body, io) => {
   if (!PRIORITIES.includes(priority)) {
     throw new AppError(`priority must be one of: ${PRIORITIES.join(', ')}`, 400);
   }
-  if (!description || description.length < 10) {
-    throw new AppError('description is required (at least 10 characters)', 400);
+  if (!description) {
+    throw new AppError('description is required', 400);
   }
 
   let equipment = null;

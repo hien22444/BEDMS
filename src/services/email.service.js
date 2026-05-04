@@ -73,17 +73,14 @@ const sendPaymentSuccessEmail = async ({ to, studentName, invoiceCode, amountVnd
   return sendMail({ to, subject, html, text });
 };
 
-const formatDateTimeVi = (value) => {
+const formatDateVi = (value) => {
   if (!value) return '-';
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return '-';
   return new Intl.DateTimeFormat('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-    hour12: false,
   }).format(dt);
 };
 
@@ -108,23 +105,23 @@ const sendBookingPaymentSuccessEmail = async ({
         year: 'numeric',
       }).format(new Date(startDate))
     : '-';
-  const paidAtStr = formatDateTimeVi(paidAt || new Date());
+  const paidAtStr = formatDateVi(paidAt || new Date());
   const shouldShowFaceNotice = bookingSource === 'new_booking';
   const confirmationLabel = bookingSource === 'hold' ? 'Hold Bed Confirmed' : 'Booking Confirmed';
 
   const subject = `[Dormitory] Payment Successful - ${confirmationLabel}`;
 
   const html = `
-    <div style="margin:0;padding:0;background:#eef2ff;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+    <div style="margin:0;padding:0;background:#fff7ed;font-family:Inter,Arial,sans-serif;color:#0f172a;">
       <table width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px;">
         <tr>
           <td align="center">
             <table width="640" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(15,23,42,.08);">
               <tr>
                 <td style="padding:0;">
-                  <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#1d4ed8 0%,#2563eb 45%,#4f46e5 100%);">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#ea580c 0%,#f97316 48%,#fb923c 100%);">
                     <tr>
-                      <td style="padding:26px 28px 10px 28px;color:#c7d2fe;font-size:13px;letter-spacing:.2px;">
+                      <td style="padding:26px 28px 10px 28px;color:#ffedd5;font-size:13px;letter-spacing:.2px;">
                         FUDA Dormitory
                       </td>
                     </tr>
@@ -177,18 +174,18 @@ const sendBookingPaymentSuccessEmail = async ({
                     </tr>
                   </table>
 
-                  <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;background:#eff6ff;border:1px solid #93c5fd;border-radius:14px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:18px;background:#fff7ed;border:1px solid #fdba74;border-radius:14px;">
                     <tr>
-                      <td style="padding:16px 16px 8px 16px;font-size:16px;font-weight:800;color:#1d4ed8;">
+                      <td style="padding:16px 16px 8px 16px;font-size:16px;font-weight:800;color:#ea580c;">
                         Important notes after booking confirmation
                       </td>
                     </tr>
                     <tr>
-                      <td style="padding:0 16px 16px 16px;color:#1e3a8a;line-height:1.6;">
+                      <td style="padding:0 16px 16px 16px;color:#9a3412;line-height:1.6;">
                         You can review your booking in the My Booking section.
                         ${
                           shouldShowFaceNotice
-                            ? '<div style="margin-top:10px;font-size:18px;line-height:1.5;font-weight:800;color:#1d4ed8;">Please meet the <strong>manager</strong> to complete face registration before using the service.</div>'
+                            ? '<div style="margin-top:10px;font-size:18px;line-height:1.5;font-weight:800;color:#ea580c;">Please meet the <strong>manager</strong> to complete face registration before using the service.</div>'
                             : ''
                         }
                       </td>
