@@ -80,6 +80,8 @@ const semesterRank = (semesterStr) => {
   return year * 10 + order[name];
 };
 
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const SEMESTER_DATES = {
   Spring: (year) => ({
     start_date: buildDormLocalDate(year, 1, 1),
@@ -282,8 +284,10 @@ const getBookingWindowStatus = async (userId) => {
       if (semesterRank(nextSem.semester) > semesterRank(activeContract.semester)) {
         return { allowed: true, window_type: 'new', already_held };
       }
-      // Window is open but student already has a contract for the target semester
-      return { allowed: false, window_type: null, already_booked: true, already_held };
+      // New Booking Period is open, but the student already has a contract for
+      // the configured target semester. Keep the student on the confirmed view;
+      // when the period is closed, the function falls through to Not Started.
+      return { allowed: true, window_type: 'new', already_booked: true, already_held };
     }
 
     return { allowed: false, window_type: null };
@@ -1741,7 +1745,7 @@ const sendEmailToAllStudents = async ({ subject, body }) => {
 
 // ─── 16. getAllBookings (manager) ──────────────────────────
 const getAllBookings = async (query = {}) => {
-  const { search, status, page = 1, limit = 20 } = query;
+  const { search, status, page = 1, limit = 20, start_date, end_date } = query;
   const normalizeVi = (s) =>
     (s || '')
       .normalize('NFD')
@@ -1752,7 +1756,12 @@ const getAllBookings = async (query = {}) => {
   const { semester } = query;
   const VALID_STATUSES = ['approved', 'awaiting_payment', 'cancelled', 'expired'];
   const filter = { status: VALID_STATUSES.includes(status) ? status : 'approved' };
-  if (semester) filter.semester = semester;
+  if (semester) filter.semester = { $regex: escapeRegex(String(semester).trim()), $options: 'i' };
+  if (start_date || end_date) {
+    filter.start_date = {};
+    if (start_date) filter.start_date.$gte = getStartOfDayInDormTimezone(start_date);
+    if (end_date) filter.start_date.$lte = getEndOfDayInDormTimezone(end_date);
+  }
   if (search) {
     const q = normalizeVi(search);
     const allStudents = await Student.find().select('_id full_name student_code').lean();
