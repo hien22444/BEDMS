@@ -22,9 +22,15 @@ const deleteNotification = catchAsync(async (req, res) => {
   res.success({ message: 'Notification deleted' }, status.OK);
 });
 
+const clearAll = catchAsync(async (req, res) => {
+  await notificationService.clearAll(req.user.id);
+  res.success({ message: 'All notifications cleared' }, status.OK);
+});
+
 module.exports = {
   getMyNotifications,
   markAsRead,
   markAllRead,
   deleteNotification,
+  clearAll,
 };

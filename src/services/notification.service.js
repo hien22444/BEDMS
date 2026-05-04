@@ -1,4 +1,4 @@
-const { Notification } = require('../models');
+const { Notification, User } = require('../models');
 
 /**
  * Create a notification for a user
@@ -55,10 +55,55 @@ const deleteNotification = async (notifId, userId) => {
   await notif.deleteOne();
 };
 
+/**
+ * Delete all notifications for a user (clear all)
+ */
+const clearAll = async (userId) => {
+  await Notification.deleteMany({ user: userId });
+};
+
+/**
+ * Create the same notification for every user with role 'security' (and 'admin').
+ * Emits one Socket.io event per created notification, scoped to the security_cameras room
+ * — frontends filter by user id locally.
+ *
+ * @param {{ title, message, category, notification_type, related_id }} payload
+ * @param {object} [io] Socket.io server instance for live emission (optional)
+ * @returns {Promise<Array>} created notification documents
+ */
+const createSecurityNotifications = async (payload, io) => {
+  const recipients = await User.find({ role: { $in: ['security', 'admin'] } })
+    .select('_id')
+    .lean();
+  if (recipients.length === 0) return [];
+
+  const docs = recipients.map((u) => ({
+    user: u._id,
+    title: payload.title,
+    message: payload.message,
+    notification_type: payload.notification_type || 'info',
+    category: payload.category,
+    related_id: payload.related_id,
+  }));
+
+  const created = await Notification.insertMany(docs);
+
+  if (io) {
+    for (const notif of created) {
+      // Emit JSON-serialized form so the FE receives the virtual `id` field.
+      io.to('security_cameras').emit('notification_created', notif.toJSON());
+    }
+  }
+
+  return created;
+};
+
 module.exports = {
   createNotification,
   getMyNotifications,
   markAsRead,
   markAllRead,
   deleteNotification,
+  clearAll,
+  createSecurityNotifications,
 };

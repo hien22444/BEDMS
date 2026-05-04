@@ -33,6 +33,7 @@ const NotificationSchema = new mongoose.Schema({
       'general',
       'chat',
       'checkout',
+      'access',
     ],
   },
   is_read: {
