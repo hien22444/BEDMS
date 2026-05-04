@@ -46,12 +46,12 @@ const UTILITY_MESSAGES = {
   en: {
     no_room:
       'I could not find an active room assignment for you, so there are no utility readings to show yet.',
-    no_reading: (label) => `There are no utility readings recorded yet for ${label || 'your room'}.`,
+    no_reading: (label) =>
+      `There are no utility readings recorded yet for ${label || 'your room'}.`,
     found: (label) => `Here is the latest utility reading for ${label || 'your room'}.`,
   },
   vi: {
-    no_room:
-      'Mình chưa tìm thấy phòng đang ở của bạn, nên chưa có chỉ số điện nước để hiển thị.',
+    no_room: 'Mình chưa tìm thấy phòng đang ở của bạn, nên chưa có chỉ số điện nước để hiển thị.',
     no_reading: (label) =>
       `Chưa có chỉ số điện nước nào được ghi nhận cho ${label || 'phòng của bạn'}.`,
     found: (label) => `Đây là chỉ số điện nước mới nhất của ${label || 'phòng bạn'}.`,
@@ -121,7 +121,9 @@ const formatCurrency = (amount) =>
   `${new Intl.NumberFormat('vi-VN').format(Number(amount || 0))} VND`;
 
 const formatRoomTypeLabel = (roomType) => {
-  const value = String(roomType || '').replace(/_/g, ' ').trim();
+  const value = String(roomType || '')
+    .replace(/_/g, ' ')
+    .trim();
   if (!value) return 'Room type';
 
   const match = value.match(/^(\d+)\s*bed/i);
@@ -152,12 +154,7 @@ const createChunkedTextStream = (content = '') => {
       return;
     }
 
-    const chunks = text.split(/\n{2,}/).flatMap((block) =>
-      block
-        .split(/(?<=[.!?])\s+/)
-        .map((part) => part.trim())
-        .filter(Boolean)
-    );
+    const chunks = text.split(/(\n+)/).filter(Boolean);
 
     if (chunks.length === 0) {
       subscriber.next({ content: text });
@@ -165,9 +162,8 @@ const createChunkedTextStream = (content = '') => {
       return;
     }
 
-    chunks.forEach((chunk, index) => {
-      const suffix = index < chunks.length - 1 ? ' ' : '';
-      subscriber.next({ content: `${chunk}${suffix}` });
+    chunks.forEach((chunk) => {
+      subscriber.next({ content: chunk });
     });
     subscriber.complete();
   });
@@ -676,8 +672,10 @@ const isDormRulesIntent = (question) => {
     'gas',
     'fuel',
     'nội quy',
+    'nội quy ktx',
     'quy định',
     'quy tắc',
+    'ktx',
     'khách',
     'người thân',
     'giờ đóng cửa',
