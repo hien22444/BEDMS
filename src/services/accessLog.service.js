@@ -56,13 +56,17 @@ const getToday = async () => {
 };
 
 const getLogs = async (query) => {
-  const { page = 1, limit = 50, type, method, studentId, date } = query;
+  const { page = 1, limit = 50, type, method, studentId, date, startDate, endDate } = query;
   const filter = {};
 
   if (type) filter.type = type;
   if (method) filter.method = method;
   if (studentId) filter.student = studentId;
-  if (date) {
+  if (startDate && endDate) {
+    const start = getStartOfDayInDormTimezone(startDate);
+    const end = getEndOfDayInDormTimezone(endDate);
+    filter.createdAt = { $gte: start, $lte: end };
+  } else if (date) {
     const { start, end } = getDormDayRange(date);
     filter.createdAt = { $gte: start, $lte: end };
   }
@@ -90,18 +94,20 @@ const getLogs = async (query) => {
   };
 };
 
+// A log counts as a "successful" access event if it has an identified student
+// or it's a manual override (manual logs have student=null but visitor_name/id_card).
+// Unknown face-recognition attempts (method='face_recognition' AND student=null)
+// must be excluded from check-in/check-out totals.
+const SUCCESSFUL_FILTER = { $or: [{ student: { $ne: null } }, { method: 'manual' }] };
+const UNKNOWN_FILTER = { method: 'face_recognition', student: null };
+
 const getStats = async () => {
   const startOfDay = getStartOfTodayInDormTimezone();
+  const dateFilter = { createdAt: { $gte: startOfDay } };
 
   const [checkIns, checkOuts] = await Promise.all([
-    StudentAccessLog.countDocuments({
-      type: 'check_in',
-      createdAt: { $gte: startOfDay },
-    }),
-    StudentAccessLog.countDocuments({
-      type: 'check_out',
-      createdAt: { $gte: startOfDay },
-    }),
+    StudentAccessLog.countDocuments({ ...dateFilter, ...SUCCESSFUL_FILTER, type: 'check_in' }),
+    StudentAccessLog.countDocuments({ ...dateFilter, ...SUCCESSFUL_FILTER, type: 'check_out' }),
   ]);
 
   return {
@@ -112,15 +118,23 @@ const getStats = async () => {
 };
 
 const getReportStats = async (query) => {
-  const { date } = query;
-  const { start, end } = getDormDayRange(date || new Date());
+  const { date, startDate, endDate } = query;
+  let start;
+  let end;
+  if (startDate && endDate) {
+    start = getStartOfDayInDormTimezone(startDate);
+    end = getEndOfDayInDormTimezone(endDate);
+  } else {
+    ({ start, end } = getDormDayRange(date || new Date()));
+  }
 
   const dateFilter = { createdAt: { $gte: start, $lte: end } };
 
-  const [checkIns, checkOuts, manualOverrides] = await Promise.all([
-    StudentAccessLog.countDocuments({ ...dateFilter, type: 'check_in' }),
-    StudentAccessLog.countDocuments({ ...dateFilter, type: 'check_out' }),
+  const [checkIns, checkOuts, manualOverrides, unknownAttempts] = await Promise.all([
+    StudentAccessLog.countDocuments({ ...dateFilter, ...SUCCESSFUL_FILTER, type: 'check_in' }),
+    StudentAccessLog.countDocuments({ ...dateFilter, ...SUCCESSFUL_FILTER, type: 'check_out' }),
     StudentAccessLog.countDocuments({ ...dateFilter, method: 'manual' }),
+    StudentAccessLog.countDocuments({ ...dateFilter, ...UNKNOWN_FILTER }),
   ]);
 
   return {
@@ -128,6 +142,7 @@ const getReportStats = async (query) => {
     totalCheckOuts: checkOuts,
     currentlyInside: Math.max(0, checkIns - checkOuts),
     manualOverrides,
+    unknownAttempts,
   };
 };
 
