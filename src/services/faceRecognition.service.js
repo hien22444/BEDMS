@@ -23,7 +23,7 @@ const recentLogTimestamps = new Map(); // key: "studentId:check_in" → Date.now
 
 // Unknown face tracking: grace period before logging strangers.
 // Gives recognition time to match across multiple frames before declaring "unknown".
-const UNKNOWN_GRACE_PERIOD_MS = 30_000; // 30s grace period
+const UNKNOWN_GRACE_PERIOD_MS = 5_000; // 5s grace period
 const pendingUnknowns = new Map(); // camera_id → { firstSeen: number, frame_base64: string }
 const unknownCooldowns = new Map(); // camera_id → timestamp of last unknown log created
 

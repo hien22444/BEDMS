@@ -1,6 +1,9 @@
 const { status } = require('http-status');
-const { faceRecognitionService } = require('../services');
+const { faceRecognitionService, notificationService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
+
+const cameraLabel = (id) => (id ? id : 'unknown camera');
+const directionLabel = (type) => (type === 'check_in' ? 'check-in' : 'check-out');
 
 const registerFace = catchAsync(async (req, res) => {
   if (!req.file) {
@@ -70,6 +73,42 @@ const handleCallback = catchAsync(async (req, res) => {
     if (result.unknownLog) {
       io.to('security_cameras').emit('access_log_created', result.unknownLog);
     }
+  }
+
+  // Persist notifications for security/admin users (one row per user, kept until cleared)
+  try {
+    if (result.matchedLogs) {
+      for (const log of result.matchedLogs) {
+        const name = log.student?.full_name || 'Student';
+        const code = log.student?.student_code ? ` (${log.student.student_code})` : '';
+        await notificationService.createSecurityNotifications(
+          {
+            title: `${name} ${directionLabel(log.type)}`,
+            message: `${name}${code} ${directionLabel(log.type)} at ${cameraLabel(log.camera_id)}`,
+            category: 'access',
+            notification_type: 'success',
+            related_id: log._id?.toString() || log.id,
+          },
+          io
+        );
+      }
+    }
+    if (result.unknownLog) {
+      const log = result.unknownLog;
+      await notificationService.createSecurityNotifications(
+        {
+          title: `Unknown ${directionLabel(log.type)} attempt`,
+          message: `Unrecognized face at ${cameraLabel(log.camera_id)} (${directionLabel(log.type)})`,
+          category: 'access',
+          notification_type: 'warning',
+          related_id: log._id?.toString() || log.id,
+        },
+        io
+      );
+    }
+  } catch (err) {
+    // Don't fail the callback because notification fan-out failed
+    console.error('[Notifications] Security fan-out failed:', err.message);
   }
 
   res.success(result, status.OK);

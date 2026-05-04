@@ -1,6 +1,6 @@
 const { status } = require('http-status');
 const XLSX = require('xlsx');
-const { accessLogService } = require('../services');
+const { accessLogService, notificationService } = require('../services');
 const catchAsync = require('../utils/catchAsync');
 
 const createManualLog = catchAsync(async (req, res) => {
@@ -10,6 +10,24 @@ const createManualLog = catchAsync(async (req, res) => {
   const io = req.app.get('io');
   if (io) {
     io.to('security_cameras').emit('access_log_created', data);
+  }
+
+  // Persist notification for security/admin users
+  try {
+    const direction = data.type === 'check_in' ? 'check-in' : 'check-out';
+    const name = data.visitor_name || 'Manual entry';
+    await notificationService.createSecurityNotifications(
+      {
+        title: `Manual ${direction}: ${name}`,
+        message: `${name} ${direction} (manual override) by ${req.user?.email || 'security'}`,
+        category: 'access',
+        notification_type: 'info',
+        related_id: data._id?.toString() || data.id,
+      },
+      io
+    );
+  } catch (err) {
+    console.error('[Notifications] Manual override fan-out failed:', err.message);
   }
 
   res.success(data, status.CREATED);
