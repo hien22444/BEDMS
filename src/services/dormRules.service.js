@@ -683,23 +683,77 @@ const toRuleResponse = (rule, isVietnamese) => ({
   score: typeof rule.score === 'number' ? rule.score : 0,
 });
 
-const toRewriteRuleContext = (rule, isVietnamese) => ({
-  id: rule.id,
-  category: rule.category || null,
-  title: getRuleTitle(rule, isVietnamese),
-  rule: getRuleText(rule, isVietnamese),
-  details: getRuleDetails(rule, isVietnamese) || null,
-  allowed_devices: pickLocalizedList(rule, 'allowed_devices', isVietnamese),
-  penalty: rule.penalty || null,
-  source_ref: rule.source_ref || null,
+const REWRITE_MAX_COMPLETION_TOKENS = {
+  specific: 450,
+  overview: 650,
+  full: 2400,
+};
+
+const compactRuleBase = (rule, isVietnamese) => {
+  const penaltyText = formatShortPenalty(rule.penalty, isVietnamese);
+
+  return {
+    id: rule.id,
+    category: rule.category || null,
+    title: getRuleTitle(rule, isVietnamese),
+    ...(penaltyText ? { penalty_text: penaltyText } : {}),
+    source_ref: rule.source_ref || null,
+  };
+};
+
+const toSpecificRewriteRuleContext = (rule, isVietnamese) => {
+  const details = getRuleDetails(rule, isVietnamese);
+
+  return {
+    ...compactRuleBase(rule, isVietnamese),
+    rule: getRuleText(rule, isVietnamese),
+    ...(details ? { details } : {}),
+  };
+};
+
+const toSummaryRewriteRuleContext = (rule, isVietnamese) => ({
+  ...compactRuleBase(rule, isVietnamese),
+  summary: firstSentence(getRuleText(rule, isVietnamese)),
 });
+
+const uniqueRules = (rules = []) => {
+  const seen = new Set();
+
+  return rules.filter((rule) => {
+    const id = rule?.id;
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
+const selectOverviewRewriteRules = (rules = []) => {
+  const rulesById = getRulesById(rules);
+  const selectedRules = OVERVIEW_GROUPS.flatMap((group) =>
+    group.ids.map((id) => rulesById.get(id)).filter(Boolean)
+  );
+
+  return uniqueRules(selectedRules);
+};
+
+const buildRewriteRuleContext = (rules = [], mode, isVietnamese) => {
+  if (mode === 'specific') {
+    return rules.map((rule) => toSpecificRewriteRuleContext(rule, isVietnamese));
+  }
+
+  const selectedRules = mode === 'overview' ? selectOverviewRewriteRules(rules) : rules;
+  return selectedRules.map((rule) => toSummaryRewriteRuleContext(rule, isVietnamese));
+};
 
 const rewriteDormRulesAnswer = async ({ draft, rules, source, language, mode }) => {
   if (!process.env.OPENAI_API_KEY) return draft;
 
   try {
+    const isVietnamese = language === 'vi';
     const content = await openaiService.completion({
       temperature: 0.2,
+      max_completion_tokens:
+        REWRITE_MAX_COMPLETION_TOKENS[mode] || REWRITE_MAX_COMPLETION_TOKENS.specific,
       messages: [
         {
           role: 'system',
@@ -719,7 +773,7 @@ const rewriteDormRulesAnswer = async ({ draft, rules, source, language, mode }) 
             language,
             source_metadata: source || null,
             draft,
-            selected_rules: rules.map((rule) => toRewriteRuleContext(rule, language === 'vi')),
+            selected_rules: buildRewriteRuleContext(rules, mode, isVietnamese),
           }),
         },
       ],
