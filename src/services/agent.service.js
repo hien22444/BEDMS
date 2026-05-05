@@ -1030,19 +1030,15 @@ const answer = async (payload, userId) => {
   const intent = classifyIntent(question, bookingState, histories);
 
   if (intent === 'regulation') {
-    const kb = await dormRulesService.getDormRulesKnowledgeBase();
+    const dormRulesAnswer = await dormRulesService.queryRules(question);
 
-    if (!kb) {
+    if (!dormRulesAnswer.knowledge_base_found) {
       return createStructuredStream({
-        content:
-          lang === 'vi'
-            ? 'Nội quy ký túc xá chưa được cập nhật.'
-            : 'Dormitory rules are not configured yet.',
+        content: dormRulesAnswer.answer,
         meta: { type: 'dorm_rules_missing', lang },
       });
     }
 
-    const dormRulesAnswer = await dormRulesService.queryRules(question);
     return createChunkedTextStream(dormRulesAnswer.answer);
   }
 

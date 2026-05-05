@@ -186,6 +186,7 @@ describe('agentService scoped assistant intents', () => {
       await agentService.answer({ question: 'What are the dorm rules?' }, 'user-1')
     );
 
+    expect(dormRulesService.getDormRulesKnowledgeBase).not.toHaveBeenCalled();
     expect(dormRulesService.queryRules).toHaveBeenCalledWith('What are the dorm rules?');
     expect(chunks.map((chunk) => chunk.content).join('')).toContain('Dorm rules');
   });
